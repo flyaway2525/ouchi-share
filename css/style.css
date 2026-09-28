@@ -819,3 +819,30 @@ a {
   font-size: 14px;
   color: var(--muted);
 }
+
+/* ---- 名前 ---- */
+
+.greeting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 4px;
+  border: 0;
+  background: none;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.edit-hint {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.member-list li.is-me {
+  cursor: pointer;
+}

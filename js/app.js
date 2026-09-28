@@ -43,16 +43,37 @@ async function runAuth(fn) {
   }
 }
 
+async function renameAccount() {
+  const name = await askText({ title: 'あなたの名前', value: auth.displayName(), placeholder: '例：たろう', okLabel: '保存' });
+  if (!name) return;
+  try {
+    await auth.setDisplayName(name);
+  } catch (e) {
+    return showError(e);
+  }
+  store.touchPresence(null).catch(() => {});
+  route();
+  // グループごとに別の名前を付けている場合もあるので、全グループへの反映は選んでもらう
+  actionSheet(`参加中のグループでの名前も「${name}」にしますか？`, [
+    {
+      label: 'すべてのグループに反映する',
+      onClick: () => store.syncMyProfile({ name: true }).then(() => toast('すべてのグループに反映しました'), showError),
+    },
+  ]);
+}
+
 function accountMenu() {
   const guest = auth.isGuest();
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
     isAdmin && { label: '管理者ダッシュボード', onClick: () => (location.hash = '#/admin') },
+    { label: '名前を変更', onClick: renameAccount },
     guest && {
       label: 'Google アカウントに引き継ぐ',
       onClick: () =>
         runAuth(async () => {
           await auth.upgradeGuestToGoogle();
           await store.syncMyProfile().catch(() => {});
+          store.touchPresence(null).catch(() => {});
           toast('Google アカウントに引き継ぎました');
         }),
     },
@@ -79,6 +100,46 @@ function accountMenu() {
 
 function loadingView(root) {
   root.append(h('div', { class: 'center-screen' }, h('div', { class: 'spinner', 'aria-label': '読み込み中' })));
+}
+
+// ---- 画面：名前の入力（名前が未設定のとき） ----
+
+function nameSetupView(root) {
+  const input = h('input', { class: 'text-input', placeholder: '例：たろう', maxlength: 40, 'aria-label': '名前' });
+  root.append(
+    h(
+      'div',
+      { class: 'center-screen' },
+      h('img', { class: 'welcome-icon', src: 'icons/icon.svg', alt: '' }),
+      h('h1', { class: 'welcome-title' }, 'はじめまして'),
+      h('p', { class: 'welcome-text' }, 'アプリ内で表示するあなたの名前を入力してください。あとから変更できます。'),
+      h(
+        'form',
+        {
+          class: 'join-form',
+          onSubmit: async (e) => {
+            e.preventDefault();
+            const name = input.value.trim();
+            if (!name) {
+              input.focus();
+              toast('名前を入力してください');
+              return;
+            }
+            try {
+              await auth.setDisplayName(name);
+            } catch (err) {
+              return showError(err);
+            }
+            route();
+            heartbeat(true);
+          },
+        },
+        input,
+        h('button', { type: 'submit', class: 'btn primary wide' }, '決定'),
+      ),
+    ),
+  );
+  input.focus();
 }
 
 // ---- 画面：ようこそ（未ログイン） ----
@@ -159,6 +220,13 @@ function homeView(root) {
   return store.watchGroups((groups) => {
     setChildren(
       body,
+      h(
+        'button',
+        { class: 'greeting', onClick: renameAccount, 'aria-label': '名前を変更' },
+        h('span', {}, `👋 ${auth.displayName()} さん`),
+        auth.isGuest() && h('span', { class: 'badge muted' }, 'ゲスト'),
+        h('span', { class: 'edit-hint' }, '変更'),
+      ),
       h('p', { class: 'section-label' }, 'グループ'),
       groups.length === 0 && h('p', { class: 'empty' }, isAdmin ? 'グループを作ってみましょう' : '参加中のグループはありません'),
       h(
@@ -200,6 +268,12 @@ function homeView(root) {
 
 // ---- 画面：グループ内のリスト一覧 ----
 
+async function renameInGroup(group) {
+  const current = group.members?.[user.uid]?.name ?? auth.displayName();
+  const name = await askText({ title: `「${group.name}」での名前`, value: current, placeholder: '例：パパ、たろう', okLabel: '保存' });
+  if (name && name !== current) store.renameMeInGroup(group.id, name).then(() => toast('名前を変更しました'), showError);
+}
+
 function membersSheet(group) {
   const members = Object.entries(group.members ?? {}).sort(
     (a, b) => store.millis(b[1].lastSeen) - store.millis(a[1].lastSeen) || (a[1].joinedAt ?? 0) - (b[1].joinedAt ?? 0),
@@ -212,7 +286,7 @@ function membersSheet(group) {
       members.map(([id, m]) =>
         h(
           'li',
-          {},
+          id === user.uid ? { class: 'is-me', onClick: () => (close(null), renameInGroup(group)) } : {},
           onlineDot(store.isOnline(m.lastSeen)),
           h(
             'span',
@@ -222,9 +296,11 @@ function membersSheet(group) {
           ),
           m.role === 'owner' && h('span', { class: 'badge' }, 'オーナー'),
           m.guest && h('span', { class: 'badge muted' }, 'ゲスト'),
+          id === user.uid && h('span', { class: 'edit-hint' }, '変更'),
         ),
       ),
     ),
+    h('button', { class: 'sheet-action', onClick: () => (close(null), renameInGroup(group)) }, 'このグループでの自分の名前を変更'),
     h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
   ]);
 }
@@ -313,6 +389,7 @@ function groupView(root, { groupId }) {
               { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
               { label: '招待リンクを送る', onClick: () => shareInvite(group) },
               { label: 'メンバーを見る', onClick: () => membersSheet(group) },
+              { label: 'このグループでの自分の名前を変更', onClick: () => renameInGroup(group) },
               {
                 label: 'グループ名を変更',
                 onClick: async () => {
@@ -598,6 +675,7 @@ function route() {
   if (join) return joinView(app, { groupId: join[1], code: join[2] });
 
   if (!user) return welcomeView(app);
+  if (auth.needsName()) return nameSetupView(app);
 
   for (const [re, make] of routes) {
     const m = hash.match(re);
@@ -621,7 +699,8 @@ window.addEventListener('hashchange', () => {
 let lastBeat = { at: 0, groupId: null };
 
 function heartbeat(force = false) {
-  if (!user || document.visibilityState !== 'visible') return;
+  // ログイン処理中や名前が未設定のうちは記録しない（「ゲスト」などの仮の名前で残らないように）
+  if (!user || authBusy || auth.needsName() || document.visibilityState !== 'visible') return;
   const groupId = location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null;
   const now = Date.now();
   // グループを移動した直後はすぐ記録、それ以外は 1 分に 1 回まで

@@ -58,7 +58,14 @@ export function openSheet(build) {
       setTimeout(() => backdrop.remove(), 200);
       resolve(value);
     };
-    backdrop.addEventListener('click', (e) => e.target === backdrop && close(null));
+    // 背景のタップで閉じる。ただし入力欄で文字を選択しながら背景の上で指やマウスを離した場合は
+    // 閉じない（押した場所と離した場所の両方が背景のときだけ閉じる）
+    let downOnBackdrop = false;
+    backdrop.addEventListener('pointerdown', (e) => (downOnBackdrop = e.target === backdrop));
+    backdrop.addEventListener('click', (e) => {
+      if (downOnBackdrop && e.target === backdrop) close(null);
+      downOnBackdrop = false;
+    });
     sheet.append(...build(close));
     backdrop.append(sheet);
     document.body.append(backdrop);

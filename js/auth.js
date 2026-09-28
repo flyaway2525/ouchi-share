@@ -29,7 +29,16 @@ export function isGuest(user = auth.currentUser) {
 }
 
 export function displayName(user = auth.currentUser) {
-  return user?.displayName || (user?.isAnonymous ? 'ゲスト' : 'ユーザー');
+  return user?.displayName?.trim() || (user?.isAnonymous ? 'ゲスト' : 'ユーザー');
+}
+
+// 名前が未設定か（未設定なら最初に入力してもらう）
+export function needsName(user = auth.currentUser) {
+  return !!user && !user.displayName?.trim();
+}
+
+export async function setDisplayName(name) {
+  await updateProfile(auth.currentUser, { displayName: name });
 }
 
 export async function signInWithGoogle() {
@@ -43,14 +52,11 @@ export async function signInAsGuest(name) {
 }
 
 // ゲストのまま使っていたデータ（参加中のグループ）を Google アカウントに引き継ぐ
+// 名前はゲストのときに入力したものをそのまま使う
 export async function upgradeGuestToGoogle() {
   const { user } = await linkWithPopup(auth.currentUser, provider);
   // ログイン方法が変わったことをセキュリティルール側にも反映させる
   await user.getIdToken(true);
-  const google = user.providerData.find((p) => p.providerId === 'google.com');
-  if (google?.displayName && user.displayName !== google.displayName) {
-    await updateProfile(user, { displayName: google.displayName });
-  }
   return user;
 }
 

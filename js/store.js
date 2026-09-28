@@ -152,13 +152,22 @@ export async function joinGroup(groupId, inviteCode) {
   return true;
 }
 
-// Google アカウントへ引き継いだあと、各グループに登録している自分の名前・ゲスト表示を更新する
-export async function syncMyProfile() {
+// このグループでの自分の名前を変える
+export async function renameMeInGroup(groupId, name) {
+  await updateDoc(groupRef(groupId), { [`members.${uid()}.name`]: name });
+}
+
+// 参加中の全グループの自分の情報を更新する
+// （Google アカウントへ引き継いだとき = ゲスト表示、名前を全グループに反映したいとき = 名前も）
+export async function syncMyProfile({ name = false } = {}) {
   const me = uid();
   const snap = await getDocs(query(collection(db, 'groups'), where('memberIds', 'array-contains', me)));
   await Promise.all(
     snap.docs.map((d) =>
-      updateDoc(d.ref, { [`members.${me}.name`]: displayName(), [`members.${me}.guest`]: isGuest() }),
+      updateDoc(d.ref, {
+        [`members.${me}.guest`]: isGuest(),
+        ...(name ? { [`members.${me}.name`]: displayName() } : {}),
+      }),
     ),
   );
 }
