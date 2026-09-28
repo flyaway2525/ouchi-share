@@ -45,6 +45,35 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---- ゲストの復旧ID ----
+    // code（ドキュメント ID）自体が合言葉。code を知っていれば get できるが、一覧は本人とグループのオーナーだけ
+    match /recovery/{code} {
+      function groupOf(gid) {
+        return get(/databases/$(database)/documents/groups/$(gid)).data;
+      }
+
+      allow get: if signedIn();
+      allow list: if signedIn()
+        && (resource.data.uid == request.auth.uid
+          || groupOf(resource.data.groupId).members[request.auth.uid].role == 'owner');
+      // ゲスト本人が自分の分を作るか、オーナーがグループのゲストの分を作る
+      allow create: if signedIn()
+        && code.size() == 12
+        && request.resource.data.keys().hasOnly(['groupId', 'uid', 'name', 'createdAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 40
+        && ((isGuestUser()
+              && request.resource.data.uid == request.auth.uid
+              && request.auth.uid in groupOf(request.resource.data.groupId).memberIds)
+          || (groupOf(request.resource.data.groupId).members[request.auth.uid].role == 'owner'
+              && groupOf(request.resource.data.groupId).members[request.resource.data.uid].guest == true));
+      allow update: if false;
+      // 本人・オーナー、または引き継ぎ済み（元のゲストがもうメンバーでない）なら消せる
+      allow delete: if signedIn()
+        && (resource.data.uid == request.auth.uid
+          || groupOf(resource.data.groupId).members[request.auth.uid].role == 'owner'
+          || !(resource.data.uid in groupOf(resource.data.groupId).members));
+    }
+
     // ---- グループ ----
     match /groups/{groupId} {
 
@@ -91,6 +120,40 @@ service cloud.firestore {
           && entry.inviteCode == resource.data.inviteCode;
       }
 
+      // 復旧ID による引き継ぎ：元のゲストのメンバー情報を消し、自分を同じ役割で加える
+      // （memberIds からの元のゲストの削除は、次の isStaleRemoval で行う）
+      function isValidRecovery() {
+        let me = request.auth.uid;
+        let entry = request.resource.data.members[me];
+        let rec = get(/databases/$(database)/documents/recovery/$(entry.recoveryCode)).data;
+        let old = rec.uid;
+        return signedIn()
+          && !(me in resource.data.memberIds)
+          && changed().hasOnly(['memberIds', 'members'])
+          && rec.groupId == groupId
+          && old in resource.data.members
+          && resource.data.members[old].guest == true
+          && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
+          && request.resource.data.memberIds.toSet() == resource.data.memberIds.toSet().union([me].toSet())
+          && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([me, old])
+          && !(old in request.resource.data.members)
+          && entry.keys().hasOnly(['name', 'role', 'guest', 'joinedAt', 'recoveryCode'])
+          && entry.role == resource.data.members[old].role
+          && entry.guest == isGuestUser()
+          && isNonEmptyString(entry.name, 40);
+      }
+
+      // メンバー情報が無くなった uid を memberIds から外す（追加はしない）
+      function isStaleRemoval() {
+        let before = resource.data.memberIds.toSet();
+        let after = request.resource.data.memberIds.toSet();
+        let removed = before.difference(after);
+        return changed().hasOnly(['memberIds'])
+          && after.difference(before).size() == 0
+          && removed.size() > 0
+          && resource.data.members.keys().toSet().intersection(removed).size() == 0;
+      }
+
       function isValidNewGroup() {
         let me = request.auth.uid;
         let d = request.resource.data;
@@ -108,7 +171,9 @@ service cloud.firestore {
       allow update: if (isMember() && changed().hasOnly(['name']) && isNonEmptyString(request.resource.data.name, 40))
         || (isOwner() && changed().hasOnly(['inviteCode']) && request.resource.data.inviteCode.size() >= 16)
         || (isMember() && isOwnProfileUpdate())
-        || isValidJoin();
+        || (isMember() && isStaleRemoval())
+        || isValidJoin()
+        || isValidRecovery();
       allow delete: if isOwner();
 
       // ---- リスト（アイテムはリストのドキュメント内の items マップ） ----

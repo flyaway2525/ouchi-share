@@ -4,12 +4,14 @@
 //   admins/{uid}                      グループを作れる人の許可リスト（コンソールから手で追加）
 //   groups/{groupId}                  グループ。memberIds / members でメンバーを管理
 //   groups/{groupId}/lists/{listId}   リスト。アイテムは items マップとして 1 ドキュメントに入れる
+//   recovery/{code}                   ゲストの復旧ID（下の「ゲストの復旧ID」を参照）
 //   presence/{uid}                    最終アクセス時刻（オンライン表示用。読めるのは本人と管理者だけ）
 //
 // watch〜 は変更があるたびに cb を呼ぶ（他のメンバーの編集もリアルタイムに届く）。
 // 戻り値の関数を呼ぶと監視をやめる。
 
 import {
+  arrayRemove,
   arrayUnion,
   collection,
   deleteDoc,
@@ -93,6 +95,11 @@ export function watchGroups(cb, onError) {
   return onSnapshot(q, (snap) => cb(snap.docs.map(withId).sort(byCreatedAt)), onError);
 }
 
+export async function listMyGroups() {
+  const snap = await getDocs(query(collection(db, 'groups'), where('memberIds', 'array-contains', uid())));
+  return snap.docs.map(withId).sort(byCreatedAt);
+}
+
 export function watchGroup(groupId, cb, onError) {
   return onSnapshot(
     groupRef(groupId),
@@ -149,12 +156,109 @@ export async function joinGroup(groupId, inviteCode) {
     memberIds: arrayUnion(me),
     [`members.${me}`]: { name: displayName(), role: 'member', guest: isGuest(), joinedAt: Date.now(), inviteCode },
   });
+  await ensureRecoveryCode(groupId).catch(() => {});
   return true;
 }
 
 // このグループでの自分の名前を変える
 export async function renameMeInGroup(groupId, name) {
   await updateDoc(groupRef(groupId), { [`members.${uid()}.name`]: name });
+}
+
+// ---- ゲストの復旧ID ----
+// ゲスト（匿名アカウント）は別の端末から同じアカウントに戻れないので、
+// 復旧ID を使って「新しいゲストが元のゲストのグループでの席を引き継ぐ」形で復旧する。
+//   recovery/{code}   { groupId, uid, name, createdAt }
+//   - code を知っていれば誰でも get できる（code 自体が合言葉。一覧は本人とグループのオーナーだけ）
+//   - 引き継ぐと元のゲストはグループから外れる（なくした端末からは見られなくなる）
+
+const RECOVERY_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // 読み間違えやすい 0/O/1/I は使わない
+
+function newRecoveryCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(bytes, (b) => RECOVERY_CHARS[b % 32]).join('');
+}
+
+export function formatRecoveryCode(code) {
+  return code.match(/.{1,4}/g).join('-');
+}
+
+export function normalizeRecoveryCode(input) {
+  return input.toUpperCase().replace(/[^0-9A-Z]/g, '');
+}
+
+export function recoveryUrl(code) {
+  return `${location.origin}${location.pathname}#/recover/${code}`;
+}
+
+// ゲストが参加中のグループに復旧ID がなければ作る
+export async function ensureRecoveryCode(groupId) {
+  if (!isGuest()) return;
+  const me = uid();
+  const mine = await getDocs(query(collection(db, 'recovery'), where('uid', '==', me), where('groupId', '==', groupId)));
+  if (!mine.empty) return;
+  await setDoc(doc(db, 'recovery', newRecoveryCode()), { groupId, uid: me, name: displayName(), createdAt: Date.now() });
+}
+
+// オーナー用：グループのゲストの復旧ID を発行する
+export async function issueRecoveryCode(groupId, memberUid, name) {
+  const code = newRecoveryCode();
+  await setDoc(doc(db, 'recovery', code), { groupId, uid: memberUid, name, createdAt: Date.now() });
+  return code;
+}
+
+// 自分の復旧ID（グループごと）
+export async function myRecoveryCodes() {
+  const snap = await getDocs(query(collection(db, 'recovery'), where('uid', '==', uid())));
+  return snap.docs.map((d) => ({ code: d.id, ...d.data() }));
+}
+
+// オーナー用：グループのゲストの復旧ID（uid → code）
+export function watchRecoveryCodes(groupId, cb, onError) {
+  return onSnapshot(
+    query(collection(db, 'recovery'), where('groupId', '==', groupId)),
+    (snap) => cb(Object.fromEntries(snap.docs.map((d) => [d.data().uid, d.id]))),
+    onError,
+  );
+}
+
+// 復旧ID の中身（グループと名前）を調べる。無効なら null
+export async function lookupRecoveryCode(code) {
+  const snap = await getDoc(doc(db, 'recovery', code)).catch(() => null);
+  return snap?.exists() ? { code, ...snap.data() } : null;
+}
+
+// 復旧ID を使って、元のゲストのグループでの席を今のアカウントに引き継ぐ
+export async function recoverWithCode(code) {
+  const me = uid();
+  const rec = await lookupRecoveryCode(code);
+  if (!rec) throw new Error('invalid-recovery-code');
+  if (rec.uid !== me) {
+    // 1) 自分をメンバーに加え、元のゲストのメンバー情報を消す
+    //    （配列への追加と削除は 1 回の更新でできないので 2 段階に分ける）
+    await updateDoc(groupRef(rec.groupId), {
+      memberIds: arrayUnion(me),
+      [`members.${me}`]: { name: rec.name || displayName(), role: 'member', guest: isGuest(), joinedAt: Date.now(), recoveryCode: code },
+      [`members.${rec.uid}`]: deleteField(),
+    });
+    // 2) メンバーになったので、元のゲストを memberIds から外す（これで元の端末からは読めなくなる）
+    await removeStaleMemberIds(rec.groupId, [rec.uid]);
+  }
+  // 使った復旧ID は消して、新しいアカウント用を作り直す
+  await deleteDoc(doc(db, 'recovery', code)).catch(() => {});
+  await ensureRecoveryCode(rec.groupId).catch(() => {});
+  return rec.groupId;
+}
+
+// メンバー情報がもう無い uid を memberIds から外す（復旧の 2 段階目。途中で失敗したときの後片付けにも使う）
+export async function removeStaleMemberIds(groupId, uids) {
+  if (uids.length) await updateDoc(groupRef(groupId), { memberIds: arrayRemove(...uids) });
+}
+
+// Google アカウントに引き継いだら、ゲスト用の復旧ID は不要なので消す
+export async function deleteMyRecoveryCodes() {
+  const snap = await getDocs(query(collection(db, 'recovery'), where('uid', '==', uid())));
+  await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
 }
 
 // 参加中の全グループの自分の情報を更新する

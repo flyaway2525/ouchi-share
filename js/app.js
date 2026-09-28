@@ -67,12 +67,14 @@ function accountMenu() {
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
     isAdmin && { label: '管理者ダッシュボード', onClick: () => (location.hash = '#/admin') },
     { label: '名前を変更', onClick: renameAccount },
+    guest && { label: '復旧IDを確認', onClick: myRecoverySheet },
     guest && {
       label: 'Google アカウントに引き継ぐ',
       onClick: () =>
         runAuth(async () => {
           await auth.upgradeGuestToGoogle();
           await store.syncMyProfile().catch(() => {});
+          await store.deleteMyRecoveryCodes().catch(() => {});
           store.touchPresence(null).catch(() => {});
           toast('Google アカウントに引き継ぎました');
         }),
@@ -142,6 +144,120 @@ function nameSetupView(root) {
   input.focus();
 }
 
+// ---- 復旧ID ----
+
+function recoveryCodeSheet(title, code, note) {
+  const url = store.recoveryUrl(code);
+  openSheet((close) => [
+    h('div', { class: 'sheet-title' }, title),
+    h(
+      'div',
+      { class: 'qr-sheet' },
+      h('div', { class: 'recovery-code' }, store.formatRecoveryCode(code)),
+      qrCode(url, 180),
+      h('p', {}, note),
+    ),
+    h(
+      'button',
+      {
+        class: 'sheet-action',
+        onClick: async () => {
+          await navigator.clipboard.writeText(store.formatRecoveryCode(code)).catch(() => {});
+          toast('復旧IDをコピーしました');
+        },
+      },
+      '復旧IDをコピー',
+    ),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
+  ]);
+}
+
+async function myRecoverySheet() {
+  let codes;
+  try {
+    codes = await store.myRecoveryCodes();
+  } catch (e) {
+    return showError(e);
+  }
+  if (codes.length === 0) return toast('復旧IDはまだありません（グループを開くと作られます）');
+  if (codes.length === 1) {
+    return recoveryCodeSheet('あなたの復旧ID', codes[0].code, 'スマホをなくしたときは、新しいスマホでこのIDを入力するとグループに戻れます。スクリーンショットで控えておくと安心です。');
+  }
+  // 複数グループに参加している場合はグループを選んでもらう
+  const names = Object.fromEntries((await store.listMyGroups().catch(() => [])).map((g) => [g.id, g.name]));
+  actionSheet(
+    '復旧IDを見るグループ',
+    codes.map((c) => ({
+      label: names[c.groupId] ?? 'グループ',
+      onClick: () => recoveryCodeSheet(`「${names[c.groupId] ?? 'グループ'}」の復旧ID`, c.code, 'スマホをなくしたときは、新しいスマホでこのIDを入力するとグループに戻れます。'),
+    })),
+  );
+}
+
+function recoverView(root, { code = '' }) {
+  const input = h('input', {
+    class: 'text-input recovery-input',
+    value: code ? store.formatRecoveryCode(code) : '',
+    placeholder: 'XXXX-XXXX-XXXX',
+    maxlength: 20,
+    autocapitalize: 'characters',
+    autocomplete: 'off',
+    'aria-label': '復旧ID',
+  });
+  const submit = h('button', { type: 'submit', class: 'btn primary wide' }, 'グループに戻る');
+  root.append(
+    h(
+      'div',
+      { class: 'center-screen' },
+      h('img', { class: 'welcome-icon', src: 'icons/icon.svg', alt: '' }),
+      h('h1', { class: 'welcome-title' }, '復旧IDで戻る'),
+      h('p', { class: 'welcome-text' }, 'グループのオーナーから教えてもらった復旧IDを入力してください。前のスマホはグループから外れます。'),
+      h(
+        'form',
+        {
+          class: 'join-form',
+          onSubmit: async (e) => {
+            e.preventDefault();
+            const value = store.normalizeRecoveryCode(input.value);
+            if (value.length !== 12) {
+              input.focus();
+              toast('復旧IDは12文字です');
+              return;
+            }
+            submit.disabled = true;
+            authBusy = true;
+            let createdGuest = false;
+            try {
+              if (!auth.currentUser()) {
+                await auth.signInAsGuest();
+                createdGuest = true;
+              }
+              const rec = await store.lookupRecoveryCode(value);
+              if (!rec) throw new Error('invalid-recovery-code');
+              if (auth.needsName()) await auth.setDisplayName(rec.name || 'ゲスト');
+              const groupId = await store.recoverWithCode(value);
+              toast(`「${auth.displayName()}」として戻りました`);
+              location.replace(`#/g/${groupId}`);
+            } catch (err) {
+              console.error(err);
+              // 復旧に失敗したら、この操作で作った空のゲストは使わないのでログアウトしておく
+              if (createdGuest) await auth.signOut().catch(() => {});
+              toast(err?.message === 'invalid-recovery-code' ? '復旧IDが見つかりません' : '復旧できませんでした。オーナーに新しい復旧IDを確認してください');
+              submit.disabled = false;
+            } finally {
+              authBusy = false;
+              route();
+            }
+          },
+        },
+        input,
+        submit,
+      ),
+      h('a', { class: 'welcome-note', href: '#/' }, '戻る'),
+    ),
+  );
+}
+
 // ---- 画面：ようこそ（未ログイン） ----
 
 function welcomeView(root) {
@@ -154,6 +270,7 @@ function welcomeView(root) {
       h('p', { class: 'welcome-text' }, '家族や友人と、予定・持ち物・日用品の在庫を共有できます。'),
       h('button', { class: 'btn primary wide', onClick: () => runAuth(auth.signInWithGoogle) }, 'Google でログイン'),
       h('p', { class: 'welcome-note' }, '招待リンクを受け取った方は、そのリンクから開いてください。'),
+      h('a', { class: 'btn wide', href: '#/recover' }, 'スマホを替えた方（復旧IDで戻る）'),
     ),
   );
 }
@@ -274,7 +391,8 @@ async function renameInGroup(group) {
   if (name && name !== current) store.renameMeInGroup(group.id, name).then(() => toast('名前を変更しました'), showError);
 }
 
-function membersSheet(group) {
+function membersSheet(group, recoveryCodes = {}) {
+  const isOwner = group.members?.[user.uid]?.role === 'owner';
   const members = Object.entries(group.members ?? {}).sort(
     (a, b) => store.millis(b[1].lastSeen) - store.millis(a[1].lastSeen) || (a[1].joinedAt ?? 0) - (b[1].joinedAt ?? 0),
   );
@@ -297,6 +415,30 @@ function membersSheet(group) {
           m.role === 'owner' && h('span', { class: 'badge' }, 'オーナー'),
           m.guest && h('span', { class: 'badge muted' }, 'ゲスト'),
           id === user.uid && h('span', { class: 'edit-hint' }, '変更'),
+          // オーナーはゲストの復旧ID を確認・発行できる
+          isOwner &&
+            id !== user.uid &&
+            m.guest &&
+            h(
+              'button',
+              {
+                class: 'recovery-btn',
+                onClick: async (e) => {
+                  e.stopPropagation();
+                  close(null);
+                  let code = recoveryCodes[id];
+                  if (!code) {
+                    try {
+                      code = await store.issueRecoveryCode(group.id, id, m.name);
+                    } catch (err) {
+                      return showError(err);
+                    }
+                  }
+                  recoveryCodeSheet(`${m.name} さんの復旧ID`, code, `${m.name} さんがスマホをなくしたら、新しいスマホでこのQRを読み取るか、IDを入力してもらってください。`);
+                },
+              },
+              recoveryCodes[id] ? '復旧ID' : '復旧IDを発行',
+            ),
         ),
       ),
     ),
@@ -358,7 +500,7 @@ function groupView(root, { groupId }) {
         { class: 'member-strip' },
         h(
           'button',
-          { class: 'member-strip-count', onClick: () => membersSheet(group) },
+          { class: 'member-strip-count', onClick: () => membersSheet(group, recoveryCodes) },
           h('span', {}, `👥 メンバー ${all.length} 人`),
           online.length > 0 && h('span', { class: 'online-count' }, onlineDot(true), `${online.length} 人がオンライン`),
         ),
@@ -367,6 +509,11 @@ function groupView(root, { groupId }) {
     );
   }
   const ticker = setInterval(renderMembers, 30 * 1000);
+
+  // オーナーはゲストの復旧ID を見られる。ゲストは自分の復旧ID がなければ作る
+  let recoveryCodes = {};
+  let unwatchRecovery = null;
+  if (auth.isGuest()) store.ensureRecoveryCode(groupId).catch(() => {});
 
   const onGone = (e) => {
     if (e?.code !== 'permission-denied' && e?.message !== 'not-found') return showError(e);
@@ -379,6 +526,9 @@ function groupView(root, { groupId }) {
     (g) => {
       group = g;
       const owner = g.members?.[user.uid]?.role === 'owner';
+      if (owner && !unwatchRecovery) {
+        unwatchRecovery = store.watchRecoveryCodes(groupId, (codes) => (recoveryCodes = codes), () => {});
+      }
       setChildren(
         top,
         header({
@@ -388,7 +538,7 @@ function groupView(root, { groupId }) {
             actionSheet(g.name, [
               { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
               { label: '招待リンクを送る', onClick: () => shareInvite(group) },
-              { label: 'メンバーを見る', onClick: () => membersSheet(group) },
+              { label: 'メンバーを見る', onClick: () => membersSheet(group, recoveryCodes) },
               { label: 'このグループでの自分の名前を変更', onClick: () => renameInGroup(group) },
               {
                 label: 'グループ名を変更',
@@ -469,6 +619,7 @@ function groupView(root, { groupId }) {
 
   return () => {
     clearInterval(ticker);
+    unwatchRecovery?.();
     unwatchGroup();
     unwatchLists();
   };
@@ -673,6 +824,9 @@ function route() {
 
   const join = hash.match(/^#\/join\/([\w-]+)\/([\w-]+)$/);
   if (join) return joinView(app, { groupId: join[1], code: join[2] });
+
+  const recover = hash.match(/^#\/recover(?:\/([0-9A-Za-z]+))?$/);
+  if (recover) return recoverView(app, { code: recover[1] ?? '' });
 
   if (!user) return welcomeView(app);
   if (auth.needsName()) return nameSetupView(app);

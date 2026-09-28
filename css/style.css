@@ -846,3 +846,32 @@ a {
 .member-list li.is-me {
   cursor: pointer;
 }
+
+/* ---- 復旧ID ---- */
+
+.recovery-code {
+  margin-bottom: 12px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  user-select: all;
+}
+
+.recovery-input {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  text-align: center;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.recovery-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
