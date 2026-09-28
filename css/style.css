@@ -480,3 +480,205 @@ a {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+
+/* ---- ログイン・参加画面 ---- */
+
+.center-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 100dvh;
+  padding: calc(var(--safe-top) + 24px) 24px calc(var(--safe-bottom) + 24px);
+  text-align: center;
+}
+
+.welcome-icon {
+  width: 88px;
+  height: 88px;
+  border-radius: 22px;
+}
+
+.welcome-title {
+  margin: 4px 0 0;
+  font-size: 26px;
+}
+
+.welcome-text {
+  margin: 0 0 12px;
+  max-width: 320px;
+  color: var(--muted);
+}
+
+.welcome-note {
+  margin: 8px 0 0;
+  max-width: 320px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.btn.wide {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 320px;
+}
+
+.join-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 320px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- お知らせ・メンバー ---- */
+
+.notice {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.notice p {
+  margin: 0 0 8px;
+}
+
+.uid {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.member-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.member-strip button {
+  border: 0;
+  background: none;
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.member-strip-count {
+  flex: 1;
+  text-align: left;
+  font-size: 14px;
+}
+
+.member-strip-invite {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.member-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.member-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.member-list li:last-child {
+  border-bottom: 0;
+}
+
+.member-list li > span:first-child {
+  flex: 1;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.badge.muted {
+  background: var(--border);
+  color: var(--muted);
+}
+
+/* ---- トースト ---- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(90px + var(--safe-bottom));
+  z-index: 200;
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 14px;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}

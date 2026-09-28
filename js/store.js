@@ -1,208 +1,210 @@
-// データの読み書きをまとめた層。
-// いまは localStorage に保存しているが、画面側はこのファイルの関数だけを使うので、
-// 後で Firestore 版に差し替えれば同期・共有に切り替えられる。
-// （Firestore に合わせて、関数はすべて Promise を返す）
+// データの読み書きをまとめた層（Firestore 版）。
+//
+// データ構造（詳しくは docs/design.md）
+//   admins/{uid}                      グループを作れる人の許可リスト（コンソールから手で追加）
+//   groups/{groupId}                  グループ。memberIds / members でメンバーを管理
+//   groups/{groupId}/lists/{listId}   リスト。アイテムは items マップとして 1 ドキュメントに入れる
+//
+// watch〜 は変更があるたびに cb を呼ぶ（他のメンバーの編集もリアルタイムに届く）。
+// 戻り値の関数を呼ぶと監視をやめる。
 
-const STORAGE_KEY = 'ouchi-share:v1';
-const listeners = new Set();
+import {
+  arrayUnion,
+  collection,
+  deleteDoc,
+  deleteField,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+  writeBatch,
+} from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
+import { db } from './firebase.js';
+import { currentUser, displayName, isGuest } from './auth.js';
+
+const groupRef = (groupId) => doc(db, 'groups', groupId);
+const listsCol = (groupId) => collection(db, 'groups', groupId, 'lists');
+const listRef = (groupId, listId) => doc(db, 'groups', groupId, 'lists', listId);
+
+function newId() {
+  return doc(collection(db, '_')).id;
+}
+
+function randomCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_');
+}
 
 function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
-
-function seed() {
-  const now = Date.now();
-  const g = uid();
-  const travel = uid();
-  const daily = uid();
-  const item = (text, checked = false, i = 0) => ({ id: uid(), text, checked, createdAt: now + i });
-  return {
-    groups: {
-      [g]: {
-        id: g,
-        name: 'わが家',
-        createdAt: now,
-        lists: {
-          [travel]: {
-            id: travel,
-            type: 'checklist',
-            title: '旅行の持ち物',
-            emoji: '🧳',
-            createdAt: now,
-            items: Object.fromEntries(
-              ['財布', 'スマホの充電器', '着替え', '歯ブラシ', '常備薬', 'パスポート']
-                .map((t, i) => item(t, i < 2, i))
-                .map((it) => [it.id, it]),
-            ),
-          },
-          [daily]: {
-            id: daily,
-            type: 'checklist',
-            title: '日用品の在庫',
-            emoji: '🧻',
-            createdAt: now + 1,
-            items: Object.fromEntries(
-              ['トイレットペーパー', 'ティッシュ', '洗濯洗剤', '食器用洗剤']
-                .map((t, i) => item(t, false, i))
-                .map((it) => [it.id, it]),
-            ),
-          },
-        },
-      },
-    },
-  };
-}
-
-function load() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // 壊れたデータや読み込めない環境では初期データから始める
-  }
-  const data = seed();
-  save(data);
-  return data;
-}
-
-function save(data) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    // プライベートブラウズなどで保存できない場合はメモリ上だけで動かす
-  }
-}
-
-let db = load();
-
-function commit() {
-  save(db);
-  listeners.forEach((fn) => fn());
+  const user = currentUser();
+  if (!user) throw new Error('ログインしていません');
+  return user.uid;
 }
 
 function byCreatedAt(a, b) {
-  return a.createdAt - b.createdAt;
+  return (a.createdAt ?? 0) - (b.createdAt ?? 0);
 }
 
-function getGroupOrThrow(groupId) {
-  const g = db.groups[groupId];
-  if (!g) throw new Error('グループが見つかりません');
-  return g;
+function withId(snap) {
+  return { id: snap.id, ...snap.data() };
 }
 
-function getListOrThrow(groupId, listId) {
-  const l = getGroupOrThrow(groupId).lists[listId];
-  if (!l) throw new Error('リストが見つかりません');
-  return l;
+function toList(snap) {
+  const data = withId(snap);
+  const items = Object.entries(data.items ?? {})
+    .map(([id, it]) => ({ id, ...it }))
+    .sort(byCreatedAt);
+  return { ...data, items, total: items.length, done: items.filter((i) => i.checked).length };
 }
 
-// 別のタブで変更されたときも画面を更新する（Firestore の onSnapshot 相当）
-window.addEventListener('storage', (e) => {
-  if (e.key !== STORAGE_KEY) return;
-  db = load();
-  listeners.forEach((fn) => fn());
-});
+// ---- 許可リスト ----
 
-export function subscribe(fn) {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
+export function watchIsAdmin(userId, cb) {
+  return onSnapshot(
+    doc(db, 'admins', userId),
+    (snap) => cb(snap.exists()),
+    () => cb(false),
+  );
 }
 
 // ---- グループ ----
 
-export async function listGroups() {
-  return Object.values(db.groups)
-    .map(({ lists, ...g }) => ({ ...g, listCount: Object.keys(lists).length }))
-    .sort(byCreatedAt);
+export function watchGroups(cb, onError) {
+  const q = query(collection(db, 'groups'), where('memberIds', 'array-contains', uid()));
+  return onSnapshot(q, (snap) => cb(snap.docs.map(withId).sort(byCreatedAt)), onError);
 }
 
-export async function getGroup(groupId) {
-  const { lists, ...g } = getGroupOrThrow(groupId);
-  return g;
+export function watchGroup(groupId, cb, onError) {
+  return onSnapshot(
+    groupRef(groupId),
+    (snap) => (snap.exists() ? cb(withId(snap)) : onError?.(new Error('not-found'))),
+    onError,
+  );
 }
 
 export async function createGroup(name) {
-  const id = uid();
-  db.groups[id] = { id, name, createdAt: Date.now(), lists: {} };
-  commit();
+  const me = uid();
+  const id = newId();
+  await setDoc(groupRef(id), {
+    name,
+    createdAt: Date.now(),
+    createdBy: me,
+    inviteCode: randomCode(),
+    memberIds: [me],
+    members: { [me]: { name: displayName(), role: 'owner', guest: false, joinedAt: Date.now() } },
+  });
   return id;
 }
 
 export async function renameGroup(groupId, name) {
-  getGroupOrThrow(groupId).name = name;
-  commit();
+  await updateDoc(groupRef(groupId), { name });
+}
+
+// 招待リンクを作り直す（古いリンクでは参加できなくなる）
+export async function regenerateInvite(groupId) {
+  await updateDoc(groupRef(groupId), { inviteCode: randomCode() });
+}
+
+export function inviteUrl(group) {
+  return `${location.origin}${location.pathname}#/join/${group.id}/${group.inviteCode}`;
 }
 
 export async function deleteGroup(groupId) {
-  delete db.groups[groupId];
-  commit();
+  const lists = await getDocs(listsCol(groupId));
+  const batch = writeBatch(db);
+  lists.forEach((l) => batch.delete(l.ref));
+  batch.delete(groupRef(groupId));
+  await batch.commit();
+}
+
+// 招待リンクから参加する。すでにメンバーならそのまま true を返す
+export async function joinGroup(groupId, inviteCode) {
+  const me = uid();
+  try {
+    const snap = await getDoc(groupRef(groupId));
+    if (snap.exists()) return true; // 読めた = すでにメンバー
+  } catch {
+    // メンバーでなければ読めないので、参加処理へ進む
+  }
+  await updateDoc(groupRef(groupId), {
+    memberIds: arrayUnion(me),
+    [`members.${me}`]: { name: displayName(), role: 'member', guest: isGuest(), joinedAt: Date.now(), inviteCode },
+  });
+  return true;
+}
+
+// Google アカウントへ引き継いだあと、各グループに登録している自分の名前・ゲスト表示を更新する
+export async function syncMyProfile() {
+  const me = uid();
+  const snap = await getDocs(query(collection(db, 'groups'), where('memberIds', 'array-contains', me)));
+  await Promise.all(
+    snap.docs.map((d) =>
+      updateDoc(d.ref, { [`members.${me}.name`]: displayName(), [`members.${me}.guest`]: isGuest() }),
+    ),
+  );
 }
 
 // ---- リスト ----
 
-export async function listLists(groupId) {
-  return Object.values(getGroupOrThrow(groupId).lists)
-    .map(({ items, ...l }) => {
-      const all = Object.values(items);
-      return { ...l, total: all.length, done: all.filter((i) => i.checked).length };
-    })
-    .sort(byCreatedAt);
+export function watchLists(groupId, cb, onError) {
+  const q = query(listsCol(groupId), orderBy('createdAt'));
+  return onSnapshot(q, (snap) => cb(snap.docs.map(toList)), onError);
 }
 
-export async function getList(groupId, listId) {
-  const { items, ...l } = getListOrThrow(groupId, listId);
-  return l;
+export function watchList(groupId, listId, cb, onError) {
+  return onSnapshot(
+    listRef(groupId, listId),
+    (snap) => (snap.exists() ? cb(toList(snap)) : onError?.(new Error('not-found'))),
+    onError,
+  );
 }
 
 export async function createList(groupId, { title, emoji = '📝', type = 'checklist' }) {
-  const id = uid();
-  getGroupOrThrow(groupId).lists[id] = { id, type, title, emoji, createdAt: Date.now(), items: {} };
-  commit();
+  const id = newId();
+  await setDoc(listRef(groupId, id), { type, title, emoji, createdAt: Date.now(), createdBy: uid(), items: {} });
   return id;
 }
 
 export async function updateList(groupId, listId, patch) {
-  Object.assign(getListOrThrow(groupId, listId), patch);
-  commit();
+  await updateDoc(listRef(groupId, listId), patch);
 }
 
 export async function deleteList(groupId, listId) {
-  delete getGroupOrThrow(groupId).lists[listId];
-  commit();
+  await deleteDoc(listRef(groupId, listId));
 }
 
 // ---- アイテム ----
-
-export async function listItems(groupId, listId) {
-  return Object.values(getListOrThrow(groupId, listId).items).sort(byCreatedAt);
-}
+// アイテムごとにフィールド単位で更新するので、別の人が同時に別のアイテムを触っても上書きし合わない
 
 export async function addItem(groupId, listId, text) {
-  const id = uid();
-  getListOrThrow(groupId, listId).items[id] = { id, text, checked: false, createdAt: Date.now() };
-  commit();
+  const id = newId();
+  await updateDoc(listRef(groupId, listId), {
+    [`items.${id}`]: { text, checked: false, createdAt: Date.now() },
+  });
   return id;
 }
 
-export async function updateItem(groupId, listId, itemId, patch) {
-  const item = getListOrThrow(groupId, listId).items[itemId];
-  if (!item) return;
-  Object.assign(item, patch);
-  commit();
+export async function setItemChecked(groupId, listId, itemId, checked) {
+  await updateDoc(listRef(groupId, listId), { [`items.${itemId}.checked`]: checked });
 }
 
 export async function deleteItem(groupId, listId, itemId) {
-  delete getListOrThrow(groupId, listId).items[itemId];
-  commit();
+  await updateDoc(listRef(groupId, listId), { [`items.${itemId}`]: deleteField() });
 }
 
-export async function uncheckAll(groupId, listId) {
-  Object.values(getListOrThrow(groupId, listId).items).forEach((i) => (i.checked = false));
-  commit();
+export async function uncheckAll(groupId, list) {
+  const patch = {};
+  for (const i of list.items) if (i.checked) patch[`items.${i.id}.checked`] = false;
+  if (Object.keys(patch).length) await updateDoc(listRef(groupId, list.id), patch);
 }
 
-export async function deleteChecked(groupId, listId) {
-  const list = getListOrThrow(groupId, listId);
-  for (const [id, i] of Object.entries(list.items)) if (i.checked) delete list.items[id];
-  commit();
+export async function deleteChecked(groupId, list) {
+  const patch = {};
+  for (const i of list.items) if (i.checked) patch[`items.${i.id}`] = deleteField();
+  if (Object.keys(patch).length) await updateDoc(listRef(groupId, list.id), patch);
 }

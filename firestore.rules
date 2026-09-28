@@ -1,0 +1,119 @@
+rules_version = '2';
+
+// ouchi-share のセキュリティルール
+// - グループを作れるのは admins/{uid} に登録された Google ログインユーザーだけ
+// - グループの中身を読み書きできるのはメンバーだけ（ゲストも編集可）
+// - メンバー以外は、正しい招待コードを知っているときだけ自分をメンバーに追加できる
+//
+// 反映方法: Firebase コンソール → Firestore Database → ルール に貼り付けて「公開」
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isGuestUser() {
+      return request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    function isAdmin() {
+      return signedIn() && !isGuestUser()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isNonEmptyString(v, max) {
+      return v is string && v.size() > 0 && v.size() <= max;
+    }
+
+    // ---- 許可リスト（コンソールからのみ編集） ----
+    match /admins/{userId} {
+      allow get: if signedIn() && request.auth.uid == userId;
+      allow list, write: if false;
+    }
+
+    // ---- グループ ----
+    match /groups/{groupId} {
+
+      function isMember() {
+        return signedIn() && request.auth.uid in resource.data.memberIds;
+      }
+
+      function isOwner() {
+        return isMember() && resource.data.members[request.auth.uid].role == 'owner';
+      }
+
+      function changed() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
+
+      // メンバーが自分のメンバー情報（名前・ゲスト表示）だけを更新する
+      function isOwnProfileUpdate() {
+        let me = request.auth.uid;
+        let before = resource.data.members[me];
+        let after = request.resource.data.members[me];
+        return changed().hasOnly(['members'])
+          && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([me])
+          && after.diff(before).affectedKeys().hasOnly(['name', 'guest'])
+          && isNonEmptyString(after.name, 40)
+          && after.guest == isGuestUser();
+      }
+
+      // 招待リンクからの参加：自分だけを、正しい招待コード付きで追加する
+      function isValidJoin() {
+        let me = request.auth.uid;
+        let entry = request.resource.data.members[me];
+        return signedIn()
+          && !(me in resource.data.memberIds)
+          && changed().hasOnly(['memberIds', 'members'])
+          && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
+          && request.resource.data.memberIds.toSet() == resource.data.memberIds.toSet().union([me].toSet())
+          && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([me])
+          && entry.keys().hasOnly(['name', 'role', 'guest', 'joinedAt', 'inviteCode'])
+          && entry.role == 'member'
+          && entry.guest == isGuestUser()
+          && isNonEmptyString(entry.name, 40)
+          && entry.inviteCode == resource.data.inviteCode;
+      }
+
+      function isValidNewGroup() {
+        let me = request.auth.uid;
+        let d = request.resource.data;
+        return d.keys().hasOnly(['name', 'createdAt', 'createdBy', 'inviteCode', 'memberIds', 'members'])
+          && isNonEmptyString(d.name, 40)
+          && d.createdBy == me
+          && d.memberIds == [me]
+          && d.members.keys().hasOnly([me])
+          && d.members[me].role == 'owner'
+          && d.inviteCode is string && d.inviteCode.size() >= 16;
+      }
+
+      allow get, list: if isMember();
+      allow create: if isAdmin() && isValidNewGroup();
+      allow update: if (isMember() && changed().hasOnly(['name']) && isNonEmptyString(request.resource.data.name, 40))
+        || (isOwner() && changed().hasOnly(['inviteCode']) && request.resource.data.inviteCode.size() >= 16)
+        || (isMember() && isOwnProfileUpdate())
+        || isValidJoin();
+      allow delete: if isOwner();
+
+      // ---- リスト（アイテムはリストのドキュメント内の items マップ） ----
+      match /lists/{listId} {
+        function isGroupMember() {
+          return signedIn()
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        }
+
+        function isValidList(d) {
+          return isNonEmptyString(d.title, 100)
+            && d.type in ['checklist', 'inventory', 'schedule']
+            && d.items is map;
+        }
+
+        allow read: if isGroupMember();
+        allow create, update: if isGroupMember() && isValidList(request.resource.data);
+        allow delete: if isGroupMember();
+      }
+    }
+  }
+}
