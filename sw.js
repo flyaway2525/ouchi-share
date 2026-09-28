@@ -2,7 +2,7 @@
 // ネットワーク優先で、つながらないときだけキャッシュを使う
 // （開発中に古いファイルが表示され続けるのを避けるため）。
 
-const CACHE = 'ouchi-share-v3';
+const CACHE = 'ouchi-share-v4';
 const SHELL = ['./', './index.html', './css/style.css', './js/app.js', './js/store.js', './js/ui.js', './js/auth.js', './js/firebase.js', './manifest.webmanifest', './icons/icon.svg'];
 
 self.addEventListener('install', (e) => {
@@ -20,8 +20,11 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
-  // Firebase SDK はバージョン付き URL で中身が変わらないので、キャッシュ優先で OK
-  if (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) {
+  // Firebase SDK・QR ライブラリはバージョン付き URL で中身が変わらないので、キャッシュ優先で OK
+  const versionedLib =
+    (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) ||
+    (url.hostname === 'cdn.jsdelivr.net' && url.pathname.startsWith('/npm/qrcode-generator@'));
+  if (versionedLib) {
     e.respondWith(
       caches.match(e.request).then(
         (hit) =>

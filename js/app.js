@@ -1,6 +1,6 @@
 import * as store from './store.js';
 import * as auth from './auth.js';
-import { h, setChildren, header, progressBar, actionSheet, confirmSheet, askText, openSheet, toast } from './ui.js';
+import { h, setChildren, header, progressBar, actionSheet, confirmSheet, askText, openSheet, toast, qrCode } from './ui.js';
 
 const app = document.getElementById('app');
 const LIST_EMOJIS = ['📝', '🧳', '🧻', '🧊', '🛒', '💊', '🎒', '🏕️', '🎁', '🐶'];
@@ -148,6 +148,13 @@ function joinView(root, { groupId, code }) {
 function homeView(root) {
   const body = h('main', { class: 'content' });
   root.append(header({ title: 'ouchi-share', onMenu: accountMenu }), body);
+  const appUrl = `${location.origin}${location.pathname}`;
+  const qrCard = h(
+    'div',
+    { class: 'qr-card' },
+    qrCode(appUrl, 150),
+    h('div', { class: 'qr-card-text' }, h('strong', {}, '📱 スマホで開く'), h('span', {}, 'カメラで読み取ると、このページを開けます'), h('span', { class: 'qr-url' }, appUrl)),
+  );
 
   return store.watchGroups((groups) => {
     setChildren(
@@ -186,6 +193,7 @@ function homeView(root) {
             h('p', {}, 'グループを作るには、管理者に許可リストへ追加してもらう必要があります。下のユーザーIDを伝えてください。'),
             h('code', { class: 'uid' }, user.uid),
           ),
+      qrCard,
     );
   }, showError);
 }
@@ -216,6 +224,26 @@ function membersSheet(group) {
           m.guest && h('span', { class: 'badge muted' }, 'ゲスト'),
         ),
       ),
+    ),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
+  ]);
+}
+
+function inviteQrSheet(group) {
+  const url = store.inviteUrl(group);
+  openSheet((close) => [
+    h('div', { class: 'sheet-title' }, `「${group.name}」への招待`),
+    h('div', { class: 'qr-sheet' }, qrCode(url, 220), h('p', {}, 'カメラで読み取ると、このグループに参加できます')),
+    h(
+      'button',
+      {
+        class: 'sheet-action',
+        onClick: async () => {
+          await navigator.clipboard.writeText(url).catch(() => {});
+          toast('招待リンクをコピーしました');
+        },
+      },
+      'リンクをコピー',
     ),
     h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
   ]);
@@ -258,7 +286,7 @@ function groupView(root, { groupId }) {
           h('span', {}, `👥 メンバー ${all.length} 人`),
           online.length > 0 && h('span', { class: 'online-count' }, onlineDot(true), `${online.length} 人がオンライン`),
         ),
-        h('button', { class: 'member-strip-invite', onClick: () => shareInvite(group) }, '＋ 招待'),
+        h('button', { class: 'member-strip-invite', onClick: () => inviteQrSheet(group) }, '＋ 招待'),
       ),
     );
   }
@@ -282,6 +310,7 @@ function groupView(root, { groupId }) {
           back: '#/',
           onMenu: () =>
             actionSheet(g.name, [
+              { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
               { label: '招待リンクを送る', onClick: () => shareInvite(group) },
               { label: 'メンバーを見る', onClick: () => membersSheet(group) },
               {

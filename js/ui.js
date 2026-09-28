@@ -156,3 +156,24 @@ export function toast(message) {
     setTimeout(() => el.remove(), 300);
   }, 2400);
 }
+
+// QR コード（必要になったときだけライブラリを読み込む）
+let qrLib;
+
+export function qrCode(text, size = 180) {
+  const box = h('div', { class: 'qr', style: `width:${size}px;height:${size}px`, role: 'img', 'aria-label': `QRコード：${text}` });
+  qrLib ??= import('https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/+esm').then((m) => m.default);
+  qrLib
+    .then((qrcode) => {
+      const q = qrcode(0, 'M');
+      q.addData(text);
+      q.make();
+      // ライブラリが生成した SVG 文字列を要素にする（ユーザー入力は含まれない）
+      const svg = new DOMParser().parseFromString(q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }), 'image/svg+xml').documentElement;
+      svg.setAttribute('width', '100%');
+      svg.setAttribute('height', '100%');
+      box.replaceChildren(svg);
+    })
+    .catch(() => box.replaceChildren(h('span', { class: 'qr-error' }, 'QRコードを表示できませんでした')));
+  return box;
+}
