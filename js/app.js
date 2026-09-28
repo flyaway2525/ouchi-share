@@ -16,6 +16,20 @@ function showError(e) {
   toast(e?.code === 'permission-denied' ? '権限がありません' : 'エラーが発生しました');
 }
 
+function timeAgo(ms) {
+  if (!ms) return '未アクセス';
+  const min = Math.floor((Date.now() - ms) / 60000);
+  if (min < 1) return 'たった今';
+  if (min < 60) return `${min}分前`;
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return `${hour}時間前`;
+  return `${Math.floor(hour / 24)}日前`;
+}
+
+function onlineDot(online) {
+  return h('span', { class: `dot${online ? ' online' : ''}`, 'aria-label': online ? 'オンライン' : 'オフライン' });
+}
+
 async function runAuth(fn) {
   authBusy = true;
   try {
@@ -32,6 +46,7 @@ async function runAuth(fn) {
 function accountMenu() {
   const guest = auth.isGuest();
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
+    isAdmin && { label: '管理者ダッシュボード', onClick: () => (location.hash = '#/admin') },
     guest && {
       label: 'Google アカウントに引き継ぐ',
       onClick: () =>
@@ -178,7 +193,9 @@ function homeView(root) {
 // ---- 画面：グループ内のリスト一覧 ----
 
 function membersSheet(group) {
-  const members = Object.entries(group.members ?? {}).sort((a, b) => (a[1].joinedAt ?? 0) - (b[1].joinedAt ?? 0));
+  const members = Object.entries(group.members ?? {}).sort(
+    (a, b) => store.millis(b[1].lastSeen) - store.millis(a[1].lastSeen) || (a[1].joinedAt ?? 0) - (b[1].joinedAt ?? 0),
+  );
   openSheet((close) => [
     h('div', { class: 'sheet-title' }, `メンバー（${members.length} 人）`),
     h(
@@ -188,7 +205,13 @@ function membersSheet(group) {
         h(
           'li',
           {},
-          h('span', {}, m.name, id === user.uid && '（自分）'),
+          onlineDot(store.isOnline(m.lastSeen)),
+          h(
+            'span',
+            { class: 'member-name' },
+            h('span', {}, m.name, id === user.uid && '（自分）'),
+            h('span', { class: 'member-seen' }, store.isOnline(m.lastSeen) ? 'オンライン' : timeAgo(store.millis(m.lastSeen))),
+          ),
           m.role === 'owner' && h('span', { class: 'badge' }, 'オーナー'),
           m.guest && h('span', { class: 'badge muted' }, 'ゲスト'),
         ),
@@ -218,6 +241,28 @@ function groupView(root, { groupId }) {
   const members = h('div');
   root.append(top, body);
   let group;
+
+  // オンライン表示は時間がたつと変わるので、定期的に描き直す
+  function renderMembers() {
+    if (!group) return;
+    const all = Object.values(group.members ?? {});
+    const online = all.filter((m) => store.isOnline(m.lastSeen));
+    setChildren(
+      members,
+      h(
+        'div',
+        { class: 'member-strip' },
+        h(
+          'button',
+          { class: 'member-strip-count', onClick: () => membersSheet(group) },
+          h('span', {}, `👥 メンバー ${all.length} 人`),
+          online.length > 0 && h('span', { class: 'online-count' }, onlineDot(true), `${online.length} 人がオンライン`),
+        ),
+        h('button', { class: 'member-strip-invite', onClick: () => shareInvite(group) }, '＋ 招待'),
+      ),
+    );
+  }
+  const ticker = setInterval(renderMembers, 30 * 1000);
 
   const onGone = (e) => {
     if (e?.code !== 'permission-denied' && e?.message !== 'not-found') return showError(e);
@@ -266,15 +311,7 @@ function groupView(root, { groupId }) {
             ].filter(Boolean)),
         }),
       );
-      setChildren(
-        members,
-        h(
-          'div',
-          { class: 'member-strip' },
-          h('button', { class: 'member-strip-count', onClick: () => membersSheet(group) }, `👥 メンバー ${g.memberIds.length} 人`),
-          h('button', { class: 'member-strip-invite', onClick: () => shareInvite(group) }, '＋ 招待'),
-        ),
-      );
+      renderMembers();
     },
     onGone,
   );
@@ -325,8 +362,75 @@ function groupView(root, { groupId }) {
   );
 
   return () => {
+    clearInterval(ticker);
     unwatchGroup();
     unwatchLists();
+  };
+}
+
+// ---- 画面：管理者ダッシュボード ----
+
+function adminView(root) {
+  const body = h('main', { class: 'content' });
+  root.append(header({ title: '管理者ダッシュボード', back: '#/' }), body);
+  let users = null;
+
+  function render() {
+    if (!users) return;
+    const now = Date.now();
+    const online = users.filter((u) => store.isOnline(u.lastSeen, now));
+    const today = users.filter((u) => now - store.millis(u.lastSeen) < 24 * 60 * 60 * 1000);
+    const guests = users.filter((u) => u.guest).length;
+    const sorted = [...users].sort((a, b) => store.millis(b.lastSeen) - store.millis(a.lastSeen));
+    const stat = (label, value, sub) =>
+      h('div', { class: 'stat' }, h('span', { class: 'stat-label' }, label), h('span', { class: 'stat-value' }, value), sub && h('span', { class: 'stat-sub' }, sub));
+
+    setChildren(
+      body,
+      h(
+        'div',
+        { class: 'stats' },
+        stat('オンライン', `${online.length}人`, '直近2〜3分'),
+        stat('24時間以内', `${today.length}人`),
+        stat('これまで', `${users.length}人`, `ゲスト ${guests} / Google ${users.length - guests}`),
+      ),
+      h('p', { class: 'section-label' }, 'ユーザー（最終アクセス順）'),
+      h(
+        'ul',
+        { class: 'member-list' },
+        sorted.map((u) =>
+          h(
+            'li',
+            {},
+            onlineDot(store.isOnline(u.lastSeen, now)),
+            h(
+              'span',
+              { class: 'member-name' },
+              h('span', {}, u.name || '（名前なし）', u.id === user.uid && '（自分）'),
+              h('span', { class: 'member-seen' }, store.isOnline(u.lastSeen, now) ? 'オンライン' : timeAgo(store.millis(u.lastSeen))),
+            ),
+            u.guest && h('span', { class: 'badge muted' }, 'ゲスト'),
+          ),
+        ),
+      ),
+      h('p', { class: 'welcome-note' }, 'この機能を追加した後にアプリを開いた人が対象です。'),
+    );
+  }
+
+  const ticker = setInterval(render, 15 * 1000);
+  const unwatch = store.watchPresence(
+    (list) => {
+      users = list;
+      render();
+    },
+    (e) => {
+      showError(e);
+      location.hash = '#/';
+    },
+  );
+  return () => {
+    clearInterval(ticker);
+    unwatch();
   };
 }
 
@@ -448,6 +552,7 @@ function checklistView(root, { groupId, listId }) {
 const routes = [
   [/^#\/g\/([\w-]+)\/l\/([\w-]+)$/, (m) => [checklistView, { groupId: m[1], listId: m[2] }]],
   [/^#\/g\/([\w-]+)$/, (m) => [groupView, { groupId: m[1] }]],
+  [/^#\/admin$/, () => [adminView, {}]],
 ];
 
 let unmount = null;
@@ -476,7 +581,28 @@ function route() {
   unmount = homeView(app);
 }
 
-window.addEventListener('hashchange', route);
+window.addEventListener('hashchange', () => {
+  route();
+  heartbeat();
+});
+
+// ---- オンライン表示のための「今開いてるよ」の記録 ----
+// 画面が表示されている間だけ 1 分ごとに記録する（見ているグループがあればそのグループにも）
+
+let lastBeat = { at: 0, groupId: null };
+
+function heartbeat(force = false) {
+  if (!user || document.visibilityState !== 'visible') return;
+  const groupId = location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null;
+  const now = Date.now();
+  // グループを移動した直後はすぐ記録、それ以外は 1 分に 1 回まで
+  if (!force && groupId === lastBeat.groupId && now - lastBeat.at < 55 * 1000) return;
+  lastBeat = { at: now, groupId };
+  store.touchPresence(groupId).catch(() => {});
+}
+
+setInterval(() => heartbeat(), 60 * 1000);
+document.addEventListener('visibilitychange', () => heartbeat(true));
 
 auth.watchUser((u) => {
   user = u;
@@ -491,6 +617,7 @@ auth.watchUser((u) => {
     });
   }
   if (!authBusy) route();
+  heartbeat(true);
 });
 
 route();

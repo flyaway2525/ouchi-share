@@ -4,6 +4,7 @@
 //   admins/{uid}                      グループを作れる人の許可リスト（コンソールから手で追加）
 //   groups/{groupId}                  グループ。memberIds / members でメンバーを管理
 //   groups/{groupId}/lists/{listId}   リスト。アイテムは items マップとして 1 ドキュメントに入れる
+//   presence/{uid}                    最終アクセス時刻（オンライン表示用。読めるのは本人と管理者だけ）
 //
 // watch〜 は変更があるたびに cb を呼ぶ（他のメンバーの編集もリアルタイムに届く）。
 // 戻り値の関数を呼ぶと監視をやめる。
@@ -19,6 +20,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  serverTimestamp,
   setDoc,
   updateDoc,
   where,
@@ -50,8 +52,20 @@ function byCreatedAt(a, b) {
   return (a.createdAt ?? 0) - (b.createdAt ?? 0);
 }
 
+// 書き込み直後でサーバー時刻が未確定のときは、手元の推定時刻を使う
 function withId(snap) {
-  return { id: snap.id, ...snap.data() };
+  return { id: snap.id, ...snap.data({ serverTimestamps: 'estimate' }) };
+}
+
+// この時間以内にアクセスがあればオンラインとみなす（記録は 1 分ごと）
+export const ONLINE_MS = 150 * 1000;
+
+export function millis(ts) {
+  return ts?.toMillis?.() ?? 0;
+}
+
+export function isOnline(ts, now = Date.now()) {
+  return now - millis(ts) < ONLINE_MS;
 }
 
 function toList(snap) {
@@ -147,6 +161,21 @@ export async function syncMyProfile() {
       updateDoc(d.ref, { [`members.${me}.name`]: displayName(), [`members.${me}.guest`]: isGuest() }),
     ),
   );
+}
+
+// ---- オンライン表示 ----
+
+// 「今アプリを開いている」ことを記録する。groupId を渡すとそのグループのメンバー情報にも記録する
+export async function touchPresence(groupId) {
+  const me = uid();
+  const writes = [setDoc(doc(db, 'presence', me), { lastSeen: serverTimestamp(), name: displayName(), guest: isGuest() })];
+  if (groupId) writes.push(updateDoc(groupRef(groupId), { [`members.${me}.lastSeen`]: serverTimestamp() }));
+  await Promise.all(writes);
+}
+
+// 管理者用：全ユーザーの最終アクセス時刻
+export function watchPresence(cb, onError) {
+  return onSnapshot(collection(db, 'presence'), (snap) => cb(snap.docs.map(withId)), onError);
 }
 
 // ---- リスト ----

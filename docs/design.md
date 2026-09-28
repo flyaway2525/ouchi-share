@@ -23,11 +23,12 @@
 
 ```
 admins/{uid}                        グループを作れる人の許可リスト（コンソールから手で追加）
+presence/{uid}                      最終アクセス時刻 { lastSeen, name, guest }（本人と管理者だけ読める）
 groups/{groupId}
   ├─ name, createdAt, createdBy
   ├─ inviteCode                     招待リンクに含める合言葉。作り直すと古いリンクは無効
   ├─ memberIds: [uid, ...]          「自分が入っているグループ」を検索するための配列
-  ├─ members: { uid: { name, role, guest, joinedAt } }   role = owner / member
+  ├─ members: { uid: { name, role, guest, joinedAt, lastSeen } }   role = owner / member
   └─ lists/{listId}
         ├─ type: checklist | inventory | schedule
         ├─ title, emoji, createdAt, createdBy
@@ -39,6 +40,15 @@ groups/{groupId}
   - 1 リスト = 1 ドキュメントなので読み取り回数が少なく、無料枠にやさしい
   - アイテムごとにフィールド単位で更新するので、同時に別のアイテムを編集しても上書きし合わない
   - 1 ドキュメント 1MB までなので、数千件規模のリストには向かない（家庭用途なら十分）
+
+## オンライン表示
+
+- アプリが画面に表示されている間、1 分ごとに `presence/{uid}.lastSeen` を記録する
+  - グループ（またはその中のリスト）を開いているときは `groups/{id}.members.{uid}.lastSeen` にも記録する
+- `lastSeen` が 2.5 分以内ならオンラインとみなす（閉じてから消えるまで最大 2〜3 分の遅れがある）
+- グループ画面：そのグループを見ているメンバーを 🟢 で表示
+- 管理者ダッシュボード（`#/admin`）：全体のオンライン数・24 時間以内・累計（ゲスト / Google 別）
+- 書き込みは 1 人 1 分に 1〜2 回。家族規模なら無料枠（1 日 2 万回）に十分収まる
 
 ## 権限
 

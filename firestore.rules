@@ -33,6 +33,18 @@ service cloud.firestore {
       allow list, write: if false;
     }
 
+    // ---- 最終アクセス時刻（オンライン表示用） ----
+    match /presence/{userId} {
+      allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if signedIn() && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['lastSeen', 'name', 'guest'])
+        && request.resource.data.lastSeen == request.time
+        && request.resource.data.name is string && request.resource.data.name.size() <= 40
+        && request.resource.data.guest == isGuestUser();
+      allow delete: if false;
+    }
+
     // ---- グループ ----
     match /groups/{groupId} {
 
@@ -48,16 +60,18 @@ service cloud.firestore {
         return request.resource.data.diff(resource.data).affectedKeys();
       }
 
-      // メンバーが自分のメンバー情報（名前・ゲスト表示）だけを更新する
+      // メンバーが自分のメンバー情報（名前・ゲスト表示・最終アクセス時刻）だけを更新する
       function isOwnProfileUpdate() {
         let me = request.auth.uid;
         let before = resource.data.members[me];
         let after = request.resource.data.members[me];
+        let keys = after.diff(before).affectedKeys();
         return changed().hasOnly(['members'])
           && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([me])
-          && after.diff(before).affectedKeys().hasOnly(['name', 'guest'])
-          && isNonEmptyString(after.name, 40)
-          && after.guest == isGuestUser();
+          && keys.hasOnly(['name', 'guest', 'lastSeen'])
+          && (!keys.hasAny(['name']) || isNonEmptyString(after.name, 40))
+          && (!keys.hasAny(['guest']) || after.guest == isGuestUser())
+          && (!keys.hasAny(['lastSeen']) || after.lastSeen == request.time);
       }
 
       // 招待リンクからの参加：自分だけを、正しい招待コード付きで追加する
