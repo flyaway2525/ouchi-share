@@ -1,0 +1,14 @@
+{
+  "name": "ouchi-share",
+  "short_name": "ouchi",
+  "description": "家族や友人と共有できる、おうちの情報共有ツール",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fff8f0",
+  "theme_color": "#f08a4b",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
