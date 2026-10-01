@@ -186,11 +186,36 @@ service cloud.firestore {
         function isValidList(d) {
           return isNonEmptyString(d.title, 100)
             && d.type in ['checklist', 'inventory', 'schedule']
-            && d.items is map;
+            && d.items is map
+            && (!('eventId' in d) || d.eventId == null || d.eventId is string);
         }
 
         allow read: if isGroupMember();
         allow create, update: if isGroupMember() && isValidList(request.resource.data);
+        allow delete: if isGroupMember();
+      }
+
+      // ---- イベント（旅行など期間のある予定。日付は "YYYY-MM-DD"） ----
+      match /events/{eventId} {
+        function isGroupMember() {
+          return signedIn()
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        }
+
+        function isDate(v) {
+          return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+        }
+
+        function isValidEvent(d) {
+          return d.keys().hasOnly(['title', 'emoji', 'startDate', 'endDate', 'createdAt', 'createdBy'])
+            && isNonEmptyString(d.title, 60)
+            && d.emoji is string && d.emoji.size() <= 16
+            && isDate(d.startDate) && isDate(d.endDate)
+            && d.startDate <= d.endDate;
+        }
+
+        allow read: if isGroupMember();
+        allow create, update: if isGroupMember() && isValidEvent(request.resource.data);
         allow delete: if isGroupMember();
       }
     }

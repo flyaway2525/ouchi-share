@@ -4,6 +4,7 @@ import { h, setChildren, header, progressBar, actionSheet, confirmSheet, askText
 
 const app = document.getElementById('app');
 const LIST_EMOJIS = ['📝', '🧳', '🧻', '🧊', '🛒', '💊', '🎒', '🏕️', '🎁', '🐶'];
+const EVENT_EMOJIS = ['✈️', '🏕️', '🚗', '🏖️', '♨️', '🎿', '🎂', '🎉', '👶', '📅'];
 
 let user; // undefined = 確認中, null = 未ログイン
 let isAdmin = false;
@@ -385,6 +386,225 @@ function homeView(root) {
 
 // ---- 画面：グループ内のリスト一覧 ----
 
+// ---- 日付 ----
+// 日付は "YYYY-MM-DD" の文字列で扱う（端末のタイムゾーンでの今日と比べる）
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function daysBetween(a, b) {
+  return Math.round((new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 86400000);
+}
+
+function fmtDate(str) {
+  const d = new Date(`${str}T00:00:00`);
+  return `${d.getMonth() + 1}/${d.getDate()}(${'日月火水木金土'[d.getDay()]})`;
+}
+
+function fmtRange(ev) {
+  return ev.startDate === ev.endDate ? fmtDate(ev.startDate) : `${fmtDate(ev.startDate)} 〜 ${fmtDate(ev.endDate)}`;
+}
+
+function eventStatus(ev, today = todayStr()) {
+  if (today < ev.startDate) {
+    const days = daysBetween(today, ev.startDate);
+    return { kind: 'upcoming', label: days === 1 ? '明日から' : `あと${days}日` };
+  }
+  if (today <= ev.endDate) return { kind: 'ongoing', label: '開催中' };
+  return { kind: 'past', label: '終了' };
+}
+
+// これから・開催中は日付の近い順、終わったものは新しい順
+function sortEvents(events) {
+  const today = todayStr();
+  const active = events.filter((e) => e.endDate >= today).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const past = events.filter((e) => e.endDate < today).sort((a, b) => b.startDate.localeCompare(a.startDate));
+  return { active, past };
+}
+
+// ---- イベントの作成・編集シート ----
+
+function eventSheet({ title = '', emoji = EVENT_EMOJIS[0], startDate = todayStr(), endDate } = {}, okLabel = '作成') {
+  let chosen = emoji;
+  return openSheet((close) => {
+    const titleInput = h('input', { class: 'text-input', value: title, placeholder: '例：沖縄旅行', maxlength: 60, 'aria-label': 'イベント名' });
+    const startInput = h('input', { class: 'text-input', type: 'date', value: startDate, 'aria-label': '開始日' });
+    const endInput = h('input', { class: 'text-input', type: 'date', value: endDate ?? startDate, 'aria-label': '終了日' });
+    // 開始日を後ろにずらしたら、終了日も追いつかせる
+    startInput.addEventListener('change', () => {
+      if (!endInput.value || endInput.value < startInput.value) endInput.value = startInput.value;
+    });
+    const emojis = [emoji, ...EVENT_EMOJIS.filter((e) => e !== emoji)];
+    const picker = h(
+      'div',
+      { class: 'emoji-picker' },
+      emojis.map((em, i) => {
+        const btn = h(
+          'button',
+          {
+            type: 'button',
+            class: `emoji-btn${i === 0 ? ' selected' : ''}`,
+            onClick: () => {
+              chosen = em;
+              picker.querySelectorAll('.emoji-btn').forEach((b) => b.classList.remove('selected'));
+              btn.classList.add('selected');
+            },
+          },
+          em,
+        );
+        return btn;
+      }),
+    );
+    return [
+      h('div', { class: 'sheet-title' }, okLabel === '作成' ? '新しいイベント' : 'イベントを編集'),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            const t = titleInput.value.trim();
+            if (!t) return titleInput.focus();
+            if (!startInput.value || !endInput.value) return toast('日付を入れてください');
+            if (endInput.value < startInput.value) return toast('終了日が開始日より前になっています');
+            close({ title: t, emoji: chosen, startDate: startInput.value, endDate: endInput.value });
+          },
+        },
+        picker,
+        titleInput,
+        h('div', { class: 'date-row' }, h('label', {}, '開始', startInput), h('label', {}, '終了', endInput)),
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, okLabel),
+        ),
+      ),
+    ];
+  });
+}
+
+// ---- 取り込み元のリストを選ぶシート ----
+// 日常のリストと、イベント（新しい順）のリストから選ぶ
+
+async function pickSourceList(groupId, { excludeListId, title }) {
+  let lists, events;
+  try {
+    [lists, events] = await Promise.all([store.fetchLists(groupId), store.fetchEvents(groupId)]);
+  } catch (e) {
+    showError(e);
+    return null;
+  }
+  lists = lists.filter((l) => l.id !== excludeListId && l.total > 0);
+  if (lists.length === 0) {
+    toast('取り込めるリストがありません（アイテムのあるリストがまだありません）');
+    return null;
+  }
+  const daily = lists.filter((l) => !l.eventId);
+  const byEvent = [...events]
+    .sort((a, b) => b.startDate.localeCompare(a.startDate))
+    .map((ev) => ({ ev, lists: lists.filter((l) => l.eventId === ev.id) }))
+    .filter((x) => x.lists.length);
+
+  return openSheet((close) => {
+    const row = (l) =>
+      h(
+        'button',
+        { class: 'source-row', onClick: () => close(l) },
+        h('span', { class: 'source-emoji' }, l.emoji),
+        h('span', { class: 'source-title' }, l.title),
+        h('span', { class: 'source-count' }, `${l.total}件`),
+      );
+    return [
+      h('div', { class: 'sheet-title' }, title),
+      h(
+        'div',
+        { class: 'source-list' },
+        daily.length > 0 && h('p', { class: 'source-group' }, '🏡 日常'),
+        daily.map(row),
+        byEvent.map(({ ev, lists: ls }) => [h('p', { class: 'source-group' }, `${ev.emoji} ${ev.title}（${fmtRange(ev)}）`), ls.map(row)]),
+      ),
+      h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'キャンセル'),
+    ];
+  });
+}
+
+// ---- 取り込むアイテムを選ぶシート ----
+// すでに同じ名前のアイテムがあるものは、最初はチェックを外しておく
+
+function pickItems(source, existingTexts = []) {
+  const existing = new Set(existingTexts.map((t) => t.trim()));
+  const state = source.items.map((i) => ({ text: i.text, selected: !existing.has(i.text.trim()), dup: existing.has(i.text.trim()) }));
+  return openSheet((close) => {
+    const okBtn = h('button', { type: 'button', class: 'btn primary' });
+    const refresh = () => {
+      const n = state.filter((x) => x.selected).length;
+      okBtn.textContent = `${n}件を追加`;
+      okBtn.disabled = n === 0;
+    };
+    refresh();
+    okBtn.addEventListener('click', () => close(state.filter((x) => x.selected).map((x) => x.text)));
+    return [
+      h('div', { class: 'sheet-title' }, `「${source.title}」から追加`),
+      h(
+        'ul',
+        { class: 'items pick-items' },
+        state.map((x) =>
+          h(
+            'li',
+            { class: 'item' },
+            h(
+              'label',
+              { class: 'item-label' },
+              h('input', {
+                type: 'checkbox',
+                class: 'item-check',
+                checked: x.selected,
+                onChange: (e) => {
+                  x.selected = e.target.checked;
+                  refresh();
+                },
+              }),
+              h('span', { class: 'item-text' }, x.text),
+              x.dup && h('span', { class: 'badge muted' }, '追加済み'),
+            ),
+          ),
+        ),
+      ),
+      h('div', { class: 'sheet-buttons' }, h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'), okBtn),
+    ];
+  });
+}
+
+// ---- リストを追加（新規 or 取り込み） ----
+
+function addListMenu(groupId, eventId = null) {
+  actionSheet('リストを追加', [
+    {
+      label: '新しいチェックリストを作る',
+      onClick: async () => {
+        const res = await askText({ title: '新しいチェックリスト', placeholder: eventId ? '例：持ち物' : '例：日用品の在庫', okLabel: '作成', emojis: LIST_EMOJIS });
+        if (res) store.createList(groupId, { title: res.text, emoji: res.emoji, eventId }).then((id) => (location.hash = `#/g/${groupId}/l/${id}`), showError);
+      },
+    },
+    {
+      label: 'ほかのリストを丸ごと取り込む',
+      onClick: async () => {
+        const source = await pickSourceList(groupId, { title: '取り込むリストを選ぶ' });
+        if (!source) return;
+        store
+          .copyListAsNew(groupId, source, { eventId })
+          .then((id) => {
+            toast(`「${source.title}」を取り込みました（チェックは外してあります）`);
+            location.hash = `#/g/${groupId}/l/${id}`;
+          }, showError);
+      },
+    },
+  ]);
+}
+
 async function renameInGroup(group) {
   const current = group.members?.[user.uid]?.name ?? auth.displayName();
   const name = await askText({ title: `「${group.name}」での名前`, value: current, placeholder: '例：パパ、たろう', okLabel: '保存' });
@@ -572,55 +792,195 @@ function groupView(root, { groupId }) {
     onGone,
   );
 
-  const unwatchLists = store.watchLists(
-    groupId,
-    (lists) => {
-      setChildren(
-        body,
-        members,
-        h('p', { class: 'section-label' }, 'リスト'),
-        lists.length === 0 && h('p', { class: 'empty' }, 'まだリストがありません'),
+  let lists = null;
+  let events = null;
+  let showPast = false;
+
+  function renderBody() {
+    if (!lists || !events) return;
+    const daily = lists.filter((l) => !l.eventId);
+    const { active, past } = sortEvents(events);
+    const eventCard = (ev) => {
+      const st = eventStatus(ev);
+      const evLists = lists.filter((l) => l.eventId === ev.id);
+      const total = evLists.reduce((n, l) => n + l.total, 0);
+      const done = evLists.reduce((n, l) => n + l.done, 0);
+      return h(
+        'a',
+        { class: `card event-card ${st.kind}`, href: `#/g/${groupId}/e/${ev.id}` },
+        h('span', { class: 'card-icon' }, ev.emoji),
         h(
-          'div',
-          { class: 'card-list' },
-          lists.map((l) =>
-            h(
-              'a',
-              { class: 'card', href: `#/g/${groupId}/l/${l.id}` },
-              h('span', { class: 'card-icon' }, l.emoji),
-              h(
-                'span',
-                { class: 'card-main' },
-                h('span', { class: 'card-title' }, l.title),
-                h('span', { class: 'card-sub' }, l.total ? `${l.done} / ${l.total} 完了` : '空のリスト'),
-                l.total > 0 && progressBar(l.done, l.total),
-              ),
-              h('span', { class: 'chevron' }, '›'),
-            ),
-          ),
+          'span',
+          { class: 'card-main' },
+          h('span', { class: 'card-title' }, ev.title),
+          h('span', { class: 'card-sub' }, fmtRange(ev), evLists.length > 0 && ` ・ リスト${evLists.length}個`),
+          total > 0 && progressBar(done, total),
         ),
+        h('span', { class: `event-badge ${st.kind}` }, st.label),
+      );
+    };
+    setChildren(
+      body,
+      members,
+      h('p', { class: 'section-label' }, '📅 イベント'),
+      active.length === 0 && h('p', { class: 'empty small' }, '予定しているイベントはありません'),
+      h('div', { class: 'card-list' }, active.map(eventCard)),
+      past.length > 0 &&
         h(
           'button',
           {
-            class: 'add-card',
-            onClick: async () => {
-              const res = await askText({ title: '新しいチェックリスト', placeholder: '例：キャンプの持ち物', okLabel: '作成', emojis: LIST_EMOJIS });
-              if (res) {
-                store.createList(groupId, { title: res.text, emoji: res.emoji }).then((id) => (location.hash = `#/g/${groupId}/l/${id}`), showError);
-              }
+            class: 'past-toggle',
+            onClick: () => {
+              showPast = !showPast;
+              renderBody();
             },
           },
-          '＋ リストを作成',
+          `${showPast ? '▾' : '▸'} 過去のイベント（${past.length}）`,
         ),
-      );
+      showPast && h('div', { class: 'card-list' }, past.map(eventCard)),
+      h(
+        'button',
+        {
+          class: 'add-card',
+          onClick: async () => {
+            const res = await eventSheet();
+            if (res) store.createEvent(groupId, res).then((id) => (location.hash = `#/g/${groupId}/e/${id}`), showError);
+          },
+        },
+        '＋ イベントを作成',
+      ),
+      h('p', { class: 'section-label' }, '🏡 日常'),
+      daily.length === 0 && h('p', { class: 'empty small' }, 'まだリストがありません'),
+      h('div', { class: 'card-list' }, daily.map((l) => listCard(groupId, l))),
+      h('button', { class: 'add-card', onClick: () => addListMenu(groupId) }, '＋ リストを追加'),
+    );
+  }
+
+  const unwatchLists = store.watchLists(
+    groupId,
+    (ls) => {
+      lists = ls;
+      renderBody();
     },
     onGone,
+  );
+  // イベントが読めなくても（ルール未反映など）日常のリストは使えるように、エラー時は空として扱う
+  const unwatchEvents = store.watchEvents(
+    groupId,
+    (evs) => {
+      events = evs;
+      renderBody();
+    },
+    (e) => {
+      console.warn('イベントを読み込めませんでした', e);
+      events = [];
+      renderBody();
+    },
   );
 
   return () => {
     clearInterval(ticker);
     unwatchRecovery?.();
     unwatchGroup();
+    unwatchLists();
+    unwatchEvents();
+  };
+}
+
+function listCard(groupId, l) {
+  return h(
+    'a',
+    { class: 'card', href: `#/g/${groupId}/l/${l.id}` },
+    h('span', { class: 'card-icon' }, l.emoji),
+    h(
+      'span',
+      { class: 'card-main' },
+      h('span', { class: 'card-title' }, l.title),
+      h('span', { class: 'card-sub' }, l.total ? `${l.done} / ${l.total} 完了` : '空のリスト'),
+      l.total > 0 && progressBar(l.done, l.total),
+    ),
+    h('span', { class: 'chevron' }, '›'),
+  );
+}
+
+// ---- 画面：イベント ----
+
+function eventView(root, { groupId, eventId }) {
+  const top = h('div');
+  const body = h('main', { class: 'content' });
+  root.append(top, body);
+  let ev = null;
+  let lists = null;
+
+  function render() {
+    if (!ev || !lists) return;
+    const st = eventStatus(ev);
+    const mine = lists.filter((l) => l.eventId === eventId);
+    setChildren(
+      top,
+      header({
+        title: `${ev.emoji} ${ev.title}`,
+        back: `#/g/${groupId}`,
+        onMenu: () =>
+          actionSheet(ev.title, [
+            {
+              label: 'イベントを編集',
+              onClick: async () => {
+                const res = await eventSheet(ev, '保存');
+                if (res) store.updateEvent(groupId, eventId, res).catch(showError);
+              },
+            },
+            {
+              label: 'イベントを削除',
+              danger: true,
+              onClick: async () => {
+                if (await confirmSheet(`「${ev.title}」と中のリスト（${mine.length}個）を削除しますか？`)) {
+                  store.deleteEvent(groupId, eventId).then(() => (location.hash = `#/g/${groupId}`), showError);
+                }
+              },
+            },
+          ]),
+      }),
+    );
+    setChildren(
+      body,
+      h(
+        'div',
+        { class: 'event-hero' },
+        h('span', { class: 'event-dates' }, fmtRange(ev)),
+        h('span', { class: `event-badge ${st.kind}` }, st.label),
+      ),
+      h('p', { class: 'section-label' }, 'リスト'),
+      mine.length === 0 && h('p', { class: 'empty small' }, '持ち物リストなどを追加しましょう。日常のリストや過去のイベントから取り込むこともできます。'),
+      h('div', { class: 'card-list' }, mine.map((l) => listCard(groupId, l))),
+      h('button', { class: 'add-card', onClick: () => addListMenu(groupId, eventId) }, '＋ リストを追加'),
+    );
+  }
+
+  const onGone = (e) => {
+    if (e?.code !== 'permission-denied' && e?.message !== 'not-found') return showError(e);
+    toast('イベントが見つかりません');
+    location.hash = `#/g/${groupId}`;
+  };
+  const unwatchEvent = store.watchEvent(
+    groupId,
+    eventId,
+    (x) => {
+      ev = x;
+      render();
+    },
+    onGone,
+  );
+  const unwatchLists = store.watchLists(
+    groupId,
+    (ls) => {
+      lists = ls;
+      render();
+    },
+    onGone,
+  );
+  return () => {
+    unwatchEvent();
     unwatchLists();
   };
 }
@@ -724,13 +1084,23 @@ function checklistView(root, { groupId, listId }) {
       const { items, done } = list;
       const sorted = [...items.filter((i) => !i.checked), ...items.filter((i) => i.checked)];
 
+      const back = list.eventId ? `#/g/${groupId}/e/${list.eventId}` : `#/g/${groupId}`;
       setChildren(
         top,
         header({
           title: `${list.emoji} ${list.title}`,
-          back: `#/g/${groupId}`,
+          back,
           onMenu: () =>
             actionSheet(list.title, [
+              {
+                label: 'ほかのリストからアイテムを追加',
+                onClick: async () => {
+                  const source = await pickSourceList(groupId, { excludeListId: listId, title: '追加元のリストを選ぶ' });
+                  if (!source) return;
+                  const texts = await pickItems(source, items.map((i) => i.text));
+                  if (texts?.length) store.addItems(groupId, listId, texts).then(() => toast(`${texts.length}件を追加しました`), showError);
+                },
+              },
               {
                 label: 'リスト名を変更',
                 onClick: async () => {
@@ -751,7 +1121,7 @@ function checklistView(root, { groupId, listId }) {
                 danger: true,
                 onClick: async () => {
                   if (await confirmSheet(`「${list.title}」を削除しますか？`)) {
-                    store.deleteList(groupId, listId).then(() => (location.hash = `#/g/${groupId}`), showError);
+                    store.deleteList(groupId, listId).then(() => (location.hash = back), showError);
                   }
                 },
               },
@@ -764,7 +1134,7 @@ function checklistView(root, { groupId, listId }) {
         h(
           'div',
           { class: 'summary' },
-          h('span', {}, items.length ? `${done} / ${items.length} 完了` : 'アイテムを追加しましょう'),
+          h('span', {}, items.length ? `${done} / ${items.length} 完了` : 'アイテムを追加しましょう（右上の ⋯ からほかのリストの取り込みもできます）'),
           items.length > 0 && done === items.length && h('span', { class: 'summary-done' }, '🎉 ぜんぶ完了！'),
         ),
         items.length > 0 && progressBar(done, items.length),
@@ -808,6 +1178,7 @@ function checklistView(root, { groupId, listId }) {
 
 const routes = [
   [/^#\/g\/([\w-]+)\/l\/([\w-]+)$/, (m) => [checklistView, { groupId: m[1], listId: m[2] }]],
+  [/^#\/g\/([\w-]+)\/e\/([\w-]+)$/, (m) => [eventView, { groupId: m[1], eventId: m[2] }]],
   [/^#\/g\/([\w-]+)$/, (m) => [groupView, { groupId: m[1] }]],
   [/^#\/admin$/, () => [adminView, {}]],
 ];

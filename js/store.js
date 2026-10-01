@@ -4,6 +4,8 @@
 //   admins/{uid}                      グループを作れる人の許可リスト（コンソールから手で追加）
 //   groups/{groupId}                  グループ。memberIds / members でメンバーを管理
 //   groups/{groupId}/lists/{listId}   リスト。アイテムは items マップとして 1 ドキュメントに入れる
+//                                     eventId があればそのイベントのリスト、なければ「日常」のリスト
+//   groups/{groupId}/events/{eventId} イベント（旅行など、期間のある予定）
 //   recovery/{code}                   ゲストの復旧ID（下の「ゲストの復旧ID」を参照）
 //   presence/{uid}                    最終アクセス時刻（オンライン表示用。読めるのは本人と管理者だけ）
 //
@@ -34,6 +36,8 @@ import { currentUser, displayName, isGuest } from './auth.js';
 const groupRef = (groupId) => doc(db, 'groups', groupId);
 const listsCol = (groupId) => collection(db, 'groups', groupId, 'lists');
 const listRef = (groupId, listId) => doc(db, 'groups', groupId, 'lists', listId);
+const eventsCol = (groupId) => collection(db, 'groups', groupId, 'events');
+const eventRef = (groupId, eventId) => doc(db, 'groups', groupId, 'events', eventId);
 
 function newId() {
   return doc(collection(db, '_')).id;
@@ -136,9 +140,10 @@ export function inviteUrl(group) {
 }
 
 export async function deleteGroup(groupId) {
-  const lists = await getDocs(listsCol(groupId));
+  const [lists, events] = await Promise.all([getDocs(listsCol(groupId)), getDocs(eventsCol(groupId))]);
   const batch = writeBatch(db);
   lists.forEach((l) => batch.delete(l.ref));
+  events.forEach((e) => batch.delete(e.ref));
   batch.delete(groupRef(groupId));
   await batch.commit();
 }
@@ -291,6 +296,49 @@ export function watchPresence(cb, onError) {
   return onSnapshot(collection(db, 'presence'), (snap) => cb(snap.docs.map(withId)), onError);
 }
 
+// ---- イベント（旅行など期間のある予定） ----
+// 日付は "YYYY-MM-DD" の文字列で持つ（タイムゾーンに左右されない）
+
+function withEventFields(snap) {
+  return withId(snap);
+}
+
+export function watchEvents(groupId, cb, onError) {
+  return onSnapshot(eventsCol(groupId), (snap) => cb(snap.docs.map(withEventFields)), onError);
+}
+
+export function watchEvent(groupId, eventId, cb, onError) {
+  return onSnapshot(
+    eventRef(groupId, eventId),
+    (snap) => (snap.exists() ? cb(withEventFields(snap)) : onError?.(new Error('not-found'))),
+    onError,
+  );
+}
+
+export async function fetchEvents(groupId) {
+  const snap = await getDocs(eventsCol(groupId));
+  return snap.docs.map(withEventFields);
+}
+
+export async function createEvent(groupId, { title, emoji, startDate, endDate }) {
+  const id = newId();
+  await setDoc(eventRef(groupId, id), { title, emoji, startDate, endDate, createdAt: Date.now(), createdBy: uid() });
+  return id;
+}
+
+export async function updateEvent(groupId, eventId, patch) {
+  await updateDoc(eventRef(groupId, eventId), patch);
+}
+
+// イベントと、その中のリストをまとめて消す
+export async function deleteEvent(groupId, eventId) {
+  const lists = await getDocs(query(listsCol(groupId), where('eventId', '==', eventId)));
+  const batch = writeBatch(db);
+  lists.forEach((l) => batch.delete(l.ref));
+  batch.delete(eventRef(groupId, eventId));
+  await batch.commit();
+}
+
 // ---- リスト ----
 
 export function watchLists(groupId, cb, onError) {
@@ -306,10 +354,35 @@ export function watchList(groupId, listId, cb, onError) {
   );
 }
 
-export async function createList(groupId, { title, emoji = '📝', type = 'checklist' }) {
+// 1 回だけ読む（取り込み元を選ぶときなど）
+export async function fetchLists(groupId) {
+  const snap = await getDocs(query(listsCol(groupId), orderBy('createdAt')));
+  return snap.docs.map(toList);
+}
+
+export async function createList(groupId, { title, emoji = '📝', type = 'checklist', eventId = null, items = {} }) {
   const id = newId();
-  await setDoc(listRef(groupId, id), { type, title, emoji, createdAt: Date.now(), createdBy: uid(), items: {} });
+  await setDoc(listRef(groupId, id), { type, title, emoji, eventId, createdAt: Date.now(), createdBy: uid(), items });
   return id;
+}
+
+// アイテムのテキストから、チェックの外れた新しい items マップを作る
+function freshItems(texts) {
+  const now = Date.now();
+  return Object.fromEntries(texts.map((text, i) => [newId(), { text, checked: false, createdAt: now + i }]));
+}
+
+// 取り込み A：ほかのリストを丸ごと新しいリストとしてコピーする（チェックは外す）
+export async function copyListAsNew(groupId, source, { eventId = null, title = source.title, emoji = source.emoji } = {}) {
+  return createList(groupId, { title, emoji, eventId, items: freshItems(source.items.map((i) => i.text)) });
+}
+
+// 取り込み B：今のリストに、選んだアイテムを追加する
+export async function addItems(groupId, listId, texts) {
+  if (!texts.length) return;
+  const patch = {};
+  for (const [id, item] of Object.entries(freshItems(texts))) patch[`items.${id}`] = item;
+  await updateDoc(listRef(groupId, listId), patch);
 }
 
 export async function updateList(groupId, listId, patch) {

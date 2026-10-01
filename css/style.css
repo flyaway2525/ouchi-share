@@ -875,3 +875,136 @@ a {
   font-weight: 600;
   color: var(--accent);
 }
+
+/* ---- イベント ---- */
+
+.empty.small {
+  margin: 8px 4px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.event-card.past {
+  opacity: 0.7;
+}
+
+.event-badge {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.event-badge.ongoing {
+  background: #34c759;
+  color: #ffffff;
+}
+
+.event-badge.past {
+  background: var(--border);
+  color: var(--muted);
+}
+
+.past-toggle {
+  margin: 10px 0 0;
+  padding: 6px 4px;
+  border: 0;
+  background: none;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.event-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.event-dates {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.date-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.date-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- 取り込み ---- */
+
+.sheet {
+  max-height: 88dvh;
+  overflow-y: auto;
+}
+
+.source-list {
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.source-group {
+  margin: 0;
+  padding: 10px 14px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.source-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  text-align: left;
+}
+
+.source-emoji {
+  font-size: 20px;
+}
+
+.source-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-count {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pick-items {
+  margin: 0 0 12px;
+}
+
+.pick-items .badge {
+  margin-left: auto;
+}
