@@ -24,6 +24,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -337,6 +338,49 @@ export async function deleteEvent(groupId, eventId) {
   lists.forEach((l) => batch.delete(l.ref));
   batch.delete(eventRef(groupId, eventId));
   await batch.commit();
+}
+
+// ---- 旅程（イベントのスケジュール） ----
+// イベントごとに 1 つ、type: 'schedule' のリストを ID「sch-{eventId}」で持つ（最初の予定を追加したときに作る）。
+// items の 1 件 = { title, place, memo, date, start, duration, createdAt }
+//   date: "YYYY-MM-DD"（null なら「行きたい候補」）、start: "HH:MM"（候補は null）、duration: 分
+
+export function scheduleId(eventId) {
+  return `sch-${eventId}`;
+}
+
+async function ensureSchedule(groupId, eventId) {
+  const ref = listRef(groupId, scheduleId(eventId));
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) {
+      tx.set(ref, { type: 'schedule', title: '旅程', emoji: '🗓', eventId, createdAt: Date.now(), createdBy: uid(), items: {} });
+    }
+  });
+  return ref;
+}
+
+export async function addScheduleItem(groupId, eventId, item) {
+  const ref = await ensureSchedule(groupId, eventId);
+  await updateDoc(ref, { [`items.${newId()}`]: { ...item, createdAt: Date.now() } });
+}
+
+// 1 件の一部の項目だけを書き換える（ほかの人が同時に別の予定を編集しても上書きし合わない）
+export async function updateScheduleItem(groupId, eventId, itemId, patch) {
+  const fields = {};
+  for (const [k, v] of Object.entries(patch)) fields[`items.${itemId}.${k}`] = v;
+  await updateDoc(listRef(groupId, scheduleId(eventId)), fields);
+}
+
+// 並べ替えで詰め直した開始時刻をまとめて書き込む  { itemId: "HH:MM" }
+export async function setScheduleStarts(groupId, eventId, starts) {
+  const fields = {};
+  for (const [id, start] of Object.entries(starts)) fields[`items.${id}.start`] = start;
+  if (Object.keys(fields).length) await updateDoc(listRef(groupId, scheduleId(eventId)), fields);
+}
+
+export async function deleteScheduleItem(groupId, eventId, itemId) {
+  await updateDoc(listRef(groupId, scheduleId(eventId)), { [`items.${itemId}`]: deleteField() });
 }
 
 // ---- リスト ----

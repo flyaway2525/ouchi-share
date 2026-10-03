@@ -5,7 +5,7 @@ rules_version = '2';
 // - グループの中身を読み書きできるのはメンバーだけ（ゲストも編集可）
 // - メンバー以外は、正しい招待コードを知っているときだけ自分をメンバーに追加できる
 //
-// 反映方法: Firebase コンソール → Firestore Database → ルール に貼り付けて「公開」
+// 反映方法: firebase deploy --only firestore:rules（Firebase CLI。設定は firebase.json / .firebaserc）
 
 service cloud.firestore {
   match /databases/{database}/documents {

@@ -1008,3 +1008,139 @@ a {
 .pick-items .badge {
   margin-left: auto;
 }
+
+/* ---- 旅程 ---- */
+
+.sch-day {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.sch-day.candidates {
+  border-style: dashed;
+}
+
+.sch-day-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 14px 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.sch-day-date {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.sch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sch-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 4px 10px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.sch-time {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  width: 56px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.sch-end {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.sch-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sch-title {
+  overflow-wrap: anywhere;
+}
+
+.sch-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sch-place {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.sch-memo {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sch-more {
+  flex-shrink: 0;
+  width: 40px;
+  height: 36px;
+  margin-top: -6px;
+  border: 0;
+  background: none;
+  font-size: 20px;
+  color: var(--muted);
+}
+
+.sch-plan {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.sch-add {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: none;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--accent);
+}
+
+.memo-input {
+  height: auto;
+  min-height: 64px;
+  padding: 10px 14px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+select.text-input {
+  appearance: auto;
+}
