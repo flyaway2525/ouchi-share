@@ -1212,3 +1212,150 @@ select.text-input {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* ---- 旅程：全体（日のカード）と 1 日の画面 ---- */
+
+.sch-day-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sch-day-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.sch-day-card:active {
+  opacity: 0.85;
+}
+
+.sch-day-card.today {
+  border-color: #34c759;
+}
+
+.sch-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sch-card-day {
+  font-weight: 700;
+}
+
+.sch-card-count {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.sch-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.sch-card-span {
+  color: var(--muted);
+}
+
+.sch-card-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sch-card-line b {
+  font-variant-numeric: tabular-nums;
+}
+
+.sch-card-more {
+  color: var(--muted);
+}
+
+/* 全体の画面ではドラッグしない（並べ替えは 1 日の画面で） */
+.schedule.overview .sch-handle {
+  display: none;
+}
+
+.schedule.overview .sch-day.candidates {
+  margin-top: 10px;
+}
+
+.day-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.day-nav-btn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.day-nav-title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.day-nav-day {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.day-nav-date {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* 1 日の画面の予定：長さに比例した高さ。左に色の帯を付けてカレンダーらしく */
+.sch-item.scaled {
+  position: relative;
+  align-items: stretch;
+}
+
+.sch-item.scaled::before {
+  content: '';
+  position: absolute;
+  left: 32px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.6;
+}
+
+.sch-item.scaled .sch-time {
+  padding-left: 8px;
+}
+
+.sch-empty {
+  margin: 4px 14px 10px;
+}

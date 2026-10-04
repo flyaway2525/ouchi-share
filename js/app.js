@@ -739,7 +739,8 @@ function enableScheduleDrag(container, onDrop) {
   });
 }
 
-function scheduleSection(groupId, ev, schedule) {
+// focusDate を渡すとその 1 日だけの画面（全体の画面ではカードから 1 日を選ぶ）。1 日だけのイベントは常に 1 日の画面
+function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
   const items = schedule?.items ?? [];
   const days = eventDays(ev);
   const candidates = items.filter((i) => !i.date).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
@@ -798,6 +799,16 @@ function scheduleSection(groupId, ev, schedule) {
     if (date) store.updateScheduleItem(groupId, ev.id, item.id, { date, start: nextStart(items, date), duration: item.duration ?? DEFAULT_DURATION }).catch(showError);
   };
 
+  // 別の日へ移動：移動先の日の最後に入れて、移動先と元の日を詰め直す（ドロップと同じ処理）
+  const moveToDay = async (item) => {
+    const date = await openSheet((close) => [
+      h('div', { class: 'sheet-title' }, `「${item.title}」をどの日に移す？`),
+      ...days.filter((d) => d !== item.date).map((d) => h('button', { class: 'sheet-action', onClick: () => close(d) }, `${days.indexOf(d) + 1}日目 ${fmtDate(d)}`)),
+      h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'キャンセル'),
+    ]);
+    if (date) onDrop(item.id, date, [...dayItems(items, date).map((x) => x.id), item.id]);
+  };
+
   const itemMenu = (item, day) => {
     const i = day ? day.findIndex((x) => x.id === item.id) : -1;
     actionSheet(item.title, [
@@ -810,6 +821,7 @@ function scheduleSection(groupId, ev, schedule) {
       },
       day && i > 0 && { label: '↑ 上へ（時刻を詰め直す）', onClick: () => move(item, -1) },
       day && i < day.length - 1 && { label: '↓ 下へ（時刻を詰め直す）', onClick: () => move(item, 1) },
+      item.date && days.length > 1 && { label: '📅 別の日へ移動', onClick: () => moveToDay(item) },
       item.date
         ? { label: '💡 行きたい候補に戻す', onClick: () => store.updateScheduleItem(groupId, ev.id, item.id, { date: null, start: null }).catch(showError) }
         : { label: '📅 日程に入れる', onClick: () => scheduleInto(item) },
@@ -832,12 +844,14 @@ function scheduleSection(groupId, ev, schedule) {
       item.memo && h('span', { class: 'sch-memo' }, item.memo),
     );
 
-  const timedRow = (item, day) => {
+  const timedRow = (item, day, { scaled = false } = {}) => {
     const s = toMin(item.start);
     const dur = item.duration ?? DEFAULT_DURATION;
+    // 1 日の画面では、カレンダーのように長さに比例した高さにする（1 時間 ≒ 64px）
+    const height = scaled ? Math.min(Math.max(Math.round((dur / 60) * 64), 52), 280) : null;
     return h(
       'li',
-      { class: 'sch-item', 'data-id': item.id },
+      { class: `sch-item${scaled ? ' scaled' : ''}`, 'data-id': item.id, style: height ? `min-height:${height}px` : null },
       day && h('span', { class: 'sch-handle', 'aria-label': `${item.title} をドラッグして移動`, title: 'ドラッグして移動' }, '⠿'),
       h('span', { class: 'sch-time' }, h('span', {}, fmtTime(s)), h('span', { class: 'sch-end' }, `–${fmtTime(s + dur)}`)),
       h('span', { class: 'sch-main' }, h('span', { class: 'sch-title' }, item.title), details(item)),
@@ -855,21 +869,59 @@ function scheduleSection(groupId, ev, schedule) {
       h('button', { class: 'sch-more', 'aria-label': `${item.title} のメニュー`, onClick: () => itemMenu(item, null) }, '⋮'),
     );
 
+  const today = todayStr();
+  const focus = focusDate ?? (days.length === 1 ? days[0] : null);
+
+  // 1 日の画面：その日の予定（長さに比例した高さ）
+  const focusBlock = (d) => {
+    const day = dayItems(items, d);
+    const first = day[0];
+    const last = day[day.length - 1];
+    return h(
+      'div',
+      { class: 'sch-day focus' },
+      day.length > 0 &&
+        h('div', { class: 'sch-day-head' }, h('span', { class: 'sch-day-date' }, `${day.length}件 ・ ${fmtTime(toMin(first.start))}〜${fmtTime(toMin(last.start) + (last.duration ?? DEFAULT_DURATION))}`)),
+      h('ul', { class: 'sch-list', 'data-drop': d }, day.map((it) => timedRow(it, day, { scaled: true }))),
+      day.length === 0 && h('p', { class: 'empty small sch-empty' }, 'まだ予定がありません。下の「行きたい候補」から ⠿ で持ってくることもできます。'),
+      h('button', { class: 'sch-add', onClick: () => add({ date: d }) }, '＋ 予定を追加'),
+    );
+  };
+
+  // 全体の画面：日ごとのカード（タップでその日の画面へ）
+  const dayCard = (d, n) => {
+    const day = dayItems(items, d);
+    const preview = day.slice(0, 3);
+    const last = day[day.length - 1];
+    return h(
+      'a',
+      { class: `sch-day-card${d === today ? ' today' : ''}`, href: `#/g/${groupId}/e/${ev.id}/d/${d}` },
+      h(
+        'div',
+        { class: 'sch-card-head' },
+        h('span', { class: 'sch-card-day' }, `${n + 1}日目`),
+        h('span', { class: 'sch-day-date' }, fmtDate(d)),
+        d === today && h('span', { class: 'event-badge ongoing' }, '今日'),
+        h('span', { class: 'sch-card-count' }, day.length ? `${day.length}件` : 'まだ予定なし', ' ›'),
+      ),
+      day.length > 0 &&
+        h(
+          'div',
+          { class: 'sch-card-body' },
+          h('span', { class: 'sch-card-span' }, `${fmtTime(toMin(day[0].start))}〜${fmtTime(toMin(last.start) + (last.duration ?? DEFAULT_DURATION))}`),
+          preview.map((it) => h('span', { class: 'sch-card-line' }, h('b', {}, fmtTime(toMin(it.start))), ` ${it.title}`)),
+          day.length > preview.length && h('span', { class: 'sch-card-more' }, `ほか${day.length - preview.length}件`),
+        ),
+    );
+  };
+
   const section = h(
     'div',
-    { class: 'schedule' },
-    h('p', { class: 'section-label' }, '🗓 旅程'),
-    days.map((d, n) => {
-      const day = dayItems(items, d);
-      return h(
-        'div',
-        { class: 'sch-day' },
-        h('div', { class: 'sch-day-head' }, h('span', {}, `${n + 1}日目`), h('span', { class: 'sch-day-date' }, fmtDate(d))),
-        h('ul', { class: 'sch-list', 'data-drop': d }, day.map((it) => timedRow(it, day))),
-        h('button', { class: 'sch-add', onClick: () => add({ date: d }) }, '＋ 予定を追加'),
-      );
-    }),
-    outside.length > 0 &&
+    { class: `schedule${focus ? ' focus-mode' : ' overview'}` },
+    !focusDate && h('p', { class: 'section-label' }, '🗓 旅程'),
+    focus ? focusBlock(focus) : h('div', { class: 'sch-day-cards' }, days.map(dayCard)),
+    !focus &&
+      outside.length > 0 &&
       h(
         'div',
         { class: 'sch-day' },
@@ -879,13 +931,14 @@ function scheduleSection(groupId, ev, schedule) {
     h(
       'div',
       { class: 'sch-day candidates' },
-      h('div', { class: 'sch-day-head' }, h('span', {}, '💡 行きたい候補（日時未定）')),
+      h('div', { class: 'sch-day-head' }, h('span', {}, `💡 行きたい候補（日時未定）${candidates.length ? ` ${candidates.length}件` : ''}`)),
       h('ul', { class: 'sch-list', 'data-drop': '' }, candidates.map(candidateRow)),
       h('button', { class: 'sch-add', onClick: () => add({ date: null }) }, '＋ 候補を追加'),
     ),
-    items.some((i) => i.date && days.includes(i.date)) || candidates.length
-      ? h('p', { class: 'sch-hint' }, '⠿ を押したまま動かすと、順番の入れ替えや別の日への移動ができます（時刻は自動で詰め直します）')
-      : null,
+    focus &&
+      (items.some((i) => i.date === focus) || candidates.length > 0) &&
+      h('p', { class: 'sch-hint' }, `⠿ を押したまま動かすと、順番の入れ替えや候補との行き来ができます（時刻は自動で詰め直します）。${days.length > 1 ? '別の日へは ⋮ →「別の日へ移動」から。' : ''}`),
+    !focus && h('p', { class: 'sch-hint' }, '日をタップすると、その日の予定を時間の長さどおりに表示して、並べ替えや追加ができます。'),
   );
   enableScheduleDrag(section, onDrop);
   return section;
@@ -1312,7 +1365,7 @@ function listCard(groupId, l) {
 
 // ---- 画面：イベント ----
 
-function eventView(root, { groupId, eventId }) {
+function eventView(root, { groupId, eventId, date = null }) {
   const top = h('div');
   const body = h('main', { class: 'content' });
   root.append(top, body);
@@ -1330,6 +1383,34 @@ function eventView(root, { groupId, eventId }) {
     const st = eventStatus(ev);
     const mine = lists.filter((l) => l.eventId === eventId && (l.type ?? 'checklist') === 'checklist');
     const schedule = lists.find((l) => l.id === store.scheduleId(eventId));
+    const days = eventDays(ev);
+    // 1 日の画面：期間外の日付（イベントの日付を変えた後など）や 1 日だけのイベントは、イベントの画面へ
+    if (date && (!days.includes(date) || days.length === 1)) {
+      location.replace(`#/g/${groupId}/e/${eventId}`);
+      return;
+    }
+    if (date) {
+      const n = days.indexOf(date);
+      const dayHref = (d) => `#/g/${groupId}/e/${eventId}/d/${d}`;
+      setChildren(top, header({ title: `${ev.emoji} ${ev.title}`, back: `#/g/${groupId}/e/${eventId}` }));
+      setChildren(
+        body,
+        h(
+          'div',
+          { class: 'day-nav' },
+          n > 0 ? h('a', { class: 'day-nav-btn', href: dayHref(days[n - 1]), 'aria-label': '前の日' }, '‹') : h('span', { class: 'day-nav-btn' }),
+          h(
+            'div',
+            { class: 'day-nav-title' },
+            h('span', { class: 'day-nav-day' }, `${n + 1}日目`, date === todayStr() && h('span', { class: 'event-badge ongoing' }, '今日')),
+            h('span', { class: 'day-nav-date' }, `${fmtDate(date)} ・ ${n + 1} / ${days.length}日`),
+          ),
+          n < days.length - 1 ? h('a', { class: 'day-nav-btn', href: dayHref(days[n + 1]), 'aria-label': '次の日' }, '›') : h('span', { class: 'day-nav-btn' }),
+        ),
+        scheduleSection(groupId, ev, schedule, { focusDate: date }),
+      );
+      return;
+    }
     setChildren(
       top,
       header({
@@ -1594,6 +1675,7 @@ function checklistView(root, { groupId, listId }) {
 const routes = [
   [/^#\/g\/([\w-]+)\/l\/([\w-]+)$/, (m) => [checklistView, { groupId: m[1], listId: m[2] }]],
   [/^#\/g\/([\w-]+)\/e\/([\w-]+)$/, (m) => [eventView, { groupId: m[1], eventId: m[2] }]],
+  [/^#\/g\/([\w-]+)\/e\/([\w-]+)\/d\/(\d{4}-\d{2}-\d{2})$/, (m) => [eventView, { groupId: m[1], eventId: m[2], date: m[3] }]],
   [/^#\/g\/([\w-]+)$/, (m) => [groupView, { groupId: m[1] }]],
   [/^#\/admin$/, () => [adminView, {}]],
 ];
