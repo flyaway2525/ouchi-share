@@ -714,11 +714,11 @@ function enableScheduleDrag(container, onDrop) {
       ghost.style.visibility = 'hidden';
       const el = document.elementFromPoint(centerX, y);
       ghost.style.visibility = '';
-      const list = el?.closest('.sch-day')?.querySelector('.sch-list[data-drop]');
+      const list = el?.closest('.sch-day, .sch-day-card')?.querySelector('.sch-list[data-drop]');
       if (!list) return;
       if (overList !== list) {
-        overList?.closest('.sch-day').classList.remove('drag-over');
-        list.closest('.sch-day').classList.add('drag-over');
+        overList?.closest('.sch-day, .sch-day-card').classList.remove('drag-over');
+        list.closest('.sch-day, .sch-day-card').classList.add('drag-over');
         overList = list;
       }
       const rows = [...list.children].filter((r) => r !== li);
@@ -760,7 +760,7 @@ function enableScheduleDrag(container, onDrop) {
       ghost.remove();
       li.classList.remove('sch-placeholder');
       container.classList.remove('dragging');
-      overList?.closest('.sch-day').classList.remove('drag-over');
+      overList?.closest('.sch-day, .sch-day-card').classList.remove('drag-over');
       const list = li.parentElement;
       scheduleDrag.active = false;
       onDrop(li.dataset.id, list.dataset.drop, [...list.children].map((r) => r.dataset.id));
@@ -919,19 +919,19 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
       item.memo && h('span', { class: 'sch-memo' }, item.memo),
     );
 
-  const timedRow = (item, day, { scaled = false } = {}) => {
+  const timedRow = (item, day, { scaled = false, compact = false } = {}) => {
     const dur = item.duration ?? DEFAULT_DURATION;
     // 1 日の画面では、カレンダーのように長さに比例した高さにする（1 時間 ≒ 64px）。時間未定の予定は高さ固定
     const height = scaled && item.start ? Math.min(Math.max(Math.round((dur / 60) * 64), 52), 280) : null;
     const hint = !item.start && day ? untimedHint(day, item) : null;
     return h(
       'li',
-      { class: `sch-item${scaled && item.start ? ' scaled' : ''}${item.start ? '' : ' untimed'}`, 'data-id': item.id, style: height ? `min-height:${height}px` : null },
+      { class: `sch-item${scaled && item.start ? ' scaled' : ''}${item.start ? '' : ' untimed'}${compact ? ' compact' : ''}`, 'data-id': item.id, style: height ? `min-height:${height}px` : null },
       day && h('span', { class: 'sch-handle', 'aria-label': `${item.title} をドラッグして移動`, title: 'ドラッグして移動' }, '⠿'),
       item.start
         ? h('span', { class: 'sch-time' }, h('span', {}, fmtTime(toMin(item.start))), h('span', { class: 'sch-end' }, `–${fmtTime(endOf(item))}`))
         : h('span', { class: 'sch-time untimed' }, h('span', {}, '時間未定'), hint && h('span', { class: 'sch-end' }, `${hint}以降`)),
-      h('span', { class: 'sch-main' }, h('span', { class: 'sch-title' }, item.title), details(item)),
+      h('span', { class: 'sch-main' }, h('span', { class: 'sch-title' }, item.title), !compact && details(item)),
       h('button', { class: 'sch-more', 'aria-label': `${item.title} のメニュー`, onClick: () => itemMenu(item, day) }, '⋮'),
     );
   };
@@ -968,30 +968,29 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
     );
   };
 
-  // 全体の画面：日ごとのカード（タップでその日の画面へ）
+  // 全体の画面：日ごとのカード。日付の行をタップでその日の画面へ。
+  // 予定は全部 ⠿ 付きの小さな行で並べ、別の日のカードへドラッグして移せる
   const dayCard = (d, n) => {
     const day = dayItems(items, d);
-    const preview = day.slice(0, 3);
     const timed = timedOf(day);
     return h(
-      'a',
-      { class: `sch-day-card${d === today ? ' today' : ''}`, href: `#/g/${groupId}/e/${ev.id}/d/${d}` },
+      'div',
+      { class: `sch-day-card${d === today ? ' today' : ''}` },
       h(
-        'div',
-        { class: 'sch-card-head' },
+        'a',
+        { class: 'sch-card-head', href: `#/g/${groupId}/e/${ev.id}/d/${d}` },
         h('span', { class: 'sch-card-day' }, `${n + 1}日目`),
         h('span', { class: 'sch-day-date' }, fmtDate(d)),
         d === today && h('span', { class: 'event-badge ongoing' }, '今日'),
-        h('span', { class: 'sch-card-count' }, day.length ? `${day.length}件` : 'まだ予定なし', ' ›'),
-      ),
-      day.length > 0 &&
         h(
-          'div',
-          { class: 'sch-card-body' },
-          timed.length > 0 && h('span', { class: 'sch-card-span' }, `${fmtTime(toMin(timed[0].start))}〜${fmtTime(endOf(timed[timed.length - 1]))}`),
-          preview.map((it) => h('span', { class: 'sch-card-line' }, h('b', {}, it.start ? fmtTime(toMin(it.start)) : '未定'), ` ${it.title}`)),
-          day.length > preview.length && h('span', { class: 'sch-card-more' }, `ほか${day.length - preview.length}件`),
+          'span',
+          { class: 'sch-card-count' },
+          day.length ? `${day.length}件` : 'まだ予定なし',
+          timed.length > 0 && ` ・ ${fmtTime(toMin(timed[0].start))}〜${fmtTime(endOf(timed[timed.length - 1]))}`,
+          ' ›',
         ),
+      ),
+      h('ul', { class: 'sch-list', 'data-drop': d }, day.map((it) => timedRow(it, day, { compact: true }))),
     );
   };
 
@@ -1018,7 +1017,7 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
     focus &&
       (items.some((i) => i.date === focus) || candidates.length > 0) &&
       h('p', { class: 'sch-hint' }, `⠿ を押したまま動かすと、順番の入れ替えや候補との行き来ができます（時刻は自動で詰め直します）。${days.length > 1 ? '別の日へは ⋮ →「別の日へ移動」から。' : ''}`),
-    !focus && h('p', { class: 'sch-hint' }, '日をタップすると、その日の予定を時間の長さどおりに表示して、並べ替えや追加ができます。'),
+    !focus && h('p', { class: 'sch-hint' }, '⠿ を押したまま別の日へ動かすと、予定をその日へ移せます。日付の行をタップすると、その日の予定を時間の長さどおりに表示して、細かい並べ替えや追加ができます。'),
   );
   enableScheduleDrag(section, onDrop);
   return section;

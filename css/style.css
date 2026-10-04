@@ -1282,10 +1282,6 @@ select.text-input {
   color: var(--muted);
 }
 
-/* 全体の画面ではドラッグしない（並べ替えは 1 日の画面で） */
-.schedule.overview .sch-handle {
-  display: none;
-}
 
 .schedule.overview .sch-day.candidates {
   margin-top: 10px;
@@ -1387,4 +1383,43 @@ select.text-input {
   width: 20px;
   height: 20px;
   accent-color: var(--accent);
+}
+
+/* ---- 全体の画面のドラッグ（日のカード） ---- */
+
+.sch-day-card {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.sch-card-head {
+  padding: 12px 14px;
+}
+
+.sch-day-card .sch-list .sch-item.compact {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.sch-day-card .sch-item.compact .sch-time {
+  flex-direction: row;
+  gap: 2px;
+  width: auto;
+  min-width: 56px;
+  font-size: 14px;
+}
+
+.sch-day-card .sch-item.compact .sch-end {
+  display: none;
+}
+
+.sch-day-card .sch-item.compact .sch-more {
+  margin-top: -8px;
+  margin-bottom: -8px;
+}
+
+.sch-day-card.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
