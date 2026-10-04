@@ -523,31 +523,61 @@ function eventDays(ev) {
   return days;
 }
 
-function byStart(a, b) {
-  return toMin(a.start) - toMin(b.start) || (a.createdAt ?? 0) - (b.createdAt ?? 0);
+// 並び順：order（並べ替えで保存する番号）順。order のない古いデータは開始時刻順
+// 時刻のない予定（start: null ＝「時間未定」）も order で並ぶ
+function seqKey(i) {
+  return i.order ?? (i.start ? toMin(i.start) : 100000);
+}
+
+function bySeq(a, b) {
+  return seqKey(a) - seqKey(b) || (a.createdAt ?? 0) - (b.createdAt ?? 0);
 }
 
 function dayItems(items, date) {
-  return items.filter((i) => i.date === date && i.start).sort(byStart);
+  return items.filter((i) => i.date === date).sort(bySeq);
 }
 
-// その日の最後の予定が終わる時刻（予定がなければ 9:00）
+function candidateItems(items) {
+  return items.filter((i) => !i.date).sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || (a.createdAt ?? 0) - (b.createdAt ?? 0));
+}
+
+function timedOf(list) {
+  return list.filter((i) => i.start);
+}
+
+function endOf(item) {
+  return toMin(item.start) + (item.duration ?? DEFAULT_DURATION);
+}
+
+// その日の最後の「時刻のある予定」が終わる時刻（なければ 9:00）
 function nextStart(items, date) {
-  const day = dayItems(items, date);
-  if (!day.length) return DEFAULT_START;
-  const last = day[day.length - 1];
-  return toHHMM(Math.min(toMin(last.start) + (last.duration ?? DEFAULT_DURATION), 23 * 60 + 59));
+  const timed = timedOf(dayItems(items, date));
+  if (!timed.length) return DEFAULT_START;
+  return toHHMM(Math.min(endOf(timed[timed.length - 1]), 23 * 60 + 59));
 }
 
 // 並べ替え後の順番で、最初の開始時刻はそのまま、各予定の長さを保って詰め直す
+// 時刻のない予定は時間を使わない（飛ばす）
 function reflow(ordered, firstStart) {
   let t = toMin(firstStart);
   const starts = {};
   for (const it of ordered) {
+    if (!it.start) continue;
     starts[it.id] = toHHMM(Math.min(t, 47 * 60 + 59));
     t += it.duration ?? DEFAULT_DURATION;
   }
   return starts;
+}
+
+// 見た目の並びどおりに order を振り直す
+function orderPatch(ordered) {
+  return Object.fromEntries(ordered.map((it, i) => [it.id, { order: i }]));
+}
+
+// 時刻のない予定の目安：直前の「時刻のある予定」の終わり
+function untimedHint(day, item) {
+  const before = timedOf(day.slice(0, day.indexOf(item)));
+  return before.length ? fmtTime(endOf(before[before.length - 1])) : null;
 }
 
 function mapsUrl(place) {
@@ -577,7 +607,14 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
     const place = h('input', { class: 'text-input', value: initial.place ?? '', placeholder: '場所（例：浅草寺）', maxlength: 100, 'aria-label': '場所' });
     const memo = h('textarea', { class: 'text-input memo-input', placeholder: 'メモ（例：予約済み、雨なら中止）', maxlength: 500, rows: 2, 'aria-label': 'メモ' }, initial.memo ?? '');
     const timeRow = h('div', { class: 'date-row' }, h('label', {}, '開始', start), h('label', {}, '長さ', durationSel));
-    const syncTimeRow = () => (timeRow.style.display = dateSel.value ? '' : 'none');
+    // 「時間を決めない」：日は決まっているけど時刻は未定（順番だけ持つ）
+    const untimed = h('input', { type: 'checkbox', checked: editing && !!initial.date && !initial.start });
+    const untimedRow = h('label', { class: 'check-row' }, untimed, h('span', {}, '時間を決めない（順番だけ）'));
+    const syncTimeRow = () => {
+      untimedRow.style.display = dateSel.value ? '' : 'none';
+      timeRow.style.display = dateSel.value && !untimed.checked ? '' : 'none';
+    };
+    untimed.addEventListener('change', syncTimeRow);
     // 日にちを変えたら、新しく入れる予定はその日の最後に続ける
     dateSel.addEventListener('change', () => {
       syncTimeRow();
@@ -595,11 +632,12 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
             const t = title.value.trim();
             if (!t) return title.focus();
             const date = dateSel.value || null;
-            if (date && !start.value) return toast('開始時刻を入れてください');
+            const timed = date && !untimed.checked;
+            if (timed && !start.value) return toast('開始時刻を入れてください');
             close({
               title: t,
               date,
-              start: date ? start.value : null,
+              start: timed ? start.value : null,
               duration: Number(durationSel.value),
               place: place.value.trim(),
               memo: memo.value.trim(),
@@ -608,6 +646,7 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
         },
         title,
         dateSel,
+        untimedRow,
         timeRow,
         place,
         memo,
@@ -743,15 +782,47 @@ function enableScheduleDrag(container, onDrop) {
 function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
   const items = schedule?.items ?? [];
   const days = eventDays(ev);
-  const candidates = items.filter((i) => !i.date).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-  const outside = items.filter((i) => i.date && !days.includes(i.date)).sort((a, b) => a.date.localeCompare(b.date) || byStart(a, b));
+  const candidates = candidateItems(items);
+  const outside = items.filter((i) => i.date && !days.includes(i.date)).sort((a, b) => a.date.localeCompare(b.date) || bySeq(a, b));
+  const listOf = (date) => (date ? dayItems(items, date) : candidates);
+  const firstStart = (list) => timedOf(list)[0]?.start ?? DEFAULT_START;
+
+  // 末尾に足すとき、order のない古いデータが混ざっていたら並び順を固定しておく
+  const fixOrders = (list) => (list.some((i) => i.order === undefined) ? orderPatch(list) : {});
+  const save = (changes) => Object.keys(changes).length && store.patchScheduleItems(groupId, ev.id, changes).catch(showError);
+  const merge = (...patches) => {
+    const out = {};
+    for (const p of patches) for (const [id, v] of Object.entries(p)) out[id] = { ...out[id], ...v };
+    return out;
+  };
 
   const add = async (initial) => {
     const res = await scheduleItemSheet(ev, items, initial);
-    if (res) store.addScheduleItem(groupId, ev.id, res).catch(showError);
+    if (!res) return;
+    const target = listOf(res.date);
+    store
+      .addScheduleItem(groupId, ev.id, { ...res, order: target.length })
+      .then(() => save(fixOrders(target)))
+      .catch(showError);
   };
 
-  // 上へ・下へ：入れ替えてから、その日の最初の開始時刻を基準に詰め直す
+  // 元の日から抜けたとき、残りを詰め直す（時間未定の予定は時間を使っていないので何もしない）
+  const reflowSource = (item) =>
+    item.date && item.start ? reflow(dayItems(items, item.date).filter((i) => i.id !== item.id), firstStart(dayItems(items, item.date))) : {};
+  const asStarts = (starts) => Object.fromEntries(Object.entries(starts).map(([id, start]) => [id, { start }]));
+
+  // ほかの場所（別の日・候補）の末尾へ移す。移動先の時刻は詰め直さない（決まっている時刻を動かさない）
+  //   日へ：時刻のある予定と候補は、その日の最後の予定の後に 1 時間枠で入る。時間未定の予定は時間未定のまま
+  const appendTo = (item, date) => {
+    const target = listOf(date).filter((i) => i.id !== item.id);
+    const patch = { date: date || null, order: target.length };
+    if (!date) patch.start = null;
+    else if (item.start || !item.date) Object.assign(patch, { start: nextStart(items, date), duration: item.duration ?? DEFAULT_DURATION });
+    save(merge(fixOrders(target), asStarts(reflowSource(item)), { [item.id]: patch }));
+  };
+
+  // 上へ・下へ：入れ替えてから、その日の最初の開始時刻を基準に詰め直す（順番も保存）
+  // 時刻のある予定どうしの入れ替えでなければ（どちらかが時間未定なら）順番だけ変える
   const move = (item, delta) => {
     const day = dayItems(items, item.date);
     const i = day.findIndex((x) => x.id === item.id);
@@ -759,7 +830,8 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
     if (j < 0 || j >= day.length) return;
     const ordered = [...day];
     [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
-    store.setScheduleStarts(groupId, ev.id, reflow(ordered, day[0].start)).catch(showError);
+    const bothTimed = day[i].start && day[j].start;
+    save(merge(orderPatch(ordered), bothTimed ? asStarts(reflow(ordered, firstStart(day))) : {}));
   };
 
   // ドロップ：移動先の日を並びどおりに詰め直す。別の日・候補から来た／へ行った場合は、元の日も詰め直す
@@ -768,26 +840,22 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
     const item = items.find((i) => i.id === id);
     if (!item) return;
     const from = item.date ?? '';
-    const changes = {};
-    const set = (itemId, patch) => (changes[itemId] = { ...changes[itemId], ...patch });
+    const before = listOf(target);
+    if (from === target && before.map((i) => i.id).join() === orderedIds.join()) return; // 動いていない
 
-    if (target === '') {
-      if (from === '') return; // 候補どうしの並びは保存しない（追加順）
-      set(id, { date: null, start: null });
-    } else {
-      const before = dayItems(items, target);
-      if (from === target && before.map((i) => i.id).join() === orderedIds.join()) return; // 動いていない
-      const base = (from === target ? before[0]?.start : before.find((i) => i.id !== id)?.start) ?? DEFAULT_START;
-      const ordered = orderedIds.map((x) => (x === id ? { ...item, duration: item.duration ?? DEFAULT_DURATION } : items.find((i) => i.id === x))).filter(Boolean);
-      for (const [itemId, start] of Object.entries(reflow(ordered, base))) set(itemId, { start });
-      if (from !== target) set(id, { date: target, duration: item.duration ?? DEFAULT_DURATION });
+    // 候補から日へ入れたら時刻のある予定（1 時間枠）にする。時間未定の予定は時間未定のまま
+    const moved = target && !item.date ? { ...item, start: DEFAULT_START, duration: item.duration ?? DEFAULT_DURATION } : item;
+    const ordered = orderedIds.map((x) => (x === id ? moved : items.find((i) => i.id === x))).filter(Boolean);
+    const changes = [orderPatch(ordered)];
+    if (target) {
+      // 時間未定の予定を動かしたときは順番だけ変える（ほかの予定の時刻は動かさない）
+      if (moved.start) changes.push(asStarts(reflow(ordered, firstStart(from === target ? before : before.filter((i) => i.id !== id)))));
+      if (from !== target) changes.push({ [id]: { date: target, duration: moved.duration ?? DEFAULT_DURATION } });
+    } else if (from) {
+      changes.push({ [id]: { date: null, start: null } });
     }
-    if (from !== '' && from !== target) {
-      const src = dayItems(items, from);
-      const rest = src.filter((i) => i.id !== id);
-      if (rest.length) for (const [itemId, start] of Object.entries(reflow(rest, src[0].start))) set(itemId, { start });
-    }
-    store.patchScheduleItems(groupId, ev.id, changes).catch(showError);
+    if (from && from !== target) changes.push(asStarts(reflowSource(item)));
+    save(merge(...changes));
   };
 
   const scheduleInto = async (item) => {
@@ -796,7 +864,7 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
       ...days.map((d, i) => h('button', { class: 'sheet-action', onClick: () => close(d) }, `${i + 1}日目 ${fmtDate(d)}`)),
       h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'キャンセル'),
     ]);
-    if (date) store.updateScheduleItem(groupId, ev.id, item.id, { date, start: nextStart(items, date), duration: item.duration ?? DEFAULT_DURATION }).catch(showError);
+    if (date) appendTo(item, date);
   };
 
   // 別の日へ移動：移動先の日の最後に入れて、移動先と元の日を詰め直す（ドロップと同じ処理）
@@ -806,7 +874,7 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
       ...days.filter((d) => d !== item.date).map((d) => h('button', { class: 'sheet-action', onClick: () => close(d) }, `${days.indexOf(d) + 1}日目 ${fmtDate(d)}`)),
       h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'キャンセル'),
     ]);
-    if (date) onDrop(item.id, date, [...dayItems(items, date).map((x) => x.id), item.id]);
+    if (date) appendTo(item, date);
   };
 
   const itemMenu = (item, day) => {
@@ -816,14 +884,21 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
         label: '編集',
         onClick: async () => {
           const res = await scheduleItemSheet(ev, items, item, { editing: true });
-          if (res) store.updateScheduleItem(groupId, ev.id, item.id, res).catch(showError);
+          if (!res) return;
+          // 日（または候補）を変えたら、移動先の最後に並べる
+          if ((res.date ?? '') !== (item.date ?? '')) {
+            const target = listOf(res.date).filter((i) => i.id !== item.id);
+            save(merge(fixOrders(target), asStarts(reflowSource(item)), { [item.id]: { ...res, order: target.length } }));
+          } else {
+            store.updateScheduleItem(groupId, ev.id, item.id, res).catch(showError);
+          }
         },
       },
       day && i > 0 && { label: '↑ 上へ（時刻を詰め直す）', onClick: () => move(item, -1) },
       day && i < day.length - 1 && { label: '↓ 下へ（時刻を詰め直す）', onClick: () => move(item, 1) },
       item.date && days.length > 1 && { label: '📅 別の日へ移動', onClick: () => moveToDay(item) },
       item.date
-        ? { label: '💡 行きたい候補に戻す', onClick: () => store.updateScheduleItem(groupId, ev.id, item.id, { date: null, start: null }).catch(showError) }
+        ? { label: '💡 行きたい候補に戻す', onClick: () => appendTo(item, null) }
         : { label: '📅 日程に入れる', onClick: () => scheduleInto(item) },
       {
         label: '削除',
@@ -845,15 +920,17 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
     );
 
   const timedRow = (item, day, { scaled = false } = {}) => {
-    const s = toMin(item.start);
     const dur = item.duration ?? DEFAULT_DURATION;
-    // 1 日の画面では、カレンダーのように長さに比例した高さにする（1 時間 ≒ 64px）
-    const height = scaled ? Math.min(Math.max(Math.round((dur / 60) * 64), 52), 280) : null;
+    // 1 日の画面では、カレンダーのように長さに比例した高さにする（1 時間 ≒ 64px）。時間未定の予定は高さ固定
+    const height = scaled && item.start ? Math.min(Math.max(Math.round((dur / 60) * 64), 52), 280) : null;
+    const hint = !item.start && day ? untimedHint(day, item) : null;
     return h(
       'li',
-      { class: `sch-item${scaled ? ' scaled' : ''}`, 'data-id': item.id, style: height ? `min-height:${height}px` : null },
+      { class: `sch-item${scaled && item.start ? ' scaled' : ''}${item.start ? '' : ' untimed'}`, 'data-id': item.id, style: height ? `min-height:${height}px` : null },
       day && h('span', { class: 'sch-handle', 'aria-label': `${item.title} をドラッグして移動`, title: 'ドラッグして移動' }, '⠿'),
-      h('span', { class: 'sch-time' }, h('span', {}, fmtTime(s)), h('span', { class: 'sch-end' }, `–${fmtTime(s + dur)}`)),
+      item.start
+        ? h('span', { class: 'sch-time' }, h('span', {}, fmtTime(toMin(item.start))), h('span', { class: 'sch-end' }, `–${fmtTime(endOf(item))}`))
+        : h('span', { class: 'sch-time untimed' }, h('span', {}, '時間未定'), hint && h('span', { class: 'sch-end' }, `${hint}以降`)),
       h('span', { class: 'sch-main' }, h('span', { class: 'sch-title' }, item.title), details(item)),
       h('button', { class: 'sch-more', 'aria-label': `${item.title} のメニュー`, onClick: () => itemMenu(item, day) }, '⋮'),
     );
@@ -875,13 +952,16 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
   // 1 日の画面：その日の予定（長さに比例した高さ）
   const focusBlock = (d) => {
     const day = dayItems(items, d);
-    const first = day[0];
-    const last = day[day.length - 1];
+    const timed = timedOf(day);
     return h(
       'div',
       { class: 'sch-day focus' },
       day.length > 0 &&
-        h('div', { class: 'sch-day-head' }, h('span', { class: 'sch-day-date' }, `${day.length}件 ・ ${fmtTime(toMin(first.start))}〜${fmtTime(toMin(last.start) + (last.duration ?? DEFAULT_DURATION))}`)),
+        h(
+          'div',
+          { class: 'sch-day-head' },
+          h('span', { class: 'sch-day-date' }, `${day.length}件`, timed.length > 0 && ` ・ ${fmtTime(toMin(timed[0].start))}〜${fmtTime(endOf(timed[timed.length - 1]))}`),
+        ),
       h('ul', { class: 'sch-list', 'data-drop': d }, day.map((it) => timedRow(it, day, { scaled: true }))),
       day.length === 0 && h('p', { class: 'empty small sch-empty' }, 'まだ予定がありません。下の「行きたい候補」から ⠿ で持ってくることもできます。'),
       h('button', { class: 'sch-add', onClick: () => add({ date: d }) }, '＋ 予定を追加'),
@@ -892,7 +972,7 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
   const dayCard = (d, n) => {
     const day = dayItems(items, d);
     const preview = day.slice(0, 3);
-    const last = day[day.length - 1];
+    const timed = timedOf(day);
     return h(
       'a',
       { class: `sch-day-card${d === today ? ' today' : ''}`, href: `#/g/${groupId}/e/${ev.id}/d/${d}` },
@@ -908,8 +988,8 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
         h(
           'div',
           { class: 'sch-card-body' },
-          h('span', { class: 'sch-card-span' }, `${fmtTime(toMin(day[0].start))}〜${fmtTime(toMin(last.start) + (last.duration ?? DEFAULT_DURATION))}`),
-          preview.map((it) => h('span', { class: 'sch-card-line' }, h('b', {}, fmtTime(toMin(it.start))), ` ${it.title}`)),
+          timed.length > 0 && h('span', { class: 'sch-card-span' }, `${fmtTime(toMin(timed[0].start))}〜${fmtTime(endOf(timed[timed.length - 1]))}`),
+          preview.map((it) => h('span', { class: 'sch-card-line' }, h('b', {}, it.start ? fmtTime(toMin(it.start)) : '未定'), ` ${it.title}`)),
           day.length > preview.length && h('span', { class: 'sch-card-more' }, `ほか${day.length - preview.length}件`),
         ),
     );

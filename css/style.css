@@ -1359,3 +1359,32 @@ select.text-input {
 .sch-empty {
   margin: 4px 14px 10px;
 }
+
+/* ---- 時間未定の予定 ---- */
+
+.sch-time.untimed {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.sch-item.untimed .sch-title {
+  font-style: normal;
+}
+
+.sch-item.untimed {
+  background: repeating-linear-gradient(135deg, transparent 0 8px, color-mix(in srgb, var(--border) 45%, transparent) 8px 9px);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.check-row input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
