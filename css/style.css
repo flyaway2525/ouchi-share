@@ -1144,3 +1144,71 @@ a {
 select.text-input {
   appearance: auto;
 }
+
+/* ---- 旅程のドラッグ＆ドロップ ---- */
+
+.sch-handle {
+  flex-shrink: 0;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  margin: -10px 0 -10px -10px;
+  font-size: 18px;
+  color: var(--muted);
+  cursor: grab;
+  /* つまみの上だけはスクロールせずにドラッグにする */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.sch-item.candidate .sch-handle {
+  align-self: center;
+  height: 36px;
+}
+
+/* 空の日にも落とせるように、少しだけ高さを持たせる */
+.sch-list:empty {
+  min-height: 6px;
+}
+
+.schedule.dragging .sch-list:empty {
+  min-height: 44px;
+}
+
+.schedule.dragging,
+.schedule.dragging * {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing;
+}
+
+.sch-day.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.sch-placeholder {
+  opacity: 0.35;
+  background: var(--accent-soft);
+}
+
+.sch-ghost {
+  position: fixed;
+  z-index: 300;
+  margin: 0;
+  list-style: none;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  pointer-events: none;
+  transform: scale(1.02);
+}
+
+.sch-hint {
+  margin: 8px 4px 0;
+  font-size: 12px;
+  color: var(--muted);
+}

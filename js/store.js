@@ -379,6 +379,15 @@ export async function setScheduleStarts(groupId, eventId, starts) {
   if (Object.keys(fields).length) await updateDoc(listRef(groupId, scheduleId(eventId)), fields);
 }
 
+// ドラッグ＆ドロップの結果をまとめて書き込む  { itemId: { date, start, ... } }
+export async function patchScheduleItems(groupId, eventId, changes) {
+  const fields = {};
+  for (const [id, patch] of Object.entries(changes)) {
+    for (const [k, v] of Object.entries(patch)) fields[`items.${id}.${k}`] = v;
+  }
+  if (Object.keys(fields).length) await updateDoc(listRef(groupId, scheduleId(eventId)), fields);
+}
+
 export async function deleteScheduleItem(groupId, eventId, itemId) {
   await updateDoc(listRef(groupId, scheduleId(eventId)), { [`items.${itemId}`]: deleteField() });
 }

@@ -622,6 +622,106 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
   });
 }
 
+// ---- 旅程のドラッグ＆ドロップ ----
+// つまみ（⠿）を押して動かす。つまみ以外ではふつうにスクロールできるように、つまみだけ touch-action: none にしている。
+// ドラッグ中に他の人の編集で画面が描き直されると掴んでいる要素が消えるので、描き直しはドロップ後まで待つ。
+
+const scheduleDrag = { active: false, pendingRender: null };
+
+function enableScheduleDrag(container, onDrop) {
+  container.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.sch-handle');
+    if (!handle || e.button > 0) return;
+    const li = handle.closest('li');
+    e.preventDefault();
+
+    const rect = li.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const offsetY = e.clientY - rect.top;
+    const ghost = li.cloneNode(true);
+    ghost.classList.add('sch-ghost');
+    Object.assign(ghost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px` });
+    document.body.append(ghost);
+    li.classList.add('sch-placeholder');
+    container.classList.add('dragging');
+    scheduleDrag.active = true;
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+      // キャプチャできない環境でも、つまみの上のイベントで動く
+    }
+    navigator.vibrate?.(10);
+
+    let y = e.clientY;
+    let overList = null;
+
+    // 指の位置にあるリストの、指より下にある最初の行の前へ移動する（見た目上の仮の位置）
+    const place = () => {
+      ghost.style.top = `${y - offsetY}px`;
+      ghost.style.visibility = 'hidden';
+      const el = document.elementFromPoint(centerX, y);
+      ghost.style.visibility = '';
+      const list = el?.closest('.sch-day')?.querySelector('.sch-list[data-drop]');
+      if (!list) return;
+      if (overList !== list) {
+        overList?.closest('.sch-day').classList.remove('drag-over');
+        list.closest('.sch-day').classList.add('drag-over');
+        overList = list;
+      }
+      const rows = [...list.children].filter((r) => r !== li);
+      const before = rows.find((r) => {
+        const b = r.getBoundingClientRect();
+        return y < b.top + b.height / 2;
+      });
+      if (before) {
+        if (li.nextElementSibling !== before || li.parentElement !== list) list.insertBefore(li, before);
+      } else if (list.lastElementChild !== li) {
+        list.append(li);
+      }
+    };
+
+    // 画面の上下の端に近づいたら自動でスクロールする
+    let raf = 0;
+    const tick = () => {
+      const edge = 70;
+      const speed = y < edge ? -(edge - y) / 4 : y > innerHeight - edge ? (y - (innerHeight - edge)) / 4 : 0;
+      if (speed) {
+        scrollBy(0, speed);
+        place();
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    const onMove = (ev) => {
+      y = ev.clientY;
+      place();
+    };
+    const finish = (cancelled) => {
+      cancelAnimationFrame(raf);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onCancel);
+      ghost.remove();
+      li.classList.remove('sch-placeholder');
+      container.classList.remove('dragging');
+      overList?.closest('.sch-day').classList.remove('drag-over');
+      const list = li.parentElement;
+      scheduleDrag.active = false;
+      if (!cancelled) onDrop(li.dataset.id, list.dataset.drop, [...list.children].map((r) => r.dataset.id));
+      // 仮に動かした DOM を正しい状態に戻すため、必ず描き直す
+      const render = scheduleDrag.pendingRender;
+      scheduleDrag.pendingRender = null;
+      render?.();
+    };
+    const onUp = () => finish(false);
+    const onCancel = () => finish(true);
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onCancel);
+  });
+}
+
 function scheduleSection(groupId, ev, schedule) {
   const items = schedule?.items ?? [];
   const days = eventDays(ev);
@@ -642,6 +742,34 @@ function scheduleSection(groupId, ev, schedule) {
     const ordered = [...day];
     [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
     store.setScheduleStarts(groupId, ev.id, reflow(ordered, day[0].start)).catch(showError);
+  };
+
+  // ドロップ：移動先の日を並びどおりに詰め直す。別の日・候補から来た／へ行った場合は、元の日も詰め直す
+  //   target: "YYYY-MM-DD"（日）または ""（行きたい候補）、orderedIds: 移動先リストの見た目の並び
+  const onDrop = (id, target, orderedIds) => {
+    const item = items.find((i) => i.id === id);
+    if (!item) return;
+    const from = item.date ?? '';
+    const changes = {};
+    const set = (itemId, patch) => (changes[itemId] = { ...changes[itemId], ...patch });
+
+    if (target === '') {
+      if (from === '') return; // 候補どうしの並びは保存しない（追加順）
+      set(id, { date: null, start: null });
+    } else {
+      const before = dayItems(items, target);
+      if (from === target && before.map((i) => i.id).join() === orderedIds.join()) return; // 動いていない
+      const base = (from === target ? before[0]?.start : before.find((i) => i.id !== id)?.start) ?? DEFAULT_START;
+      const ordered = orderedIds.map((x) => (x === id ? { ...item, duration: item.duration ?? DEFAULT_DURATION } : items.find((i) => i.id === x))).filter(Boolean);
+      for (const [itemId, start] of Object.entries(reflow(ordered, base))) set(itemId, { start });
+      if (from !== target) set(id, { date: target, duration: item.duration ?? DEFAULT_DURATION });
+    }
+    if (from !== '' && from !== target) {
+      const src = dayItems(items, from);
+      const rest = src.filter((i) => i.id !== id);
+      if (rest.length) for (const [itemId, start] of Object.entries(reflow(rest, src[0].start))) set(itemId, { start });
+    }
+    store.patchScheduleItems(groupId, ev.id, changes).catch(showError);
   };
 
   const scheduleInto = async (item) => {
@@ -692,7 +820,8 @@ function scheduleSection(groupId, ev, schedule) {
     const dur = item.duration ?? DEFAULT_DURATION;
     return h(
       'li',
-      { class: 'sch-item' },
+      { class: 'sch-item', 'data-id': item.id },
+      day && h('span', { class: 'sch-handle', 'aria-label': `${item.title} をドラッグして移動`, title: 'ドラッグして移動' }, '⠿'),
       h('span', { class: 'sch-time' }, h('span', {}, fmtTime(s)), h('span', { class: 'sch-end' }, `–${fmtTime(s + dur)}`)),
       h('span', { class: 'sch-main' }, h('span', { class: 'sch-title' }, item.title), details(item)),
       h('button', { class: 'sch-more', 'aria-label': `${item.title} のメニュー`, onClick: () => itemMenu(item, day) }, '⋮'),
@@ -702,13 +831,14 @@ function scheduleSection(groupId, ev, schedule) {
   const candidateRow = (item) =>
     h(
       'li',
-      { class: 'sch-item candidate' },
+      { class: 'sch-item candidate', 'data-id': item.id },
+      h('span', { class: 'sch-handle', 'aria-label': `${item.title} をドラッグして移動`, title: 'ドラッグして移動' }, '⠿'),
       h('span', { class: 'sch-main' }, h('span', { class: 'sch-title' }, item.title), details(item)),
       h('button', { class: 'sch-plan', onClick: () => scheduleInto(item) }, '日程に入れる'),
       h('button', { class: 'sch-more', 'aria-label': `${item.title} のメニュー`, onClick: () => itemMenu(item, null) }, '⋮'),
     );
 
-  return h(
+  const section = h(
     'div',
     { class: 'schedule' },
     h('p', { class: 'section-label' }, '🗓 旅程'),
@@ -718,7 +848,7 @@ function scheduleSection(groupId, ev, schedule) {
         'div',
         { class: 'sch-day' },
         h('div', { class: 'sch-day-head' }, h('span', {}, `${n + 1}日目`), h('span', { class: 'sch-day-date' }, fmtDate(d))),
-        day.length > 0 && h('ul', { class: 'sch-list' }, day.map((it) => timedRow(it, day))),
+        h('ul', { class: 'sch-list', 'data-drop': d }, day.map((it) => timedRow(it, day))),
         h('button', { class: 'sch-add', onClick: () => add({ date: d }) }, '＋ 予定を追加'),
       );
     }),
@@ -733,10 +863,15 @@ function scheduleSection(groupId, ev, schedule) {
       'div',
       { class: 'sch-day candidates' },
       h('div', { class: 'sch-day-head' }, h('span', {}, '💡 行きたい候補（日時未定）')),
-      candidates.length > 0 && h('ul', { class: 'sch-list' }, candidates.map(candidateRow)),
+      h('ul', { class: 'sch-list', 'data-drop': '' }, candidates.map(candidateRow)),
       h('button', { class: 'sch-add', onClick: () => add({ date: null }) }, '＋ 候補を追加'),
     ),
+    items.some((i) => i.date && days.includes(i.date)) || candidates.length
+      ? h('p', { class: 'sch-hint' }, '⠿ を押したまま動かすと、順番の入れ替えや別の日への移動ができます（時刻は自動で詰め直します）')
+      : null,
   );
+  enableScheduleDrag(section, onDrop);
+  return section;
 }
 
 // ---- 取り込み元のリストを選ぶシート ----
@@ -1169,6 +1304,12 @@ function eventView(root, { groupId, eventId }) {
 
   function render() {
     if (!ev || !lists) return;
+    // ドラッグ中は描き直さない（ドロップ後に描き直す）
+    if (scheduleDrag.active) {
+      scheduleDrag.pendingRender = render;
+      return;
+    }
+    scheduleDrag.pendingRender = render;
     const st = eventStatus(ev);
     const mine = lists.filter((l) => l.eventId === eventId && (l.type ?? 'checklist') === 'checklist');
     const schedule = lists.find((l) => l.id === store.scheduleId(eventId));
