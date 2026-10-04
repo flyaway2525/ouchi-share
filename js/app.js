@@ -625,13 +625,32 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
 // ---- 旅程のドラッグ＆ドロップ ----
 // つまみ（⠿）を押して動かす。つまみ以外ではふつうにスクロールできるように、つまみだけ touch-action: none にしている。
 // ドラッグ中に他の人の編集で画面が描き直されると掴んでいる要素が消えるので、描き直しはドロップ後まで待つ。
+// iPhone の Safari は touch-action だけではスクロールを止めきれず、スクロールが始まるとドラッグが中断される
+// （pointercancel が来る）ので、タッチのイベントでもスクロールを止める。
+// 動かしている途中で行を別の位置に差し込み直すと、ブラウザはその行（つまみ）への pointer capture を外してしまう。
+// つまみで pointermove / pointerup を待っていると「離した」が届かずドラッグが終わらなくなるので、window で受け取る。
 
 const scheduleDrag = { active: false, pendingRender: null };
 
+// ドラッグ中は画面の指スクロールを止める（自動スクロールは scrollBy で動かすので影響しない）
+function blockTouchScroll(e) {
+  if (scheduleDrag.active) e.preventDefault();
+}
+document.addEventListener('touchmove', blockTouchScroll, { passive: false });
+
 function enableScheduleDrag(container, onDrop) {
+  // つまみに触れた時点でスクロールを始めさせない
+  container.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.target.closest('.sch-handle')) e.preventDefault();
+    },
+    { passive: false },
+  );
+
   container.addEventListener('pointerdown', (e) => {
     const handle = e.target.closest('.sch-handle');
-    if (!handle || e.button > 0) return;
+    if (!handle || e.button > 0 || scheduleDrag.active) return;
     const li = handle.closest('li');
     e.preventDefault();
 
@@ -645,11 +664,6 @@ function enableScheduleDrag(container, onDrop) {
     li.classList.add('sch-placeholder');
     container.classList.add('dragging');
     scheduleDrag.active = true;
-    try {
-      handle.setPointerCapture(e.pointerId);
-    } catch {
-      // キャプチャできない環境でも、つまみの上のイベントで動く
-    }
     navigator.vibrate?.(10);
 
     let y = e.clientY;
@@ -693,32 +707,35 @@ function enableScheduleDrag(container, onDrop) {
     };
     raf = requestAnimationFrame(tick);
 
+    const pointerId = e.pointerId;
     const onMove = (ev) => {
+      if (ev.pointerId !== pointerId) return;
       y = ev.clientY;
       place();
     };
-    const finish = (cancelled) => {
+    const finish = () => {
       cancelAnimationFrame(raf);
-      handle.removeEventListener('pointermove', onMove);
-      handle.removeEventListener('pointerup', onUp);
-      handle.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
       ghost.remove();
       li.classList.remove('sch-placeholder');
       container.classList.remove('dragging');
       overList?.closest('.sch-day').classList.remove('drag-over');
       const list = li.parentElement;
       scheduleDrag.active = false;
-      if (!cancelled) onDrop(li.dataset.id, list.dataset.drop, [...list.children].map((r) => r.dataset.id));
+      onDrop(li.dataset.id, list.dataset.drop, [...list.children].map((r) => r.dataset.id));
       // 仮に動かした DOM を正しい状態に戻すため、必ず描き直す
       const render = scheduleDrag.pendingRender;
       scheduleDrag.pendingRender = null;
       render?.();
     };
-    const onUp = () => finish(false);
-    const onCancel = () => finish(true);
-    handle.addEventListener('pointermove', onMove);
-    handle.addEventListener('pointerup', onUp);
-    handle.addEventListener('pointercancel', onCancel);
+    const onUp = (ev) => ev.pointerId === pointerId && finish();
+    // それでもブラウザに中断されたら、元に戻さずその時点の位置に置く
+    const onCancel = (ev) => ev.pointerId === pointerId && finish();
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
   });
 }
 
