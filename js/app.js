@@ -599,6 +599,61 @@ function untimedHint(day, item) {
   return before.length ? fmtTime(endOf(before[before.length - 1])) : null;
 }
 
+// ---- 予定のリンク ----
+// items の 1 件に links: [{ type, url }] を持つ。種類は見た目（ラベルとアイコン）を変えるだけ
+
+const LINK_TYPES = [
+  { id: 'none', label: '未設定', icon: '🔗' },
+  { id: 'official', label: '公式サイト', icon: '🌐' },
+  { id: 'booking', label: '予約サイト', icon: '📅' },
+  { id: 'video', label: '紹介動画', icon: '▶️' },
+  { id: 'map', label: '地図', icon: '🗺️' },
+  { id: 'menu', label: 'メニュー', icon: '🍽️' },
+  { id: 'other', label: 'その他', icon: '🔗' },
+];
+
+function linkType(id) {
+  return LINK_TYPES.find((t) => t.id === id) ?? LINK_TYPES[0];
+}
+
+// 入力された URL を整える。http / https 以外（javascript: など）は受け付けない（null を返す）
+function normalizeUrl(input) {
+  let text = input.trim();
+  if (!text) return '';
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(text)) text = `https://${text}`;
+  try {
+    const url = new URL(text);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+// 種類が「未設定」のとき、URL から種類を推測する
+function guessLinkType(url) {
+  const host = (() => {
+    try {
+      return new URL(normalizeUrl(url) || 'https://x').hostname;
+    } catch {
+      return '';
+    }
+  })();
+  if (/(^|\.)(youtube\.com|youtu\.be|vimeo\.com|tiktok\.com)$/.test(host)) return 'video';
+  if (/(^|\.)maps\.google\.|(^|\.)maps\.app\.goo\.gl$|^goo\.gl$/.test(host) || /google\.[a-z.]+\/maps/.test(url)) return 'map';
+  return 'none';
+}
+
+// ボタンに出す文字：種類が未設定・その他ならドメイン名
+function linkLabel(link) {
+  const t = linkType(link.type);
+  if (t.id !== 'none' && t.id !== 'other') return `${t.icon} ${t.label}`;
+  try {
+    return `${t.icon} ${new URL(link.url).hostname.replace(/^www\./, '')}`;
+  } catch {
+    return `${t.icon} リンク`;
+  }
+}
+
 function mapsUrl(place) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
 }
@@ -625,6 +680,28 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
     durationSel.value = String(initial.duration ?? DEFAULT_DURATION);
     const place = h('input', { class: 'text-input', value: initial.place ?? '', placeholder: '場所（例：浅草寺）', maxlength: 100, 'aria-label': '場所' });
     const memo = h('textarea', { class: 'text-input memo-input', placeholder: 'メモ（例：予約済み、雨なら中止）', maxlength: 500, rows: 2, 'aria-label': 'メモ' }, initial.memo ?? '');
+
+    // リンク：種類 ＋ URL の行をいくつでも
+    const linkRows = h('div', { class: 'link-rows' });
+    const addLinkRow = (link = { type: 'none', url: '' }) => {
+      const type = h('select', { class: 'text-input link-type', 'aria-label': 'リンクの種類' }, LINK_TYPES.map((t) => h('option', { value: t.id }, `${t.icon} ${t.label}`)));
+      type.value = linkType(link.type).id;
+      const url = h('input', { class: 'text-input link-url', type: 'text', inputmode: 'url', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', value: link.url, placeholder: 'https://…', maxlength: 2000, 'aria-label': 'URL' });
+      url.addEventListener('change', () => {
+        if (type.value === 'none') type.value = guessLinkType(url.value);
+      });
+      const row = h('div', { class: 'link-row' }, type, url, h('button', { type: 'button', class: 'link-remove', 'aria-label': 'このリンクを削除', onClick: () => row.remove() }, '×'));
+      linkRows.append(row);
+      return url;
+    };
+    (initial.links ?? []).forEach((l) => addLinkRow(l));
+    const linksBox = h(
+      'div',
+      { class: 'links-editor' },
+      h('span', { class: 'links-label' }, 'リンク'),
+      linkRows,
+      h('button', { type: 'button', class: 'link-add', onClick: () => addLinkRow().focus() }, '＋ リンクを追加'),
+    );
     const timeRow = h('div', { class: 'date-row' }, h('label', {}, '開始', start), h('label', {}, '長さ', durationSel));
     // 「時間を決めない」：日は決まっているけど時刻は未定（順番だけ持つ）
     const untimed = h('input', { type: 'checkbox', checked: editing && !!initial.date && !initial.start });
@@ -653,7 +730,19 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
             const date = dateSel.value || null;
             const timed = date && !untimed.checked;
             if (timed && !start.value) return toast('開始時刻を入れてください');
+            const links = [];
+            for (const row of linkRows.querySelectorAll('.link-row')) {
+              const raw = row.querySelector('.link-url').value;
+              if (!raw.trim()) continue;
+              const url = normalizeUrl(raw);
+              if (!url) {
+                row.querySelector('.link-url').focus();
+                return toast('http:// か https:// で始まるリンクを入れてください');
+              }
+              links.push({ type: row.querySelector('.link-type').value, url });
+            }
             close({
+              links,
               title: t,
               date,
               start: timed ? start.value : null,
@@ -669,6 +758,7 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
         timeRow,
         place,
         memo,
+        linksBox,
         h(
           'div',
           { class: 'sheet-buttons' },
@@ -929,14 +1019,27 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
     ].filter(Boolean));
   };
 
-  const details = (item) =>
-    (item.place || item.memo) &&
-    h(
-      'span',
-      { class: 'sch-details' },
-      item.place && h('a', { class: 'sch-place', href: mapsUrl(item.place), target: '_blank', rel: 'noopener', onClick: (e) => e.stopPropagation() }, `📍${item.place}`),
-      item.memo && h('span', { class: 'sch-memo' }, item.memo),
+  // 保存済みのリンクも、表示の前にもう一度 http / https か確かめる
+  const safeLinks = (item) => (item.links ?? []).map((l) => ({ ...l, url: normalizeUrl(l.url ?? '') })).filter((l) => l.url);
+
+  const details = (item) => {
+    const links = safeLinks(item);
+    return (
+      (item.place || item.memo || links.length > 0) &&
+      h(
+        'span',
+        { class: 'sch-details' },
+        item.place && h('a', { class: 'sch-place', href: mapsUrl(item.place), target: '_blank', rel: 'noopener', onClick: (e) => e.stopPropagation() }, `📍${item.place}`),
+        item.memo && h('span', { class: 'sch-memo' }, item.memo),
+        links.length > 0 &&
+          h(
+            'span',
+            { class: 'sch-links' },
+            links.map((l) => h('a', { class: `sch-link ${linkType(l.type).id}`, href: l.url, target: '_blank', rel: 'noopener noreferrer', onClick: (e) => e.stopPropagation() }, linkLabel(l))),
+          ),
+      )
     );
+  };
 
   const timedRow = (item, day, { scaled = false, compact = false } = {}) => {
     const dur = item.duration ?? DEFAULT_DURATION;
