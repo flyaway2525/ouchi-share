@@ -1886,3 +1886,13 @@ select.text-input {
   padding: 4px 7px;
   white-space: nowrap;
 }
+
+/* 先月 / −2週 / 見出し / +2週 / 来月 の並び。見出しは真ん中 */
+.cal-head .cal-title {
+  flex: 1;
+  text-align: center;
+}
+
+.cal-head .cal-today {
+  margin-left: 4px;
+}

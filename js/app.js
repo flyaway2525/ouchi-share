@@ -1908,15 +1908,12 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     h(
       'div',
       { class: 'cal-head' },
-      h('button', { class: 'day-nav-btn', 'aria-label': '前の月', onClick: () => shiftMonth(-1) }, '‹'),
+      // 先月 / −2週 / （見出し） / +2週 / 来月
+      h('button', { class: 'day-nav-btn', 'aria-label': '先月', title: '先月', onClick: () => shiftMonth(-1) }, '‹'),
+      h('button', { class: 'cal-mini', 'aria-label': '2週間前へ', onClick: () => shiftWeeks(-2) }, '−2週'),
       h('span', { class: 'cal-title' }, `${Number(viewMonth.slice(0, 4))}年${Number(viewMonth.slice(5))}月`),
-      h('button', { class: 'day-nav-btn', 'aria-label': '次の月', onClick: () => shiftMonth(1) }, '›'),
-      h(
-        'span',
-        { class: 'cal-shift' },
-        h('button', { class: 'cal-mini', 'aria-label': '2週間前へ', onClick: () => shiftWeeks(-2) }, '−2週'),
-        h('button', { class: 'cal-mini', 'aria-label': '2週間後へ', onClick: () => shiftWeeks(2) }, '+2週'),
-      ),
+      h('button', { class: 'cal-mini', 'aria-label': '2週間後へ', onClick: () => shiftWeeks(2) }, '+2週'),
+      h('button', { class: 'day-nav-btn', 'aria-label': '来月', title: '来月', onClick: () => shiftMonth(1) }, '›'),
       (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
     h('div', { class: 'cal-grid' }, h('div', { class: 'cal-dow' }, '日月火水木金土'.split('').map((w, i) => h('span', { class: i === 0 ? 'sun' : i === 6 ? 'sat' : '' }, w))), weeks.map(weekRow)),
