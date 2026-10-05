@@ -1730,9 +1730,20 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
 
 // ---- カレンダー ----
 // 月の表示：イベントは期間の帯、旅程の予定と普段の予定は日ごとの点。日をタップすると下にその日の一覧。
-// 表示している月・選んでいる日は画面を描き直しても保つ（グループごと）。人の絞り込みは端末に保存。
+// 表示している範囲・選んでいる日は画面を描き直しても保つ（グループごと）。人の絞り込みは端末に保存。
+// 表示範囲は「先頭の週の日曜日」と「週の数」で持つ。‹ › は月単位（その月の 1 日を含む週から）、−2週 / +2週 は 2 週ずつずらす。
 
 const calState = {};
+
+// その月の 1 日を含む週の日曜日から、月末を含む週の土曜日までを表示する範囲
+function monthView(month) {
+  const first = new Date(`${month}-01T00:00:00`);
+  const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+  const start = new Date(first);
+  start.setDate(1 - first.getDay());
+  const weeks = Math.ceil((first.getDay() + last.getDate()) / 7);
+  return { start: dateStr(start), weeks };
+}
 
 function dateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -1746,7 +1757,7 @@ function addDays(str, n) {
 
 function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   const today = todayStr();
-  const state = (calState[groupId] ??= { month: today.slice(0, 7), selected: today });
+  const state = (calState[groupId] ??= { ...monthView(today.slice(0, 7)), selected: today });
   const members = memberList(group);
   let filter = prefs.get(`calFilter:${groupId}`, 'all');
   if (filter !== 'all' && !members.some((m) => m.uid === filter)) filter = 'all';
@@ -1759,28 +1770,31 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   const ps = plans.filter((p) => visible(p.participants));
   const dotsOn = (d) => schedItems.filter((x) => x.item.date === d).length + ps.filter((p) => p.date === d).length;
 
+  // 表示範囲の真ん中の日がある月を「表示中の月」とする（見出しと、薄く表示する日の基準）
+  const mid = addDays(state.start, Math.floor((state.weeks * 7) / 2));
+  const viewMonth = mid.slice(0, 7);
+  const weeks = Array.from({ length: state.weeks }, (_, i) => addDays(state.start, i * 7));
+  const viewEnd = addDays(state.start, state.weeks * 7 - 1);
+
+  // 日をタップしても表示範囲は動かさない（2 週ずらした表示のまま選べるように）
   const select = (d) => {
     state.selected = d;
-    state.month = d.slice(0, 7);
     rerender();
   };
   const shiftMonth = (n) => {
-    const d = new Date(`${state.month}-01T00:00:00`);
+    const d = new Date(`${viewMonth}-01T00:00:00`);
     d.setMonth(d.getMonth() + n);
-    state.month = dateStr(d).slice(0, 7);
+    Object.assign(state, monthView(dateStr(d).slice(0, 7)));
     rerender();
   };
-
-  // 月の枠：その月の 1 日を含む週の日曜日から、月末を含む週の土曜日まで
-  const first = `${state.month}-01`;
-  const firstDate = new Date(`${first}T00:00:00`);
-  const lastDate = new Date(firstDate.getFullYear(), firstDate.getMonth() + 1, 0);
-  let weekStart = addDays(first, -firstDate.getDay());
-  const weeks = [];
-  while (weekStart <= dateStr(lastDate)) {
-    weeks.push(weekStart);
-    weekStart = addDays(weekStart, 7);
-  }
+  const shiftWeeks = (n) => {
+    state.start = addDays(state.start, n * 7);
+    rerender();
+  };
+  const goToday = () => {
+    Object.assign(state, monthView(today.slice(0, 7)), { selected: today });
+    rerender();
+  };
 
   const MAX_LANES = 3;
   const weekRow = (ws) => {
@@ -1808,7 +1822,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         h(
           'button',
           {
-            class: `cal-day${d.slice(0, 7) !== state.month ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected ? ' selected' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
+            class: `cal-day${d.slice(0, 7) !== viewMonth ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected ? ' selected' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
             style: `grid-column: ${i + 1}; grid-row: 1 / -1`,
             'aria-label': fmtDate(d),
             onClick: () => select(d),
@@ -1895,9 +1909,15 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       'div',
       { class: 'cal-head' },
       h('button', { class: 'day-nav-btn', 'aria-label': '前の月', onClick: () => shiftMonth(-1) }, '‹'),
-      h('span', { class: 'cal-title' }, `${Number(state.month.slice(0, 4))}年${Number(state.month.slice(5))}月`),
+      h('span', { class: 'cal-title' }, `${Number(viewMonth.slice(0, 4))}年${Number(viewMonth.slice(5))}月`),
       h('button', { class: 'day-nav-btn', 'aria-label': '次の月', onClick: () => shiftMonth(1) }, '›'),
-      (state.month !== today.slice(0, 7) || state.selected !== today) && h('button', { class: 'cal-today', onClick: () => select(today) }, '今日'),
+      h(
+        'span',
+        { class: 'cal-shift' },
+        h('button', { class: 'cal-mini', 'aria-label': '2週間前へ', onClick: () => shiftWeeks(-2) }, '−2週'),
+        h('button', { class: 'cal-mini', 'aria-label': '2週間後へ', onClick: () => shiftWeeks(2) }, '+2週'),
+      ),
+      (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
     h('div', { class: 'cal-grid' }, h('div', { class: 'cal-dow' }, '日月火水木金土'.split('').map((w, i) => h('span', { class: i === 0 ? 'sun' : i === 6 ? 'sat' : '' }, w))), weeks.map(weekRow)),
     h(

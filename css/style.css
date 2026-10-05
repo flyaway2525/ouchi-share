@@ -1846,3 +1846,43 @@ select.text-input {
   place-items: center;
   margin: 0;
 }
+
+/* ---- カレンダー：2 週ずらす小さいボタン ---- */
+
+.cal-shift {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.cal-mini {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cal-shift + .cal-today {
+  margin-left: 4px;
+}
+
+/* スマホ幅でも見出しが 1 行に収まるように */
+.cal-head .day-nav-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 24px;
+}
+
+.cal-title {
+  font-size: 17px;
+  white-space: nowrap;
+}
+
+.cal-mini,
+.cal-today {
+  padding: 4px 7px;
+  white-space: nowrap;
+}
