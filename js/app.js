@@ -2719,7 +2719,19 @@ function moneyView(root, { groupId, listId }) {
             class: 'item-check',
             checked: !!e.settled,
             'aria-label': '精算済み',
-            onChange: (ev) => store.updateMoneyEntry(groupId, listId, e.id, { settled: ev.target.checked }).catch(showError),
+            onChange: async (ev) => {
+              const box = ev.target;
+              // 精算済みにするときだけ確認する（未精算に戻すときはそのまま）
+              if (box.checked) {
+                const what = e.kind === 'item' ? `「${e.item}」` : fmtYen(e.amount ?? 0);
+                const ok = await confirmSheet(`${nameOf(e.from)} → ${nameOf(e.to)} の ${what} を精算済みにしますか？`, '精算済みにする');
+                if (!ok) {
+                  box.checked = false;
+                  return;
+                }
+              }
+              store.updateMoneyEntry(groupId, listId, e.id, { settled: box.checked }).catch(showError);
+            },
           }),
         ),
         h(
