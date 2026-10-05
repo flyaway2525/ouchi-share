@@ -1341,6 +1341,7 @@ function membersSheet(group, recoveryCodes = {}) {
         ),
       ),
     ),
+    h('button', { class: 'sheet-action', onClick: () => (close(null), inviteQrSheet(group)) }, '＋ メンバーを招待（QRコード）'),
     h('button', { class: 'sheet-action', onClick: () => (close(null), renameInGroup(group)) }, 'このグループでの自分の名前を変更'),
     h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
   ]);
@@ -1383,29 +1384,17 @@ async function shareInvite(group) {
 function groupView(root, { groupId }) {
   const top = h('div');
   const body = h('main', { class: 'content' });
-  const members = h('div');
   root.append(top, body);
   let group;
 
-  // オンライン表示は時間がたつと変わるので、定期的に描き直す
+  // ヘッダーの「⋯」のとなりのメンバーボタン（人数とオンライン人数）。オンライン表示は時間で変わるので定期的に描き直す
+  const memberPill = h('button', { class: 'member-pill', onClick: () => group && membersSheet(group, recoveryCodes) });
   function renderMembers() {
     if (!group) return;
     const all = Object.values(group.members ?? {});
     const online = all.filter((m) => store.isOnline(m.lastSeen));
-    setChildren(
-      members,
-      h(
-        'div',
-        { class: 'member-strip' },
-        h(
-          'button',
-          { class: 'member-strip-count', onClick: () => membersSheet(group, recoveryCodes) },
-          h('span', {}, `👥 メンバー ${all.length} 人`),
-          online.length > 0 && h('span', { class: 'online-count' }, onlineDot(true), `${online.length} 人がオンライン`),
-        ),
-        h('button', { class: 'member-strip-invite', onClick: () => inviteQrSheet(group) }, '＋ 招待'),
-      ),
-    );
+    memberPill.setAttribute('aria-label', `メンバー ${all.length} 人、${online.length} 人がオンライン`);
+    setChildren(memberPill, h('span', {}, `👥${all.length}`), online.length > 0 && h('span', { class: 'pill-online' }, onlineDot(true), online.length));
   }
   const ticker = setInterval(renderMembers, 30 * 1000);
 
@@ -1433,6 +1422,7 @@ function groupView(root, { groupId }) {
         header({
           title: g.name,
           back: '#/',
+          extra: memberPill,
           onMenu: () =>
             actionSheet(g.name, [
               { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
@@ -1529,13 +1519,12 @@ function groupView(root, { groupId }) {
       tabBtn('lists', '📝 リスト', daily.length),
     );
     if (tab === 'calendar') {
-      setChildren(body, members, tabs, calendarSection({ groupId, group, events, lists, plans, rerender: renderBody }));
+      setChildren(body, tabs, calendarSection({ groupId, group, events, lists, plans, rerender: renderBody }));
       return;
     }
     if (tab === 'lists') {
       setChildren(
         body,
-        members,
         tabs,
         daily.length === 0 && h('p', { class: 'empty small' }, '日用品の在庫や、やることリストなど、イベントに関係ないリストを置けます。'),
         h('div', { class: 'card-list' }, daily.map((l) => listCard(groupId, l))),
@@ -1545,7 +1534,6 @@ function groupView(root, { groupId }) {
     }
     setChildren(
       body,
-      members,
       tabs,
       active.length === 0 && h('p', { class: 'empty small' }, '予定しているイベントはありません'),
       h('div', { class: 'card-list' }, active.map(eventCard)),

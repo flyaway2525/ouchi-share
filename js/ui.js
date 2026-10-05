@@ -24,17 +24,19 @@ export function setChildren(el, ...children) {
   el.replaceChildren(...children.flat().filter((c) => c != null && c !== false));
 }
 
-export function header({ title, back, onMenu }) {
+// extra：右側の「⋯」の左に置く要素（グループ画面のメンバーボタンなど）
+export function header({ title, back, onMenu, extra }) {
   return h(
     'header',
     { class: 'topbar' },
-    back
-      ? h('a', { class: 'topbar-btn', href: back, 'aria-label': '戻る' }, '‹')
-      : h('span', { class: 'topbar-btn' }),
+    h('div', { class: 'topbar-side left' }, back ? h('a', { class: 'topbar-btn', href: back, 'aria-label': '戻る' }, '‹') : h('span', { class: 'topbar-btn' })),
     h('h1', { class: 'topbar-title' }, title),
-    onMenu
-      ? h('button', { class: 'topbar-btn', onClick: onMenu, 'aria-label': 'メニュー' }, '⋯')
-      : h('span', { class: 'topbar-btn' }),
+    h(
+      'div',
+      { class: 'topbar-side right' },
+      extra,
+      onMenu ? h('button', { class: 'topbar-btn', onClick: onMenu, 'aria-label': 'メニュー' }, '⋯') : h('span', { class: 'topbar-btn' }),
+    ),
   );
 }
 
