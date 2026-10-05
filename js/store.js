@@ -8,6 +8,9 @@
 //   groups/{groupId}/events/{eventId} イベント（旅行など、期間のある予定）。participants: 参加者の uid（空なら全員）
 //   groups/{groupId}/plans/{planId}   普段の予定（歯医者など）。カレンダーに表示する
 //   recovery/{code}                   ゲストの復旧ID（下の「ゲストの復旧ID」を参照）
+//   announcements/{id}                アプリからのお知らせ（管理者が書く）
+//   groups/{groupId}/announcements/{id} グループのお知らせ（メンバーが書く）
+//   reads/{uid}                       お知らせの既読 { seen: { "app:ID" | "g:GID:ID": 既読にした時刻 } }（本人だけ）
 //   presence/{uid}                    最終アクセス時刻（オンライン表示用。読めるのは本人と管理者だけ）
 //
 // watch〜 は変更があるたびに cb を呼ぶ（他のメンバーの編集もリアルタイムに届く）。
@@ -148,11 +151,14 @@ export function inviteUrl(group) {
 }
 
 export async function deleteGroup(groupId) {
-  const [lists, events, plans] = await Promise.all([getDocs(listsCol(groupId)), getDocs(eventsCol(groupId)), getDocs(plansCol(groupId))]);
+  const [lists, events, plans, news] = await Promise.all([
+    getDocs(listsCol(groupId)),
+    getDocs(eventsCol(groupId)),
+    getDocs(plansCol(groupId)),
+    getDocs(groupNewsCol(groupId)),
+  ]);
   const batch = writeBatch(db);
-  lists.forEach((l) => batch.delete(l.ref));
-  events.forEach((e) => batch.delete(e.ref));
-  plans.forEach((p) => batch.delete(p.ref));
+  for (const snap of [lists, events, plans, news]) snap.forEach((d) => batch.delete(d.ref));
   batch.delete(groupRef(groupId));
   await batch.commit();
 }
@@ -346,6 +352,57 @@ export async function deleteEvent(groupId, eventId) {
   lists.forEach((l) => batch.delete(l.ref));
   batch.delete(eventRef(groupId, eventId));
   await batch.commit();
+}
+
+// ---- お知らせ ----
+// お知らせ 1 件 = { title, body, createdAt, createdBy, createdByName }
+
+const appNewsCol = () => collection(db, 'announcements');
+const groupNewsCol = (groupId) => collection(db, 'groups', groupId, 'announcements');
+
+function newsFields({ title, body }) {
+  return { title, body, createdAt: Date.now(), createdBy: uid(), createdByName: displayName() };
+}
+
+export function watchAppNews(cb, onError) {
+  return onSnapshot(appNewsCol(), (snap) => cb(snap.docs.map(withId)), onError);
+}
+
+export async function createAppNews(news) {
+  const ref = doc(appNewsCol());
+  await setDoc(ref, newsFields(news));
+  return ref.id;
+}
+
+export async function deleteAppNews(id) {
+  await deleteDoc(doc(db, 'announcements', id));
+}
+
+export function watchGroupNews(groupId, cb, onError) {
+  return onSnapshot(groupNewsCol(groupId), (snap) => cb(snap.docs.map(withId)), onError);
+}
+
+export async function createGroupNews(groupId, news) {
+  const ref = doc(groupNewsCol(groupId));
+  await setDoc(ref, newsFields(news));
+  return ref.id;
+}
+
+export async function deleteGroupNews(groupId, id) {
+  await deleteDoc(doc(db, 'groups', groupId, 'announcements', id));
+}
+
+// 既読：自分の reads ドキュメントの seen マップに足していく（merge なので他の既読は消えない）
+export function watchReads(cb, onError) {
+  return onSnapshot(
+    doc(db, 'reads', uid()),
+    (snap) => cb(snap.exists() ? snap.data().seen ?? {} : {}),
+    onError,
+  );
+}
+
+export async function markRead(key) {
+  await setDoc(doc(db, 'reads', uid()), { seen: { [key]: Date.now() } }, { merge: true });
 }
 
 // ---- 普段の予定（歯医者など。カレンダーに出す） ----

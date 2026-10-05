@@ -1905,6 +1905,113 @@ select.text-input {
   white-space: nowrap;
 }
 
+/* ---- お知らせ ---- */
+
+.news-card {
+  margin-bottom: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.news-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.news-meta {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.news-body {
+  margin: 0;
+  max-height: 45dvh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.news-input {
+  min-height: 120px;
+}
+
+.news-add {
+  margin: 12px 0;
+}
+
+.news-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.news-list:empty {
+  display: none;
+}
+
+.news-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.news-row:last-child {
+  border-bottom: 0;
+}
+
+.news-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: inherit;
+}
+
+.news-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.news-row.unread .news-row-title {
+  font-weight: 700;
+}
+
+.news-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.news-row-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.news-delete {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: none;
+  font-size: 16px;
+  opacity: 0.6;
+}
+
 /* ---- ヘッダー：左右の幅をそろえてタイトルを真ん中に ---- */
 
 .topbar {

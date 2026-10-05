@@ -31,6 +31,138 @@ const prefs = {
   },
 };
 
+// ---- お知らせ ----
+// アプリからのお知らせ（key "app:ID"）とグループのお知らせ（key "g:GID:ID"）を、届いた順にポップアップで 1 件ずつ出す。
+// 「既読にする」で reads に記録（二度と出ない）。「あとで見る」はこの起動中だけ出さない（次に開いたときにまた出る）。
+// 自分が書いたお知らせは既読あつかい。
+
+let newsReads = null; // 既読マップ（読み込むまでは null。null の間はポップアップを出さない）
+const newsSources = new Map(); // 'app' / 'g:GID' → お知らせの配列
+const newsListeners = new Set(); // 既読が変わったら描き直したい画面
+const snoozedNews = new Set();
+const newsQueue = [];
+let newsShowing = null;
+let unwatchReads = null;
+let unwatchAppNews = null;
+
+function isNewsRead(n) {
+  return !!newsReads?.[n.key] || n.createdBy === user?.uid;
+}
+
+function unreadNewsCount(sourceId) {
+  return (newsSources.get(sourceId) ?? []).filter((n) => !isNewsRead(n)).length;
+}
+
+function setNewsSource(sourceId, items) {
+  newsSources.set(sourceId, items);
+  checkNews();
+}
+
+function clearNewsSource(sourceId) {
+  newsSources.delete(sourceId);
+  for (let i = newsQueue.length - 1; i >= 0; i--) if (newsQueue[i].sourceId === sourceId) newsQueue.splice(i, 1);
+}
+
+function checkNews() {
+  // 読み込み前・ログイン処理中・名前の入力前は出さない
+  if (!newsReads || !user || authBusy || auth.needsName()) return;
+  const all = [...newsSources.values()].flat().sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  for (const n of all) {
+    if (isNewsRead(n) || snoozedNews.has(n.key) || newsShowing === n.key || newsQueue.some((q) => q.key === n.key)) continue;
+    newsQueue.push(n);
+  }
+  pumpNews();
+}
+
+async function pumpNews() {
+  if (newsShowing) return;
+  const n = newsQueue.shift();
+  if (!n) return;
+  if (isNewsRead(n) || snoozedNews.has(n.key)) return pumpNews();
+  newsShowing = n.key;
+  const res = await newsPopup(n, newsQueue.length);
+  if (res === 'read') store.markRead(n.key).catch(showError);
+  else snoozedNews.add(n.key);
+  newsShowing = null;
+  pumpNews();
+}
+
+function fmtDateTime(ms) {
+  const d = new Date(ms ?? 0);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// お知らせのポップアップ。戻り値 'read'（既読にする）/ それ以外（あとで見る・閉じる）
+function newsPopup(n, remaining = 0) {
+  const read = isNewsRead(n);
+  return openSheet((close) => [
+    h('div', { class: 'sheet-title' }, `📢 ${n.sourceName}からのお知らせ${remaining > 0 ? `（ほかに${remaining}件）` : ''}`),
+    h(
+      'div',
+      { class: 'news-card' },
+      h('h2', { class: 'news-title' }, n.title),
+      h('p', { class: 'news-meta' }, `${n.createdByName ?? ''} ・ ${fmtDateTime(n.createdAt)}`),
+      n.body && h('p', { class: 'news-body' }, n.body),
+    ),
+    !read && h('button', { class: 'sheet-action', onClick: () => close('read') }, '✓ 既読にする'),
+    h('button', { class: 'sheet-action cancel', onClick: () => close('later') }, read ? '閉じる' : 'あとで見る'),
+  ]);
+}
+
+function newsSheet() {
+  return openSheet((close) => {
+    const title = h('input', { class: 'text-input', placeholder: 'タイトル（例：今週末は大掃除します）', maxlength: 100, 'aria-label': 'タイトル' });
+    const body = h('textarea', { class: 'text-input memo-input news-input', placeholder: '内容', maxlength: 2000, rows: 5, 'aria-label': '内容' });
+    return [
+      h('div', { class: 'sheet-title' }, 'お知らせを書く'),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            const t = title.value.trim();
+            if (!t) return title.focus();
+            close({ title: t, body: body.value.trim() });
+          },
+        },
+        title,
+        body,
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, '送る'),
+        ),
+      ),
+    ];
+  });
+}
+
+function startNewsWatchers(u) {
+  unwatchReads?.();
+  unwatchAppNews?.();
+  unwatchReads = unwatchAppNews = null;
+  newsReads = null;
+  newsSources.clear();
+  newsQueue.length = 0;
+  if (!u) return;
+  unwatchReads = store.watchReads(
+    (seen) => {
+      newsReads = seen;
+      newsListeners.forEach((fn) => fn());
+      checkNews();
+    },
+    () => {
+      newsReads = {};
+    },
+  );
+  unwatchAppNews = store.watchAppNews(
+    (list) => setNewsSource('app', list.map((n) => ({ ...n, key: `app:${n.id}`, sourceId: 'app', sourceName: 'アプリ' }))),
+    () => {},
+  );
+}
+
 function showError(e) {
   console.error(e);
   toast(e?.code === 'permission-denied' ? '権限がありません' : 'エラーが発生しました');
@@ -60,6 +192,7 @@ async function runAuth(fn) {
   } finally {
     authBusy = false;
     route();
+    checkNews();
   }
 }
 
@@ -84,7 +217,9 @@ async function renameAccount() {
 
 function accountMenu() {
   const guest = auth.isGuest();
+  const unread = unreadNewsCount('app');
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
+    { label: `📢 アプリからのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
     isAdmin && { label: '管理者ダッシュボード', onClick: () => (location.hash = '#/admin') },
     { label: '名前を変更', onClick: renameAccount },
     guest && { label: '復旧IDを確認', onClick: myRecoverySheet },
@@ -154,6 +289,7 @@ function nameSetupView(root) {
             }
             route();
             heartbeat(true);
+            checkNews();
           },
         },
         input,
@@ -1425,6 +1561,10 @@ function groupView(root, { groupId }) {
           extra: memberPill,
           onMenu: () =>
             actionSheet(g.name, [
+              {
+                label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
+                onClick: () => (location.hash = `#/g/${groupId}/news`),
+              },
               { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
               { label: '招待リンクを送る', onClick: () => shareInvite(group) },
               { label: 'メンバーを見る', onClick: () => membersSheet(group, recoveryCodes) },
@@ -1587,6 +1727,18 @@ function groupView(root, { groupId }) {
   );
 
   // 普段の予定（カレンダー）。読めなくてもほかは使えるように、エラー時は空として扱う
+  // グループのお知らせ：グループを開いたときに未読があればポップアップ（checkNews が順に出す）
+  const newsSourceId = `g:${groupId}`;
+  const unwatchNews = store.watchGroupNews(
+    groupId,
+    (list) =>
+      setNewsSource(
+        newsSourceId,
+        list.map((n) => ({ ...n, key: `g:${groupId}:${n.id}`, sourceId: newsSourceId, sourceName: group?.name ?? 'グループ' })),
+      ),
+    () => {},
+  );
+
   const unwatchPlans = store.watchPlans(
     groupId,
     (ps) => {
@@ -1607,6 +1759,8 @@ function groupView(root, { groupId }) {
     unwatchLists();
     unwatchEvents();
     unwatchPlans();
+    unwatchNews();
+    clearNewsSource(newsSourceId);
   };
 }
 
@@ -2321,6 +2475,86 @@ function checklistView(root, { groupId, listId }) {
   );
 }
 
+// ---- 画面：お知らせ一覧（groupId があればグループのお知らせ、なければアプリからのお知らせ） ----
+
+function newsListView(root, { groupId = null }) {
+  const top = h('div');
+  const body = h('main', { class: 'content' });
+  root.append(top, body);
+  let group = null;
+  let items = null;
+
+  const canWrite = () => (groupId ? true : isAdmin);
+  const canDelete = (n) => (groupId ? n.createdBy === user.uid || group?.members?.[user.uid]?.role === 'owner' : isAdmin);
+
+  const write = async () => {
+    const res = await newsSheet();
+    if (!res) return;
+    (groupId ? store.createGroupNews(groupId, res) : store.createAppNews(res)).then(() => toast('お知らせを送りました'), showError);
+  };
+
+  function render() {
+    if (!items || (groupId && !group)) return;
+    setChildren(top, header({ title: groupId ? `${group.name}のお知らせ` : 'アプリからのお知らせ', back: groupId ? `#/g/${groupId}` : '#/' }));
+    const sorted = [...items].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    setChildren(
+      body,
+      canWrite() && h('button', { class: 'add-card news-add', onClick: write }, '＋ お知らせを書く'),
+      sorted.length === 0 && h('p', { class: 'empty' }, 'お知らせはまだありません'),
+      h(
+        'div',
+        { class: 'news-list' },
+        sorted.map((n) =>
+          h(
+            'div',
+            { class: `news-row${isNewsRead(n) ? '' : ' unread'}` },
+            h(
+              'button',
+              {
+                class: 'news-row-main',
+                onClick: async () => {
+                  if ((await newsPopup(n)) === 'read') store.markRead(n.key).catch(showError);
+                },
+              },
+              h('span', { class: 'news-row-title' }, !isNewsRead(n) && h('i', { class: 'news-dot', 'aria-label': '未読' }), n.title),
+              h('span', { class: 'news-row-meta' }, `${n.createdByName ?? ''} ・ ${fmtDateTime(n.createdAt)}`),
+            ),
+            canDelete(n) &&
+              h(
+                'button',
+                {
+                  class: 'news-delete',
+                  'aria-label': `${n.title} を削除`,
+                  onClick: async () => {
+                    if (await confirmSheet(`「${n.title}」を削除しますか？`)) (groupId ? store.deleteGroupNews(groupId, n.id) : store.deleteAppNews(n.id)).catch(showError);
+                  },
+                },
+                '🗑',
+              ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  const sourceName = () => (groupId ? group?.name ?? 'グループ' : 'アプリ');
+  const toItems = (list) => list.map((n) => ({ ...n, key: groupId ? `g:${groupId}:${n.id}` : `app:${n.id}`, sourceId: groupId ? `g:${groupId}` : 'app', sourceName: sourceName() }));
+  const onError = (e) => {
+    showError(e);
+    location.hash = groupId ? `#/g/${groupId}` : '#/';
+  };
+  const unwatchItems = groupId
+    ? store.watchGroupNews(groupId, (list) => ((items = toItems(list)), render()), onError)
+    : store.watchAppNews((list) => ((items = toItems(list)), render()), onError);
+  const unwatchGroup = groupId ? store.watchGroup(groupId, (g) => ((group = g), items && (items = items.map((n) => ({ ...n, sourceName: g.name }))), render()), onError) : null;
+  newsListeners.add(render);
+  return () => {
+    unwatchItems();
+    unwatchGroup?.();
+    newsListeners.delete(render);
+  };
+}
+
 // ---- ルーター（URL の # 以降で画面を切り替える） ----
 
 const routes = [
@@ -2329,6 +2563,8 @@ const routes = [
   [/^#\/g\/([\w-]+)\/e\/([\w-]+)\/d\/(\d{4}-\d{2}-\d{2})$/, (m) => [eventView, { groupId: m[1], eventId: m[2], date: m[3] }]],
   [/^#\/g\/([\w-]+)$/, (m) => [groupView, { groupId: m[1] }]],
   [/^#\/admin$/, () => [adminView, {}]],
+  [/^#\/news$/, () => [newsListView, {}]],
+  [/^#\/g\/([\w-]+)\/news$/, (m) => [newsListView, { groupId: m[1] }]],
 ];
 
 let unmount = null;
@@ -2387,6 +2623,7 @@ document.addEventListener('visibilitychange', () => heartbeat(true));
 
 auth.watchUser((u) => {
   user = u;
+  startNewsWatchers(u);
   unwatchAdmin?.();
   unwatchAdmin = null;
   isAdmin = false;

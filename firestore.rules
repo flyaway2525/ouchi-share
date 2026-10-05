@@ -33,6 +33,28 @@ service cloud.firestore {
       allow list, write: if false;
     }
 
+    // ---- お知らせ ----
+    function isValidNews(d) {
+      return d.keys().hasOnly(['title', 'body', 'createdAt', 'createdBy', 'createdByName'])
+        && isNonEmptyString(d.title, 100)
+        && d.body is string && d.body.size() <= 2000
+        && d.createdBy == request.auth.uid
+        && d.createdByName is string && d.createdByName.size() <= 40;
+    }
+
+    // アプリからのお知らせ：ログインしている人は読める。書く・消すのは管理者だけ
+    match /announcements/{newsId} {
+      allow read: if signedIn();
+      allow create: if isAdmin() && isValidNews(request.resource.data);
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // お知らせの既読：本人だけ
+    match /reads/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
     // ---- 最終アクセス時刻（オンライン表示用） ----
     match /presence/{userId} {
       allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
@@ -218,6 +240,23 @@ service cloud.firestore {
         allow read: if isGroupMember();
         allow create, update: if isGroupMember() && isValidEvent(request.resource.data);
         allow delete: if isGroupMember();
+      }
+
+      // ---- グループのお知らせ：メンバーなら誰でも書ける。消せるのは書いた本人とオーナー ----
+      match /announcements/{newsId} {
+        function groupData() {
+          return get(/databases/$(database)/documents/groups/$(groupId)).data;
+        }
+
+        function isGroupMember() {
+          return signedIn() && request.auth.uid in groupData().memberIds;
+        }
+
+        allow read: if isGroupMember();
+        allow create: if isGroupMember() && isValidNews(request.resource.data);
+        allow update: if false;
+        allow delete: if isGroupMember()
+          && (resource.data.createdBy == request.auth.uid || groupData().members[request.auth.uid].role == 'owner');
       }
 
       // ---- 普段の予定（歯医者など。カレンダーに表示） ----
