@@ -1906,6 +1906,211 @@ select.text-input {
   white-space: nowrap;
 }
 
+/* ---- 貸し借りリスト ---- */
+
+.money-board {
+  margin-top: 12px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.money-diagram {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.money-node {
+  cursor: grab;
+  touch-action: none;
+}
+
+.money-node circle {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-width: 2;
+  transition: r 0.1s;
+}
+
+.money-node.me circle {
+  fill: var(--accent);
+}
+
+.money-node.me .money-initial {
+  fill: var(--accent-text);
+}
+
+.money-node.dragging circle,
+.money-node.target circle {
+  stroke-width: 4;
+}
+
+.money-node.target circle {
+  fill: #34c759;
+  stroke: #34c759;
+}
+
+.money-initial {
+  font-size: 18px;
+  font-weight: 700;
+  fill: var(--accent);
+  pointer-events: none;
+}
+
+.money-name {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text);
+  pointer-events: none;
+}
+
+.money-edge path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.money-edge text {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.money-head {
+  fill: var(--accent);
+}
+
+.money-head.drag {
+  fill: #34c759;
+}
+
+.money-drag {
+  stroke: #34c759;
+  stroke-width: 3;
+  stroke-dasharray: 6 5;
+  pointer-events: none;
+}
+
+.money-hint {
+  text-align: center;
+}
+
+.money-balances {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.money-balance {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.money-balance b {
+  font-size: 13px;
+}
+
+.money-balance.plus b {
+  color: #2e9d4f;
+}
+
+.money-balance.minus b {
+  color: var(--danger);
+}
+
+.money-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.money-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.money-row:last-child {
+  border-bottom: 0;
+}
+
+.money-row.settled {
+  opacity: 0.6;
+}
+
+.money-check {
+  display: grid;
+  place-items: center;
+}
+
+.money-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.money-line {
+  overflow-wrap: anywhere;
+}
+
+.money-sub {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.money-value {
+  flex-shrink: 0;
+  max-width: 40%;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.money-row.settled .money-value {
+  text-decoration: line-through;
+}
+
+.money-who {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.money-arrow {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 /* ---- お知らせ ---- */
 
 .news-card {

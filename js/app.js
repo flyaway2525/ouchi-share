@@ -920,7 +920,7 @@ const scheduleDrag = { active: false, pendingRender: null };
 
 // ドラッグ中は画面の指スクロールを止める（自動スクロールは scrollBy で動かすので影響しない）
 function blockTouchScroll(e) {
-  if (scheduleDrag.active) e.preventDefault();
+  if (scheduleDrag.active || moneyDrag.active) e.preventDefault();
 }
 document.addEventListener('touchmove', blockTouchScroll, { passive: false });
 
@@ -1405,6 +1405,13 @@ function addListMenu(groupId, eventId = null) {
       },
     },
     {
+      label: '💰 貸し借りリストを作る',
+      onClick: async () => {
+        const res = await askText({ title: '新しい貸し借りリスト', value: eventId ? '旅行の立て替え' : 'お金・ものの貸し借り', placeholder: '例：旅行の立て替え', okLabel: '作成' });
+        if (res) store.createList(groupId, { title: res, emoji: '💰', type: 'money', eventId }).then((id) => (location.hash = `#/g/${groupId}/l/${id}`), showError);
+      },
+    },
+    {
       label: 'ほかのリストを丸ごと取り込む',
       onClick: async () => {
         const source = await pickSourceList(groupId, { title: '取り込むリストを選ぶ' });
@@ -1645,14 +1652,16 @@ function groupView(root, { groupId }) {
 
   function renderBody() {
     if (!group || !lists || !events || !plans) return;
-    const checklists = lists.filter((l) => (l.type ?? 'checklist') === 'checklist');
+    const checklists = lists.filter((l) => isShownList(l));
     const daily = checklists.filter((l) => !l.eventId);
     const { active, past } = sortEvents(events);
     const eventCard = (ev) => {
       const st = eventStatus(ev);
       const evLists = checklists.filter((l) => l.eventId === ev.id);
-      const total = evLists.reduce((n, l) => n + l.total, 0);
-      const done = evLists.reduce((n, l) => n + l.done, 0);
+      // 進み具合はチェックリストだけで数える
+      const progressLists = evLists.filter((l) => (l.type ?? 'checklist') === 'checklist');
+      const total = progressLists.reduce((n, l) => n + l.total, 0);
+      const done = progressLists.reduce((n, l) => n + l.done, 0);
       const plans = lists.find((l) => l.id === store.scheduleId(ev.id))?.items.filter((i) => i.date).length ?? 0;
       return h(
         'a',
@@ -2164,7 +2173,15 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   );
 }
 
+// 一覧に出すリスト（旅程は旅程タブに出すので除く）
+function isShownList(l) {
+  return ['checklist', 'money'].includes(l.type ?? 'checklist');
+}
+
 function listCard(groupId, l) {
+  const money = l.type === 'money';
+  const open = money ? l.items.filter((i) => !i.settled) : [];
+  const yen = open.filter((i) => i.kind !== 'item').reduce((n, i) => n + (i.amount ?? 0), 0);
   return h(
     'a',
     { class: 'card', href: `#/g/${groupId}/l/${l.id}` },
@@ -2173,11 +2190,17 @@ function listCard(groupId, l) {
       'span',
       { class: 'card-main' },
       h('span', { class: 'card-title' }, l.title),
-      h('span', { class: 'card-sub' }, l.total ? `${l.done} / ${l.total} 完了` : '空のリスト'),
-      l.total > 0 && progressBar(l.done, l.total),
+      money
+        ? h('span', { class: 'card-sub' }, open.length ? `未精算 ${open.length}件${yen ? ` ・ ${fmtYen(yen)}` : ''}` : l.total ? 'すべて精算済み' : 'まだ登録なし')
+        : h('span', { class: 'card-sub' }, l.total ? `${l.done} / ${l.total} 完了` : '空のリスト'),
+      !money && l.total > 0 && progressBar(l.done, l.total),
     ),
     h('span', { class: 'chevron' }, '›'),
   );
+}
+
+function fmtYen(n) {
+  return `¥${Math.round(n).toLocaleString('ja-JP')}`;
 }
 
 // ---- 画面：イベント ----
@@ -2198,7 +2221,7 @@ function eventView(root, { groupId, eventId, date = null }) {
     }
     scheduleDrag.pendingRender = render;
     const st = eventStatus(ev);
-    const mine = lists.filter((l) => l.eventId === eventId && (l.type ?? 'checklist') === 'checklist');
+    const mine = lists.filter((l) => l.eventId === eventId && isShownList(l));
     const schedule = lists.find((l) => l.id === store.scheduleId(eventId));
     const days = eventDays(ev);
     // 1 日の画面：期間外の日付（イベントの日付を変えた後など）や 1 日だけのイベントは、イベントの画面へ
@@ -2389,6 +2412,426 @@ function adminView(root) {
 }
 
 // ---- 画面：チェックリスト ----
+
+// ---- リストの画面：リストの種類（チェックリスト / 貸し借り）で画面を切り替える ----
+
+function listView(root, params) {
+  let kind = null;
+  let inner = null;
+  const mount = (k) => {
+    if (k === kind) return;
+    kind = k;
+    inner?.();
+    root.replaceChildren();
+    inner = (k === 'money' ? moneyView : checklistView)(root, params);
+  };
+  const unwatch = store.watchList(
+    params.groupId,
+    params.listId,
+    (list) => mount(list.type === 'money' ? 'money' : 'checklist'),
+    // 読めないときはチェックリストの画面に任せる（そちらで「見つかりません」を出す）
+    () => mount('checklist'),
+  );
+  return () => {
+    unwatch();
+    inner?.();
+  };
+}
+
+// ---- 画面：貸し借りリスト ----
+// 円形に並べたメンバーの図で、人から人へドラッグすると「その人がその人に貸した」を登録できる。
+// 未精算の貸し借りは「貸した人 → 借りた人」の矢印で表示（同じ向きはまとめる）。
+
+const moneyDrag = { active: false, pendingRender: null };
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function svg(tag, attrs = {}, ...children) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v != null && v !== false) el.setAttribute(k, v);
+  for (const c of children.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  return el;
+}
+
+function moneySheet(members, initial = {}, { editing = false } = {}) {
+  return openSheet((close) => {
+    const personSelect = (label, value) => {
+      const sel = h(
+        'select',
+        { class: 'text-input', 'aria-label': label },
+        h('option', { value: '' }, `${label}を選ぶ`),
+        members.map((m) => h('option', { value: m.uid }, m.uid === user.uid ? `${m.name}（自分）` : m.name)),
+      );
+      sel.value = value ?? '';
+      return sel;
+    };
+    const from = personSelect('貸した人', initial.from);
+    const to = personSelect('借りた人', initial.to);
+    let kind = initial.kind ?? 'money';
+    const amount = h('input', { class: 'text-input', type: 'number', inputmode: 'numeric', min: 1, step: 1, value: initial.amount ?? '', placeholder: '金額（円）', 'aria-label': '金額' });
+    const item = h('input', { class: 'text-input', value: initial.item ?? '', placeholder: '貸したもの（例：本、傘）', maxlength: 60, 'aria-label': '貸したもの' });
+    const kindBtns = h('div', { class: 'people-chips' });
+    const syncKind = () => {
+      setChildren(
+        kindBtns,
+        [['money', '💴 お金'], ['item', '📦 もの']].map(([k, label]) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              class: `chip${kind === k ? ' on' : ''}`,
+              onClick: () => {
+                kind = k;
+                syncKind();
+              },
+            },
+            label,
+          ),
+        ),
+      );
+      amount.style.display = kind === 'money' ? '' : 'none';
+      item.style.display = kind === 'item' ? '' : 'none';
+    };
+    syncKind();
+    const memo = h('input', { class: 'text-input', value: initial.memo ?? '', placeholder: 'メモ（例：ランチ代）', maxlength: 100, 'aria-label': 'メモ' });
+    const date = h('input', { class: 'text-input', type: 'date', value: initial.date ?? todayStr(), 'aria-label': '日付' });
+    return [
+      h('div', { class: 'sheet-title' }, editing ? '貸し借りを編集' : '貸し借りを登録'),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            if (!from.value || !to.value) return toast('貸した人と借りた人を選んでください');
+            if (from.value === to.value) return toast('貸した人と借りた人が同じです');
+            const yen = Math.round(Number(amount.value));
+            if (kind === 'money' && !(yen > 0)) return toast('金額を入れてください');
+            if (kind === 'item' && !item.value.trim()) return toast('貸したものを入れてください');
+            close({
+              from: from.value,
+              to: to.value,
+              kind,
+              amount: kind === 'money' ? yen : null,
+              item: kind === 'item' ? item.value.trim() : '',
+              memo: memo.value.trim(),
+              date: date.value || todayStr(),
+            });
+          },
+        },
+        h('div', { class: 'money-who' }, from, h('span', { class: 'money-arrow' }, '→ 貸した →'), to),
+        kindBtns,
+        amount,
+        item,
+        memo,
+        date,
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, editing ? '保存' : '登録'),
+        ),
+      ),
+    ];
+  });
+}
+
+// 円形の図。onLink(from, to) はドラッグで人から人へ線を引いたときに呼ぶ
+function moneyDiagram(members, entries, onLink) {
+  const size = 320;
+  const c = size / 2;
+  const R = members.length <= 2 ? 90 : 116;
+  const nodeR = 24;
+  const pos = Object.fromEntries(
+    members.map((m, i) => {
+      const a = -Math.PI / 2 + (2 * Math.PI * i) / Math.max(members.length, 1);
+      return [m.uid, { x: c + R * Math.cos(a), y: c + R * Math.sin(a) }];
+    }),
+  );
+
+  // 同じ向き（貸した人 → 借りた人）の未精算をまとめる
+  const pairs = new Map();
+  for (const e of entries) {
+    if (e.settled || !pos[e.from] || !pos[e.to]) continue;
+    const key = `${e.from}>${e.to}`;
+    const p = pairs.get(key) ?? { from: e.from, to: e.to, yen: 0, items: 0 };
+    if (e.kind === 'item') p.items++;
+    else p.yen += e.amount ?? 0;
+    pairs.set(key, p);
+  }
+
+  const arrows = [...pairs.values()].map((p) => {
+    const a = pos[p.from];
+    const b = pos[p.to];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    // 逆向きの矢印と重ならないよう、進む向きの右側にふくらませる（逆向きもあるときは大きめに）
+    const bend = pairs.has(`${p.to}>${p.from}`) ? 32 : 14;
+    const cx = (a.x + b.x) / 2 - uy * bend;
+    const cy = (a.y + b.y) / 2 + ux * bend;
+    const sx = a.x + ux * (nodeR + 4);
+    const sy = a.y + uy * (nodeR + 4);
+    const ex = b.x - ux * (nodeR + 8);
+    const ey = b.y - uy * (nodeR + 8);
+    const lx = 0.25 * sx + 0.5 * cx + 0.25 * ex;
+    const ly = 0.25 * sy + 0.5 * cy + 0.25 * ey;
+    const label = [p.yen ? fmtYen(p.yen) : '', p.items ? `📦${p.items}` : ''].filter(Boolean).join('＋');
+    return svg(
+      'g',
+      { class: 'money-edge' },
+      svg('path', { d: `M${sx},${sy} Q${cx},${cy} ${ex},${ey}`, 'marker-end': 'url(#money-head)' }),
+      svg('text', { x: lx, y: ly, 'text-anchor': 'middle', 'dominant-baseline': 'middle' }, label),
+    );
+  });
+
+  const nodes = members.map((m) =>
+    svg(
+      'g',
+      { class: `money-node${m.uid === user.uid ? ' me' : ''}`, 'data-uid': m.uid, transform: `translate(${pos[m.uid].x},${pos[m.uid].y})` },
+      svg('circle', { r: nodeR }),
+      svg('text', { class: 'money-initial', 'text-anchor': 'middle', 'dominant-baseline': 'central' }, [...m.name][0] ?? '?'),
+      svg('text', { class: 'money-name', y: nodeR + 14, 'text-anchor': 'middle' }, m.name.length > 7 ? `${m.name.slice(0, 6)}…` : m.name),
+    ),
+  );
+
+  const dragLine = svg('line', { class: 'money-drag', 'marker-end': 'url(#money-head-drag)', visibility: 'hidden' });
+  const root = svg(
+    'svg',
+    { class: 'money-diagram', viewBox: `0 0 ${size} ${size}`, role: 'img', 'aria-label': '貸し借りの図' },
+    svg(
+      'defs',
+      {},
+      svg('marker', { id: 'money-head', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, svg('path', { d: 'M0,0 L10,5 L0,10 z', class: 'money-head' })),
+      svg('marker', { id: 'money-head-drag', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, svg('path', { d: 'M0,0 L10,5 L0,10 z', class: 'money-head drag' })),
+    ),
+    arrows,
+    dragLine,
+    nodes,
+  );
+
+  // ドラッグ：人を押して、ほかの人のところで離す
+  const toSvg = (ev) => {
+    const pt = root.createSVGPoint();
+    pt.x = ev.clientX;
+    pt.y = ev.clientY;
+    return pt.matrixTransform(root.getScreenCTM().inverse());
+  };
+  const nodeAt = (ev) => document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.money-node');
+  root.addEventListener('touchstart', (e) => e.target.closest?.('.money-node') && e.preventDefault(), { passive: false });
+  root.addEventListener('pointerdown', (e) => {
+    const node = e.target.closest?.('.money-node');
+    if (!node || e.button > 0 || moneyDrag.active) return;
+    e.preventDefault();
+    const fromUid = node.dataset.uid;
+    const start = pos[fromUid];
+    const pointerId = e.pointerId;
+    moneyDrag.active = true;
+    node.classList.add('dragging');
+    let over = null;
+    dragLine.setAttribute('x1', start.x);
+    dragLine.setAttribute('y1', start.y);
+    const onMove = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      const p = toSvg(ev);
+      dragLine.setAttribute('x2', p.x);
+      dragLine.setAttribute('y2', p.y);
+      dragLine.setAttribute('visibility', 'visible');
+      const target = nodeAt(ev);
+      const next = target && target !== node ? target : null;
+      if (next !== over) {
+        over?.classList.remove('target');
+        next?.classList.add('target');
+        over = next;
+      }
+    };
+    const finish = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      dragLine.setAttribute('visibility', 'hidden');
+      node.classList.remove('dragging');
+      over?.classList.remove('target');
+      moneyDrag.active = false;
+      const toUid = over?.dataset.uid;
+      if (toUid) onLink(fromUid, toUid);
+      else if (ev.type === 'pointerup' && !dragLine.getAttribute('x2')) toast('貸した人から、借りた人までドラッグしてください');
+      dragLine.removeAttribute('x2');
+      dragLine.removeAttribute('y2');
+      const render = moneyDrag.pendingRender;
+      moneyDrag.pendingRender = null;
+      render?.();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  });
+  return root;
+}
+
+function moneyView(root, { groupId, listId }) {
+  const top = h('div');
+  const body = h('main', { class: 'content' });
+  root.append(top, body);
+  let group = null;
+  let list = null;
+  let showSettled = false;
+
+  function render() {
+    if (!group || !list) return;
+    // ドラッグ中は描き直さない（掴んでいる線が消えないように）
+    if (moneyDrag.active) {
+      moneyDrag.pendingRender = render;
+      return;
+    }
+    const members = memberList(group);
+    const nameOf = (u) => members.find((m) => m.uid === u)?.name ?? '（退出したメンバー）';
+    const entries = [...list.items].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    const open = entries.filter((e) => !e.settled);
+    const settled = entries.filter((e) => e.settled);
+    const back = list.eventId ? `#/g/${groupId}/e/${list.eventId}` : `#/g/${groupId}`;
+
+    const add = async (initial) => {
+      const res = await moneySheet(members, initial);
+      if (res) store.addMoneyEntry(groupId, listId, res).then(() => toast('登録しました'), showError);
+    };
+
+    // 一人ずつの差し引き（お金だけ）
+    const balance = {};
+    for (const e of open) {
+      if (e.kind === 'item') continue;
+      balance[e.from] = (balance[e.from] ?? 0) + (e.amount ?? 0);
+      balance[e.to] = (balance[e.to] ?? 0) - (e.amount ?? 0);
+    }
+    const balances = Object.entries(balance).filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]);
+
+    const entryRow = (e) =>
+      h(
+        'li',
+        { class: `money-row${e.settled ? ' settled' : ''}` },
+        h(
+          'label',
+          { class: 'money-check', title: e.settled ? '未精算に戻す' : '精算済みにする' },
+          h('input', {
+            type: 'checkbox',
+            class: 'item-check',
+            checked: !!e.settled,
+            'aria-label': '精算済み',
+            onChange: (ev) => store.updateMoneyEntry(groupId, listId, e.id, { settled: ev.target.checked }).catch(showError),
+          }),
+        ),
+        h(
+          'span',
+          { class: 'money-main' },
+          h('span', { class: 'money-line' }, h('b', {}, nameOf(e.from)), ' → ', h('b', {}, nameOf(e.to))),
+          h('span', { class: 'money-sub' }, [e.memo, fmtDate(e.date ?? todayStr())].filter(Boolean).join(' ・ ')),
+        ),
+        h('span', { class: 'money-value' }, e.kind === 'item' ? `📦 ${e.item}` : fmtYen(e.amount ?? 0)),
+        h(
+          'button',
+          {
+            class: 'sch-more',
+            'aria-label': 'メニュー',
+            onClick: () =>
+              actionSheet(`${nameOf(e.from)} → ${nameOf(e.to)}`, [
+                {
+                  label: '編集',
+                  onClick: async () => {
+                    const res = await moneySheet(members, e, { editing: true });
+                    if (res) store.updateMoneyEntry(groupId, listId, e.id, res).catch(showError);
+                  },
+                },
+                {
+                  label: '削除',
+                  danger: true,
+                  onClick: async () => {
+                    if (await confirmSheet('この貸し借りを削除しますか？')) store.deleteItem(groupId, listId, e.id).catch(showError);
+                  },
+                },
+              ]),
+          },
+          '⋮',
+        ),
+      );
+
+    setChildren(
+      top,
+      header({
+        title: `${list.emoji} ${list.title}`,
+        back,
+        onMenu: () =>
+          actionSheet(list.title, [
+            {
+              label: 'リスト名を変更',
+              onClick: async () => {
+                const name = await askText({ title: 'リスト名を変更', value: list.title, okLabel: '保存' });
+                if (name) store.updateList(groupId, listId, { title: name }).catch(showError);
+              },
+            },
+            {
+              label: 'リストを削除',
+              danger: true,
+              onClick: async () => {
+                if (await confirmSheet(`「${list.title}」を削除しますか？`)) store.deleteList(groupId, listId).then(() => (location.hash = back), showError);
+              },
+            },
+          ]),
+      }),
+    );
+
+    setChildren(
+      body,
+      h(
+        'div',
+        { class: 'money-board' },
+        members.length < 2
+          ? h('p', { class: 'empty small' }, 'メンバーが 2 人以上になると、図から登録できます。')
+          : moneyDiagram(members, open, (from, to) => add({ from, to })),
+        members.length >= 2 && h('p', { class: 'sch-hint money-hint' }, '貸した人を押したまま、借りた人まで指を動かすと登録できます'),
+      ),
+      balances.length > 0 &&
+        h(
+          'div',
+          { class: 'money-balances' },
+          balances.map(([u, v]) =>
+            h('span', { class: `money-balance ${v > 0 ? 'plus' : 'minus'}` }, nameOf(u), h('b', {}, `${v > 0 ? '+' : '−'}${fmtYen(Math.abs(v))}`), v > 0 ? '貸している' : '借りている'),
+          ),
+        ),
+      h('p', { class: 'section-label' }, `未精算${open.length ? `（${open.length}件）` : ''}`),
+      open.length === 0 && h('p', { class: 'empty small' }, '未精算の貸し借りはありません'),
+      open.length > 0 && h('ul', { class: 'money-list' }, open.map(entryRow)),
+      h('button', { class: 'add-card', onClick: () => add({ from: user.uid }) }, '＋ 貸し借りを登録'),
+      settled.length > 0 &&
+        h(
+          'button',
+          {
+            class: 'past-toggle',
+            onClick: () => {
+              showSettled = !showSettled;
+              render();
+            },
+          },
+          `${showSettled ? '▾' : '▸'} 精算済み（${settled.length}）`,
+        ),
+      showSettled && settled.length > 0 && h('ul', { class: 'money-list' }, settled.map(entryRow)),
+    );
+  }
+
+  const back = () => (location.hash = list?.eventId ? `#/g/${groupId}/e/${list.eventId}` : `#/g/${groupId}`);
+  const onGone = (e) => {
+    if (e?.code !== 'permission-denied' && e?.message !== 'not-found') return showError(e);
+    toast('リストが見つかりません');
+    back();
+  };
+  const unwatchGroup = store.watchGroup(groupId, (g) => ((group = g), render()), onGone);
+  const unwatchList = store.watchList(groupId, listId, (l) => ((list = l), render()), onGone);
+  return () => {
+    unwatchGroup();
+    unwatchList();
+  };
+}
 
 function checklistView(root, { groupId, listId }) {
   const top = h('div');
@@ -2594,7 +3037,7 @@ function newsListView(root, { groupId = null }) {
 // ---- ルーター（URL の # 以降で画面を切り替える） ----
 
 const routes = [
-  [/^#\/g\/([\w-]+)\/l\/([\w-]+)$/, (m) => [checklistView, { groupId: m[1], listId: m[2] }]],
+  [/^#\/g\/([\w-]+)\/l\/([\w-]+)$/, (m) => [listView, { groupId: m[1], listId: m[2] }]],
   [/^#\/g\/([\w-]+)\/e\/([\w-]+)$/, (m) => [eventView, { groupId: m[1], eventId: m[2] }]],
   [/^#\/g\/([\w-]+)\/e\/([\w-]+)\/d\/(\d{4}-\d{2}-\d{2})$/, (m) => [eventView, { groupId: m[1], eventId: m[2], date: m[3] }]],
   [/^#\/g\/([\w-]+)$/, (m) => [groupView, { groupId: m[1] }]],

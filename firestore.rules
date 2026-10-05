@@ -224,7 +224,7 @@ service cloud.firestore {
 
         function isValidList(d) {
           return isNonEmptyString(d.title, 100)
-            && d.type in ['checklist', 'inventory', 'schedule']
+            && d.type in ['checklist', 'inventory', 'schedule', 'money']
             && d.items is map
             && (!('eventId' in d) || d.eventId == null || d.eventId is string);
         }

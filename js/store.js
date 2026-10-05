@@ -539,6 +539,20 @@ export async function deleteList(groupId, listId) {
   await deleteDoc(listRef(groupId, listId));
 }
 
+// ---- 貸し借りリスト（type: 'money'） ----
+// items の 1 件 = { from: 貸した人の uid, to: 借りた人の uid, kind: 'money' | 'item', amount: 円, item: もの,
+//                   memo, date: "YYYY-MM-DD", settled: 精算済みか, createdAt, createdBy }
+
+export async function addMoneyEntry(groupId, listId, entry) {
+  await updateDoc(listRef(groupId, listId), { [`items.${newId()}`]: { ...entry, settled: false, createdAt: Date.now(), createdBy: uid() } });
+}
+
+export async function updateMoneyEntry(groupId, listId, itemId, patch) {
+  const fields = {};
+  for (const [k, v] of Object.entries(patch)) fields[`items.${itemId}.${k}`] = v;
+  await updateDoc(listRef(groupId, listId), fields);
+}
+
 // ---- アイテム ----
 // アイテムごとにフィールド単位で更新するので、別の人が同時に別のアイテムを触っても上書きし合わない
 
