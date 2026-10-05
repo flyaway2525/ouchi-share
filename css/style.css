@@ -1896,3 +1896,11 @@ select.text-input {
 .cal-head .cal-today {
   margin-left: 4px;
 }
+
+/* タブが 3 つでもスマホ幅に収まるように */
+.tab {
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 14px;
+  white-space: nowrap;
+}

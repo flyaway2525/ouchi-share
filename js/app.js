@@ -1502,10 +1502,10 @@ function groupView(root, { groupId }) {
         h('span', { class: `event-badge ${st.kind}` }, st.label),
       );
     };
-    // カレンダーとイベント・リストはタブで切り替える（最後に開いたタブを端末に保存）
+    // カレンダー・イベント・リストはタブで切り替える（最後に開いたタブを端末に保存）
     const tabKey = `groupTab:${groupId}`;
-    const tab = prefs.get(tabKey, 'calendar');
-    const tabBtn = (id, label) =>
+    const tab = ['calendar', 'events', 'lists'].includes(prefs.get(tabKey)) ? prefs.get(tabKey) : 'calendar';
+    const tabBtn = (id, label, count = 0) =>
       h(
         'button',
         {
@@ -1519,17 +1519,34 @@ function groupView(root, { groupId }) {
           },
         },
         label,
+        count > 0 && h('span', { class: 'tab-count' }, count),
       );
-    const tabs = h('div', { class: 'tabs', role: 'tablist' }, tabBtn('calendar', '📅 カレンダー'), tabBtn('lists', '📋 イベント・リスト'));
+    const tabs = h(
+      'div',
+      { class: 'tabs', role: 'tablist' },
+      tabBtn('calendar', '📅 カレンダー'),
+      tabBtn('events', '✈️ イベント', active.length),
+      tabBtn('lists', '📝 リスト', daily.length),
+    );
     if (tab === 'calendar') {
       setChildren(body, members, tabs, calendarSection({ groupId, group, events, lists, plans, rerender: renderBody }));
+      return;
+    }
+    if (tab === 'lists') {
+      setChildren(
+        body,
+        members,
+        tabs,
+        daily.length === 0 && h('p', { class: 'empty small' }, '日用品の在庫や、やることリストなど、イベントに関係ないリストを置けます。'),
+        h('div', { class: 'card-list' }, daily.map((l) => listCard(groupId, l))),
+        h('button', { class: 'add-card', onClick: () => addListMenu(groupId) }, '＋ リストを追加'),
+      );
       return;
     }
     setChildren(
       body,
       members,
       tabs,
-      h('p', { class: 'section-label' }, '📅 イベント'),
       active.length === 0 && h('p', { class: 'empty small' }, '予定しているイベントはありません'),
       h('div', { class: 'card-list' }, active.map(eventCard)),
       past.length > 0 &&
@@ -1556,10 +1573,6 @@ function groupView(root, { groupId }) {
         },
         '＋ イベントを作成',
       ),
-      h('p', { class: 'section-label' }, '🏡 日常'),
-      daily.length === 0 && h('p', { class: 'empty small' }, 'まだリストがありません'),
-      h('div', { class: 'card-list' }, daily.map((l) => listCard(groupId, l))),
-      h('button', { class: 'add-card', onClick: () => addListMenu(groupId) }, '＋ リストを追加'),
     );
   }
 
