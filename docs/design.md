@@ -30,7 +30,8 @@ groups/{groupId}
   ├─ inviteCode                     招待リンクに含める合言葉。作り直すと古いリンクは無効
   ├─ memberIds: [uid, ...]          「自分が入っているグループ」を検索するための配列
   ├─ members: { uid: { name, role, guest, joinedAt, lastSeen } }   role = owner / member
-  ├─ events/{eventId}                 イベント（旅行など）{ title, emoji, startDate, endDate }（日付は "YYYY-MM-DD"）
+  ├─ events/{eventId}                 イベント（旅行など）{ title, emoji, startDate, endDate, participants }（日付は "YYYY-MM-DD"）
+  ├─ plans/{planId}                   普段の予定（歯医者など）{ title, date, start, duration, place, memo, participants }
   └─ lists/{listId}
         ├─ eventId                   イベントのリストならそのイベント ID、日常のリストなら null / なし
         ├─ type: checklist | inventory | schedule
@@ -96,6 +97,15 @@ groups/{groupId}
 - 「💡 行きたい候補」は旅程の一番上。見出しのタップで折りたためる（端末へ保存）
 - 端末だけの表示設定は `prefs`（localStorage、`ouchi-share:` 接頭辞）。保存できない環境でも表示は動く
 - イベントの期間を変えて範囲外になった予定は「⚠️ イベント期間外の予定」にまとめて表示（消さない）
+
+## カレンダーと普段の予定
+
+- グループ画面は「📅 カレンダー」「📋 イベント・リスト」のタブ（最後に開いたタブを端末に保存。初期はカレンダー）
+- 月のカレンダー：イベントは期間の帯（週をまたぐと分割、1 週に 3 段まで、超えた分は「+」）、旅程の予定と普段の予定は日ごとの点
+- 日をタップすると下にその日の一覧（イベント → その日の画面へ、旅程の予定 → その日の画面へ、普段の予定 → 編集・削除）
+- 普段の予定：`groups/{id}/plans/{planId}` = `{ title, date, start（null なら終日）, duration, place, memo, participants }`
+- 参加者：イベントと普段の予定の `participants`（uid の配列。空なら全員）。カレンダー上部で人を選ぶと、
+  その人が参加する（または全員の）ものだけ表示。選択は端末に保存。人を選んだまま予定を追加すると、その人が参加者に入る
 
 ## ゲストの復旧（スマホ紛失時）
 

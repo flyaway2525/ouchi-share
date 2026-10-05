@@ -1590,3 +1590,259 @@ select.text-input {
   font-weight: 600;
   color: var(--accent);
 }
+
+/* ---- 参加者 ---- */
+
+.people-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.people-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.chip.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---- カレンダー ---- */
+
+.cal-filter {
+  margin-bottom: 8px;
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.cal-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.cal-today {
+  margin-left: auto;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.cal-grid {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.cal-dow {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.cal-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  row-gap: 2px;
+  min-height: 64px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cal-week:last-child {
+  border-bottom: 0;
+}
+
+.cal-day {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 4px;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: none;
+  color: var(--text);
+}
+
+.cal-day:nth-child(7) {
+  border-right: 0;
+}
+
+.cal-day.other {
+  color: var(--muted);
+  opacity: 0.45;
+}
+
+.cal-day.sun .cal-num,
+.cal-dow .sun {
+  color: #e0483e;
+}
+
+.cal-day.sat .cal-num,
+.cal-dow .sat {
+  color: #3b7ddd;
+}
+
+.cal-num {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-day.today .cal-num {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+.cal-day.selected {
+  background: var(--accent-soft);
+}
+
+.cal-bar {
+  z-index: 1;
+  margin: 0 1px;
+  padding: 0 4px;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--accent) 80%, transparent);
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--accent-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.cal-bar.head {
+  margin-left: 3px;
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+
+.cal-bar.tail {
+  margin-right: 3px;
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.cal-dots {
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  pointer-events: none;
+}
+
+.cal-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.cal-dots b {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.cal-panel {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.cal-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-weight: 700;
+}
+
+.cal-panel .empty.small {
+  margin: 0 14px 10px;
+}
+
+.cal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 6px 10px 14px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: none;
+  text-align: left;
+  color: inherit;
+}
+
+.cal-row.event {
+  background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
+}
+
+.cal-row-time {
+  flex-shrink: 0;
+  width: 70px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cal-row-title {
+  overflow-wrap: anywhere;
+}
+
+.cal-row-sub {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.cal-row .sch-more {
+  display: grid;
+  place-items: center;
+  margin: 0;
+}

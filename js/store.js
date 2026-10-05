@@ -5,7 +5,8 @@
 //   groups/{groupId}                  グループ。memberIds / members でメンバーを管理
 //   groups/{groupId}/lists/{listId}   リスト。アイテムは items マップとして 1 ドキュメントに入れる
 //                                     eventId があればそのイベントのリスト、なければ「日常」のリスト
-//   groups/{groupId}/events/{eventId} イベント（旅行など、期間のある予定）
+//   groups/{groupId}/events/{eventId} イベント（旅行など、期間のある予定）。participants: 参加者の uid（空なら全員）
+//   groups/{groupId}/plans/{planId}   普段の予定（歯医者など）。カレンダーに表示する
 //   recovery/{code}                   ゲストの復旧ID（下の「ゲストの復旧ID」を参照）
 //   presence/{uid}                    最終アクセス時刻（オンライン表示用。読めるのは本人と管理者だけ）
 //
@@ -39,6 +40,8 @@ const listsCol = (groupId) => collection(db, 'groups', groupId, 'lists');
 const listRef = (groupId, listId) => doc(db, 'groups', groupId, 'lists', listId);
 const eventsCol = (groupId) => collection(db, 'groups', groupId, 'events');
 const eventRef = (groupId, eventId) => doc(db, 'groups', groupId, 'events', eventId);
+const plansCol = (groupId) => collection(db, 'groups', groupId, 'plans');
+const planRef = (groupId, planId) => doc(db, 'groups', groupId, 'plans', planId);
 
 function newId() {
   return doc(collection(db, '_')).id;
@@ -105,6 +108,10 @@ export async function listMyGroups() {
   return snap.docs.map(withId).sort(byCreatedAt);
 }
 
+export async function fetchGroup(groupId) {
+  return withId(await getDoc(groupRef(groupId)));
+}
+
 export function watchGroup(groupId, cb, onError) {
   return onSnapshot(
     groupRef(groupId),
@@ -141,10 +148,11 @@ export function inviteUrl(group) {
 }
 
 export async function deleteGroup(groupId) {
-  const [lists, events] = await Promise.all([getDocs(listsCol(groupId)), getDocs(eventsCol(groupId))]);
+  const [lists, events, plans] = await Promise.all([getDocs(listsCol(groupId)), getDocs(eventsCol(groupId)), getDocs(plansCol(groupId))]);
   const batch = writeBatch(db);
   lists.forEach((l) => batch.delete(l.ref));
   events.forEach((e) => batch.delete(e.ref));
+  plans.forEach((p) => batch.delete(p.ref));
   batch.delete(groupRef(groupId));
   await batch.commit();
 }
@@ -321,9 +329,9 @@ export async function fetchEvents(groupId) {
   return snap.docs.map(withEventFields);
 }
 
-export async function createEvent(groupId, { title, emoji, startDate, endDate }) {
+export async function createEvent(groupId, { title, emoji, startDate, endDate, participants = [] }) {
   const id = newId();
-  await setDoc(eventRef(groupId, id), { title, emoji, startDate, endDate, createdAt: Date.now(), createdBy: uid() });
+  await setDoc(eventRef(groupId, id), { title, emoji, startDate, endDate, participants, createdAt: Date.now(), createdBy: uid() });
   return id;
 }
 
@@ -338,6 +346,27 @@ export async function deleteEvent(groupId, eventId) {
   lists.forEach((l) => batch.delete(l.ref));
   batch.delete(eventRef(groupId, eventId));
   await batch.commit();
+}
+
+// ---- 普段の予定（歯医者など。カレンダーに出す） ----
+// { title, date: "YYYY-MM-DD", start: "HH:MM" | null（終日）, duration: 分, place, memo, participants: [uid]（空なら全員） }
+
+export function watchPlans(groupId, cb, onError) {
+  return onSnapshot(plansCol(groupId), (snap) => cb(snap.docs.map(withId)), onError);
+}
+
+export async function createPlan(groupId, plan) {
+  const id = newId();
+  await setDoc(planRef(groupId, id), { ...plan, createdAt: Date.now(), createdBy: uid() });
+  return id;
+}
+
+export async function updatePlan(groupId, planId, patch) {
+  await updateDoc(planRef(groupId, planId), patch);
+}
+
+export async function deletePlan(groupId, planId) {
+  await deleteDoc(planRef(groupId, planId));
 }
 
 // ---- 旅程（イベントのスケジュール） ----

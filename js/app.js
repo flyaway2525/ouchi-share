@@ -445,9 +445,10 @@ function sortEvents(events) {
 
 // ---- イベントの作成・編集シート ----
 
-function eventSheet({ title = '', emoji = EVENT_EMOJIS[0], startDate = todayStr(), endDate } = {}, okLabel = '作成') {
+function eventSheet({ title = '', emoji = EVENT_EMOJIS[0], startDate = todayStr(), endDate, participants = [] } = {}, okLabel = '作成', members = null) {
   let chosen = emoji;
   return openSheet((close) => {
+    const people = members ? participantPicker(members, participants) : null;
     const titleInput = h('input', { class: 'text-input', value: title, placeholder: '例：沖縄旅行', maxlength: 60, 'aria-label': 'イベント名' });
     const startInput = h('input', { class: 'text-input', type: 'date', value: startDate, 'aria-label': '開始日' });
     const endInput = h('input', { class: 'text-input', type: 'date', value: endDate ?? startDate, 'aria-label': '終了日' });
@@ -488,12 +489,13 @@ function eventSheet({ title = '', emoji = EVENT_EMOJIS[0], startDate = todayStr(
             if (!t) return titleInput.focus();
             if (!startInput.value || !endInput.value) return toast('日付を入れてください');
             if (endInput.value < startInput.value) return toast('終了日が開始日より前になっています');
-            close({ title: t, emoji: chosen, startDate: startInput.value, endDate: endInput.value });
+            close({ title: t, emoji: chosen, startDate: startInput.value, endDate: endInput.value, participants: people ? people.value() : participants });
           },
         },
         picker,
         titleInput,
         h('div', { class: 'date-row' }, h('label', {}, '開始', startInput), h('label', {}, '終了', endInput)),
+        people?.el,
         h(
           'div',
           { class: 'sheet-buttons' },
@@ -1465,16 +1467,18 @@ function groupView(root, { groupId }) {
         }),
       );
       renderMembers();
+      renderBody();
     },
     onGone,
   );
 
   let lists = null;
   let events = null;
+  let plans = null;
   let showPast = false;
 
   function renderBody() {
-    if (!lists || !events) return;
+    if (!group || !lists || !events || !plans) return;
     const checklists = lists.filter((l) => (l.type ?? 'checklist') === 'checklist');
     const daily = checklists.filter((l) => !l.eventId);
     const { active, past } = sortEvents(events);
@@ -1498,9 +1502,33 @@ function groupView(root, { groupId }) {
         h('span', { class: `event-badge ${st.kind}` }, st.label),
       );
     };
+    // カレンダーとイベント・リストはタブで切り替える（最後に開いたタブを端末に保存）
+    const tabKey = `groupTab:${groupId}`;
+    const tab = prefs.get(tabKey, 'calendar');
+    const tabBtn = (id, label) =>
+      h(
+        'button',
+        {
+          class: `tab${tab === id ? ' active' : ''}`,
+          role: 'tab',
+          'aria-selected': String(tab === id),
+          onClick: () => {
+            if (tab === id) return;
+            prefs.set(tabKey, id);
+            renderBody();
+          },
+        },
+        label,
+      );
+    const tabs = h('div', { class: 'tabs', role: 'tablist' }, tabBtn('calendar', '📅 カレンダー'), tabBtn('lists', '📋 イベント・リスト'));
+    if (tab === 'calendar') {
+      setChildren(body, members, tabs, calendarSection({ groupId, group, events, lists, plans, rerender: renderBody }));
+      return;
+    }
     setChildren(
       body,
       members,
+      tabs,
       h('p', { class: 'section-label' }, '📅 イベント'),
       active.length === 0 && h('p', { class: 'empty small' }, '予定しているイベントはありません'),
       h('div', { class: 'card-list' }, active.map(eventCard)),
@@ -1522,7 +1550,7 @@ function groupView(root, { groupId }) {
         {
           class: 'add-card',
           onClick: async () => {
-            const res = await eventSheet();
+            const res = await eventSheet({}, '作成', memberList(group));
             if (res) store.createEvent(groupId, res).then((id) => (location.hash = `#/g/${groupId}/e/${id}`), showError);
           },
         },
@@ -1557,13 +1585,375 @@ function groupView(root, { groupId }) {
     },
   );
 
+  // 普段の予定（カレンダー）。読めなくてもほかは使えるように、エラー時は空として扱う
+  const unwatchPlans = store.watchPlans(
+    groupId,
+    (ps) => {
+      plans = ps;
+      renderBody();
+    },
+    (e) => {
+      console.warn('予定を読み込めませんでした', e);
+      plans = [];
+      renderBody();
+    },
+  );
+
   return () => {
     clearInterval(ticker);
     unwatchRecovery?.();
     unwatchGroup();
     unwatchLists();
     unwatchEvents();
+    unwatchPlans();
   };
+}
+
+// ---- 参加者 ----
+// イベントと普段の予定は participants（uid の配列）を持つ。空なら「全員」
+
+function memberList(group) {
+  return Object.entries(group?.members ?? {})
+    .sort((a, b) => (a[1].joinedAt ?? 0) - (b[1].joinedAt ?? 0))
+    .map(([uid, m]) => ({ uid, name: m.name }));
+}
+
+function participantsLabel(members, participants) {
+  if (!participants?.length) return '全員';
+  return participants.map((u) => members.find((m) => m.uid === u)?.name ?? '（退出したメンバー）').join('、');
+}
+
+function participantPicker(members, selected = []) {
+  const chosen = new Set(selected.filter((u) => members.some((m) => m.uid === u)));
+  const box = h('div', { class: 'people-picker' });
+  const render = () =>
+    setChildren(
+      box,
+      h('span', { class: 'links-label' }, '参加者（選ばなければ全員）'),
+      h(
+        'div',
+        { class: 'people-chips' },
+        h(
+          'button',
+          {
+            type: 'button',
+            class: `chip${chosen.size === 0 ? ' on' : ''}`,
+            onClick: () => {
+              chosen.clear();
+              render();
+            },
+          },
+          '👥 全員',
+        ),
+        members.map((m) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              class: `chip${chosen.has(m.uid) ? ' on' : ''}`,
+              onClick: () => {
+                if (chosen.has(m.uid)) chosen.delete(m.uid);
+                else chosen.add(m.uid);
+                render();
+              },
+            },
+            m.uid === user.uid ? `${m.name}（自分）` : m.name,
+          ),
+        ),
+      ),
+    );
+  render();
+  return { el: box, value: () => [...chosen] };
+}
+
+// ---- 普段の予定（歯医者など）の追加・編集シート ----
+
+function planSheet(members, initial = {}, { editing = false } = {}) {
+  return openSheet((close) => {
+    const title = h('input', { class: 'text-input', value: initial.title ?? '', placeholder: '例：歯医者', maxlength: 100, 'aria-label': 'タイトル' });
+    const date = h('input', { class: 'text-input', type: 'date', value: initial.date ?? todayStr(), 'aria-label': '日にち' });
+    const allDay = h('input', { type: 'checkbox', checked: editing && !initial.start });
+    const start = h('input', { class: 'text-input', type: 'time', step: 300, value: initial.start ?? '10:00', 'aria-label': '開始時刻' });
+    const duration = h(
+      'select',
+      { class: 'text-input', 'aria-label': '長さ' },
+      [...new Set([...DURATIONS, initial.duration ?? DEFAULT_DURATION])].sort((a, b) => a - b).map((m) => h('option', { value: m }, fmtDuration(m))),
+    );
+    duration.value = String(initial.duration ?? DEFAULT_DURATION);
+    const timeRow = h('div', { class: 'date-row' }, h('label', {}, '開始', start), h('label', {}, '長さ', duration));
+    const sync = () => (timeRow.style.display = allDay.checked ? 'none' : '');
+    allDay.addEventListener('change', sync);
+    sync();
+    const place = h('input', { class: 'text-input', value: initial.place ?? '', placeholder: '場所（例：〇〇歯科）', maxlength: 100, 'aria-label': '場所' });
+    const memo = h('textarea', { class: 'text-input memo-input', placeholder: 'メモ', maxlength: 500, rows: 2, 'aria-label': 'メモ' }, initial.memo ?? '');
+    const people = participantPicker(members, initial.participants ?? []);
+    return [
+      h('div', { class: 'sheet-title' }, editing ? '予定を編集' : '予定を追加'),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            const t = title.value.trim();
+            if (!t) return title.focus();
+            if (!date.value) return toast('日にちを入れてください');
+            if (!allDay.checked && !start.value) return toast('開始時刻を入れてください');
+            close({
+              title: t,
+              date: date.value,
+              start: allDay.checked ? null : start.value,
+              duration: Number(duration.value),
+              place: place.value.trim(),
+              memo: memo.value.trim(),
+              participants: people.value(),
+            });
+          },
+        },
+        title,
+        date,
+        h('label', { class: 'check-row' }, allDay, h('span', {}, '終日（時刻を決めない）')),
+        timeRow,
+        place,
+        memo,
+        people.el,
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, editing ? '保存' : '追加'),
+        ),
+      ),
+    ];
+  });
+}
+
+// ---- カレンダー ----
+// 月の表示：イベントは期間の帯、旅程の予定と普段の予定は日ごとの点。日をタップすると下にその日の一覧。
+// 表示している月・選んでいる日は画面を描き直しても保つ（グループごと）。人の絞り込みは端末に保存。
+
+const calState = {};
+
+function dateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function addDays(str, n) {
+  const d = new Date(`${str}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return dateStr(d);
+}
+
+function calendarSection({ groupId, group, events, lists, plans, rerender }) {
+  const today = todayStr();
+  const state = (calState[groupId] ??= { month: today.slice(0, 7), selected: today });
+  const members = memberList(group);
+  let filter = prefs.get(`calFilter:${groupId}`, 'all');
+  if (filter !== 'all' && !members.some((m) => m.uid === filter)) filter = 'all';
+  const visible = (participants) => filter === 'all' || !participants?.length || participants.includes(filter);
+
+  const evs = events.filter((e) => visible(e.participants));
+  const schedItems = evs.flatMap((ev) =>
+    (lists.find((l) => l.id === store.scheduleId(ev.id))?.items ?? []).filter((i) => i.date).map((item) => ({ ev, item })),
+  );
+  const ps = plans.filter((p) => visible(p.participants));
+  const dotsOn = (d) => schedItems.filter((x) => x.item.date === d).length + ps.filter((p) => p.date === d).length;
+
+  const select = (d) => {
+    state.selected = d;
+    state.month = d.slice(0, 7);
+    rerender();
+  };
+  const shiftMonth = (n) => {
+    const d = new Date(`${state.month}-01T00:00:00`);
+    d.setMonth(d.getMonth() + n);
+    state.month = dateStr(d).slice(0, 7);
+    rerender();
+  };
+
+  // 月の枠：その月の 1 日を含む週の日曜日から、月末を含む週の土曜日まで
+  const first = `${state.month}-01`;
+  const firstDate = new Date(`${first}T00:00:00`);
+  const lastDate = new Date(firstDate.getFullYear(), firstDate.getMonth() + 1, 0);
+  let weekStart = addDays(first, -firstDate.getDay());
+  const weeks = [];
+  while (weekStart <= dateStr(lastDate)) {
+    weeks.push(weekStart);
+    weekStart = addDays(weekStart, 7);
+  }
+
+  const MAX_LANES = 3;
+  const weekRow = (ws) => {
+    const we = addDays(ws, 6);
+    const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
+    // 帯：週と重なるイベントを、空いている段に順に置く
+    const segs = evs
+      .filter((e) => e.startDate <= we && e.endDate >= ws)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate) || b.endDate.localeCompare(a.endDate))
+      .map((e) => ({ e, s: daysBetween(ws, e.startDate > ws ? e.startDate : ws), t: daysBetween(ws, e.endDate < we ? e.endDate : we) }));
+    const laneEnds = [];
+    const hidden = Array(7).fill(0);
+    for (const seg of segs) {
+      let lane = laneEnds.findIndex((end) => end < seg.s);
+      if (lane === -1) lane = laneEnds.length;
+      laneEnds[lane] = seg.t;
+      seg.lane = lane;
+      if (lane >= MAX_LANES) for (let i = seg.s; i <= seg.t; i++) hidden[i]++;
+    }
+    const lanes = Math.min(laneEnds.length, MAX_LANES);
+    return h(
+      'div',
+      { class: 'cal-week', style: `grid-template-rows: 26px repeat(${lanes}, 18px) 14px` },
+      days.map((d, i) =>
+        h(
+          'button',
+          {
+            class: `cal-day${d.slice(0, 7) !== state.month ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected ? ' selected' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
+            style: `grid-column: ${i + 1}; grid-row: 1 / -1`,
+            'aria-label': fmtDate(d),
+            onClick: () => select(d),
+          },
+          h('span', { class: 'cal-num' }, Number(d.slice(8))),
+        ),
+      ),
+      segs
+        .filter((seg) => seg.lane < MAX_LANES)
+        .map((seg) =>
+          h(
+            'span',
+            {
+              class: `cal-bar${seg.e.startDate >= ws ? ' head' : ''}${seg.e.endDate <= we ? ' tail' : ''}`,
+              style: `grid-column: ${seg.s + 1} / ${seg.t + 2}; grid-row: ${seg.lane + 2}`,
+            },
+            `${seg.e.emoji} ${seg.e.title}`,
+          ),
+        ),
+      days.map((d, i) => {
+        const n = dotsOn(d);
+        return (
+          (n > 0 || hidden[i] > 0) &&
+          h(
+            'span',
+            { class: 'cal-dots', style: `grid-column: ${i + 1}; grid-row: ${lanes + 2}` },
+            Array.from({ length: Math.min(n, 3) }, () => h('i', {})),
+            (n > 3 || hidden[i] > 0) && h('b', {}, '+'),
+          )
+        );
+      }),
+    );
+  };
+
+  // 選んだ日の一覧
+  const sel = state.selected;
+  const dayEvents = evs.filter((e) => e.startDate <= sel && e.endDate >= sel).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const daySched = schedItems.filter((x) => x.item.date === sel).sort((a, b) => a.ev.startDate.localeCompare(b.ev.startDate) || bySeq(a.item, b.item));
+  const dayPlans = ps.filter((p) => p.date === sel).sort((a, b) => (a.start ?? '') .localeCompare(b.start ?? '') || (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  const eventHref = (ev, d) => (ev.startDate === ev.endDate || !d ? `#/g/${groupId}/e/${ev.id}` : `#/g/${groupId}/e/${ev.id}/d/${d}`);
+  const timeText = (x) => (x.start ? `${fmtTime(toMin(x.start))}–${fmtTime(endOf(x))}` : '終日');
+
+  const planMenu = (plan) =>
+    actionSheet(plan.title, [
+      {
+        label: '編集',
+        onClick: async () => {
+          const res = await planSheet(members, plan, { editing: true });
+          if (res) store.updatePlan(groupId, plan.id, res).catch(showError);
+        },
+      },
+      {
+        label: '削除',
+        danger: true,
+        onClick: async () => {
+          if (await confirmSheet(`「${plan.title}」を削除しますか？`)) store.deletePlan(groupId, plan.id).catch(showError);
+        },
+      },
+    ]);
+
+  const empty = !dayEvents.length && !daySched.length && !dayPlans.length;
+
+  return h(
+    'div',
+    { class: 'calendar' },
+    h(
+      'div',
+      { class: 'cal-filter people-chips' },
+      [{ uid: 'all', name: '👥 全員' }, ...members].map((m) =>
+        h(
+          'button',
+          {
+            class: `chip${filter === m.uid ? ' on' : ''}`,
+            onClick: () => {
+              prefs.set(`calFilter:${groupId}`, m.uid);
+              rerender();
+            },
+          },
+          m.uid === user.uid ? `${m.name}（自分）` : m.name,
+        ),
+      ),
+    ),
+    h(
+      'div',
+      { class: 'cal-head' },
+      h('button', { class: 'day-nav-btn', 'aria-label': '前の月', onClick: () => shiftMonth(-1) }, '‹'),
+      h('span', { class: 'cal-title' }, `${Number(state.month.slice(0, 4))}年${Number(state.month.slice(5))}月`),
+      h('button', { class: 'day-nav-btn', 'aria-label': '次の月', onClick: () => shiftMonth(1) }, '›'),
+      (state.month !== today.slice(0, 7) || state.selected !== today) && h('button', { class: 'cal-today', onClick: () => select(today) }, '今日'),
+    ),
+    h('div', { class: 'cal-grid' }, h('div', { class: 'cal-dow' }, '日月火水木金土'.split('').map((w, i) => h('span', { class: i === 0 ? 'sun' : i === 6 ? 'sat' : '' }, w))), weeks.map(weekRow)),
+    h(
+      'div',
+      { class: 'cal-panel' },
+      h('div', { class: 'cal-panel-head' }, h('span', {}, fmtDate(sel)), sel === today && h('span', { class: 'event-badge ongoing' }, '今日')),
+      empty && h('p', { class: 'empty small' }, filter === 'all' ? 'この日の予定はありません' : 'この人の予定はありません'),
+      dayEvents.map((ev) =>
+        h(
+          'a',
+          { class: 'cal-row event', href: eventHref(ev, sel) },
+          h('span', { class: 'cal-row-time' }, ev.startDate === ev.endDate ? '終日' : `${daysBetween(ev.startDate, sel) + 1}日目`),
+          h('span', { class: 'cal-row-main' }, h('span', { class: 'cal-row-title' }, `${ev.emoji} ${ev.title}`), h('span', { class: 'cal-row-sub' }, `${fmtRange(ev)} ・ ${participantsLabel(members, ev.participants)}`)),
+          h('span', { class: 'chevron' }, '›'),
+        ),
+      ),
+      daySched.map(({ ev, item }) =>
+        h(
+          'a',
+          { class: 'cal-row', href: eventHref(ev, sel) },
+          h('span', { class: 'cal-row-time' }, item.start ? fmtTime(toMin(item.start)) : '時間未定'),
+          h('span', { class: 'cal-row-main' }, h('span', { class: 'cal-row-title' }, item.title), h('span', { class: 'cal-row-sub' }, `${ev.emoji} ${ev.title}の旅程`)),
+          h('span', { class: 'chevron' }, '›'),
+        ),
+      ),
+      dayPlans.map((plan) =>
+        h(
+          'button',
+          { class: 'cal-row plan', onClick: () => planMenu(plan) },
+          h('span', { class: 'cal-row-time' }, timeText(plan)),
+          h(
+            'span',
+            { class: 'cal-row-main' },
+            h('span', { class: 'cal-row-title' }, plan.title),
+            h('span', { class: 'cal-row-sub' }, [plan.place && `📍${plan.place}`, `👥 ${participantsLabel(members, plan.participants)}`].filter(Boolean).join(' ・ ')),
+            plan.memo && h('span', { class: 'cal-row-sub' }, plan.memo),
+          ),
+          h('span', { class: 'sch-more' }, '⋮'),
+        ),
+      ),
+      h(
+        'button',
+        {
+          class: 'sch-add',
+          onClick: async () => {
+            const res = await planSheet(members, { date: sel, participants: filter === 'all' ? [] : [filter] });
+            if (res) {
+              store.createPlan(groupId, res).catch(showError);
+              if (res.date !== sel) select(res.date);
+            }
+          },
+        },
+        '＋ この日に予定を追加',
+      ),
+    ),
+  );
 }
 
 function listCard(groupId, l) {
@@ -1640,7 +2030,8 @@ function eventView(root, { groupId, eventId, date = null }) {
             {
               label: 'イベントを編集',
               onClick: async () => {
-                const res = await eventSheet(ev, '保存');
+                const g = await store.fetchGroup(groupId).catch(() => null);
+                const res = await eventSheet(ev, '保存', g ? memberList(g) : null);
                 if (res) store.updateEvent(groupId, eventId, res).catch(showError);
               },
             },
