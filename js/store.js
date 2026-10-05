@@ -180,6 +180,13 @@ export async function joinGroup(groupId, inviteCode) {
   return true;
 }
 
+// メンバーを外す（オーナーがほかの人を、またはオーナー以外が自分を）。その人のこのグループ用の復旧ID も消す
+export async function removeMember(groupId, memberUid) {
+  await updateDoc(groupRef(groupId), { memberIds: arrayRemove(memberUid), [`members.${memberUid}`]: deleteField() });
+  const codes = await getDocs(query(collection(db, 'recovery'), where('groupId', '==', groupId), where('uid', '==', memberUid))).catch(() => null);
+  await Promise.all((codes?.docs ?? []).map((d) => deleteDoc(d.ref).catch(() => {})));
+}
+
 // このグループでの自分の名前を変える
 export async function renameMeInGroup(groupId, name) {
   await updateDoc(groupRef(groupId), { [`members.${uid()}.name`]: name });

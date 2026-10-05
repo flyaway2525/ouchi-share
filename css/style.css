@@ -843,7 +843,8 @@ a {
   color: var(--accent);
 }
 
-.member-list li.is-me {
+.member-list li.is-me,
+.member-list li.is-tappable {
   cursor: pointer;
 }
 

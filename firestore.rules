@@ -176,6 +176,22 @@ service cloud.firestore {
           && resource.data.members.keys().toSet().intersection(removed).size() == 0;
       }
 
+      // メンバーを外す（1 人だけ、memberIds と members の両方から消す）
+      //   オーナーはほかの人を外せる（自分は外せない）。オーナー以外は自分だけ抜けられる
+      function isMemberRemoval() {
+        let me = request.auth.uid;
+        let before = resource.data.memberIds.toSet();
+        let after = request.resource.data.memberIds.toSet();
+        let removed = before.difference(after);
+        return changed().hasOnly(['memberIds', 'members'])
+          && after.difference(before).size() == 0
+          && removed.size() == 1
+          && request.resource.data.members.diff(resource.data.members).affectedKeys() == removed
+          && request.resource.data.members.keys().toSet().intersection(removed).size() == 0
+          && ((isOwner() && !removed.hasAny([me]))
+            || (removed.hasOnly([me]) && resource.data.members[me].role != 'owner'));
+      }
+
       function isValidNewGroup() {
         let me = request.auth.uid;
         let d = request.resource.data;
@@ -194,6 +210,7 @@ service cloud.firestore {
         || (isOwner() && changed().hasOnly(['inviteCode']) && request.resource.data.inviteCode.size() >= 16)
         || (isMember() && isOwnProfileUpdate())
         || (isMember() && isStaleRemoval())
+        || (isMember() && isMemberRemoval())
         || isValidJoin()
         || isValidRecovery();
       allow delete: if isOwner();

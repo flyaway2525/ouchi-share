@@ -1426,6 +1426,36 @@ async function renameInGroup(group) {
   if (name && name !== current) store.renameMeInGroup(group.id, name).then(() => toast('名前を変更しました'), showError);
 }
 
+// オーナーがメンバーの行をタップしたときのメニュー
+function memberMenu(group, memberUid, m) {
+  actionSheet(m.name, [
+    {
+      label: 'このグループから外す',
+      danger: true,
+      onClick: async () => {
+        const ok = await confirmSheet(
+          `${m.name} さんを「${group.name}」から外しますか？ 外された人は、このグループを見られなくなります。（招待リンクがあれば再参加できるので、参加させたくない場合は「招待リンクを作り直す」もしてください）`,
+          '外す',
+        );
+        if (ok) store.removeMember(group.id, memberUid).then(() => toast(`${m.name} さんを外しました`), showError);
+      },
+    },
+  ]);
+}
+
+// 自分からグループを抜ける（オーナー以外）
+async function leaveGroup(group) {
+  const ok = await confirmSheet(`「${group.name}」から退出しますか？ 退出すると、このグループを見られなくなります。（招待リンクがあれば再参加できます）`, '退出する');
+  if (!ok) return;
+  try {
+    await store.removeMember(group.id, user.uid);
+  } catch (e) {
+    return showError(e);
+  }
+  toast(`「${group.name}」から退出しました`);
+  location.hash = '#/';
+}
+
 function membersSheet(group, recoveryCodes = {}) {
   const isOwner = group.members?.[user.uid]?.role === 'owner';
   const members = Object.entries(group.members ?? {}).sort(
@@ -1439,7 +1469,11 @@ function membersSheet(group, recoveryCodes = {}) {
       members.map(([id, m]) =>
         h(
           'li',
-          id === user.uid ? { class: 'is-me', onClick: () => (close(null), renameInGroup(group)) } : {},
+          id === user.uid
+            ? { class: 'is-me', onClick: () => (close(null), renameInGroup(group)) }
+            : isOwner && m.role !== 'owner'
+              ? { class: 'is-tappable', onClick: () => (close(null), memberMenu(group, id, m)) }
+              : {},
           onlineDot(store.isOnline(m.lastSeen)),
           h(
             'span',
@@ -1450,6 +1484,7 @@ function membersSheet(group, recoveryCodes = {}) {
           m.role === 'owner' && h('span', { class: 'badge' }, 'オーナー'),
           m.guest && h('span', { class: 'badge muted' }, 'ゲスト'),
           id === user.uid && h('span', { class: 'edit-hint' }, '変更'),
+          isOwner && id !== user.uid && m.role !== 'owner' && h('span', { class: 'chevron' }, '›'),
           // オーナーはゲストの復旧ID を確認・発行できる
           isOwner &&
             id !== user.uid &&
@@ -1584,6 +1619,7 @@ function groupView(root, { groupId }) {
                   }
                 },
               },
+              !owner && { label: 'グループから退出', danger: true, onClick: () => leaveGroup(group) },
               owner && {
                 label: 'グループを削除',
                 danger: true,
