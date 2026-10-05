@@ -12,6 +12,25 @@ let unwatchAdmin = null;
 // ログイン処理の途中（名前の設定など）で画面が切り替わらないようにする
 let authBusy = false;
 
+// この端末だけの表示設定（折りたたみ・最後に開いたタブなど）。保存できない環境でも動くようにする
+const prefs = {
+  get(key, fallback = null) {
+    try {
+      const v = localStorage.getItem(`ouchi-share:${key}`);
+      return v === null ? fallback : JSON.parse(v);
+    } catch {
+      return fallback;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(`ouchi-share:${key}`, JSON.stringify(value));
+    } catch {
+      // 保存できなくても表示はそのまま
+    }
+  },
+};
+
 function showError(e) {
   console.error(e);
   toast(e?.code === 'permission-denied' ? '権限がありません' : 'エラーが発生しました');
@@ -994,10 +1013,35 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
     );
   };
 
+  // 行きたい候補：一番上に置き、見出しのタップで折りたためる（この端末で覚えておく）
+  const candidatesBlock = (() => {
+    const block = h(
+      'div',
+      { class: `sch-day candidates${prefs.get('candidatesCollapsed', false) ? ' collapsed' : ''}` },
+      h(
+        'button',
+        {
+          class: 'sch-day-head sch-collapse',
+          'aria-expanded': String(!prefs.get('candidatesCollapsed', false)),
+          onClick: (e) => {
+            const collapsed = block.classList.toggle('collapsed');
+            e.currentTarget.setAttribute('aria-expanded', String(!collapsed));
+            prefs.set('candidatesCollapsed', collapsed);
+          },
+        },
+        h('span', {}, `💡 行きたい候補（日時未定）${candidates.length ? ` ${candidates.length}件` : ''}`),
+        h('span', { class: 'sch-caret', 'aria-hidden': 'true' }, '▾'),
+      ),
+      h('ul', { class: 'sch-list', 'data-drop': '' }, candidates.map(candidateRow)),
+      h('button', { class: 'sch-add', onClick: () => add({ date: null }) }, '＋ 候補を追加'),
+    );
+    return block;
+  })();
+
   const section = h(
     'div',
     { class: `schedule${focus ? ' focus-mode' : ' overview'}` },
-    !focusDate && h('p', { class: 'section-label' }, '🗓 旅程'),
+    candidatesBlock,
     focus ? focusBlock(focus) : h('div', { class: 'sch-day-cards' }, days.map(dayCard)),
     !focus &&
       outside.length > 0 &&
@@ -1007,13 +1051,6 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
         h('div', { class: 'sch-day-head' }, h('span', {}, '⚠️ イベント期間外の予定')),
         h('ul', { class: 'sch-list' }, outside.map((it) => timedRow(it, null))),
       ),
-    h(
-      'div',
-      { class: 'sch-day candidates' },
-      h('div', { class: 'sch-day-head' }, h('span', {}, `💡 行きたい候補（日時未定）${candidates.length ? ` ${candidates.length}件` : ''}`)),
-      h('ul', { class: 'sch-list', 'data-drop': '' }, candidates.map(candidateRow)),
-      h('button', { class: 'sch-add', onClick: () => add({ date: null }) }, '＋ 候補を追加'),
-    ),
     focus &&
       (items.some((i) => i.date === focus) || candidates.length > 0) &&
       h('p', { class: 'sch-hint' }, `⠿ を押したまま動かすと、順番の入れ替えや候補との行き来ができます（時刻は自動で詰め直します）。${days.length > 1 ? '別の日へは ⋮ →「別の日へ移動」から。' : ''}`),
@@ -1516,6 +1553,26 @@ function eventView(root, { groupId, eventId, date = null }) {
           ]),
       }),
     );
+    // 旅程とリストはタブで切り替える（最後に開いたタブをイベントごとに覚えておく）
+    const tabKey = `eventTab:${eventId}`;
+    const tab = prefs.get(tabKey, 'schedule');
+    const planned = schedule?.items.filter((i) => i.date).length ?? 0;
+    const tabBtn = (id, label, count) =>
+      h(
+        'button',
+        {
+          class: `tab${tab === id ? ' active' : ''}`,
+          role: 'tab',
+          'aria-selected': String(tab === id),
+          onClick: () => {
+            if (tab === id) return;
+            prefs.set(tabKey, id);
+            render();
+          },
+        },
+        label,
+        count > 0 && h('span', { class: 'tab-count' }, count),
+      );
     setChildren(
       body,
       h(
@@ -1524,11 +1581,14 @@ function eventView(root, { groupId, eventId, date = null }) {
         h('span', { class: 'event-dates' }, fmtRange(ev)),
         h('span', { class: `event-badge ${st.kind}` }, st.label),
       ),
-      scheduleSection(groupId, ev, schedule),
-      h('p', { class: 'section-label' }, '📝 リスト'),
-      mine.length === 0 && h('p', { class: 'empty small' }, '持ち物リストなどを追加しましょう。日常のリストや過去のイベントから取り込むこともできます。'),
-      h('div', { class: 'card-list' }, mine.map((l) => listCard(groupId, l))),
-      h('button', { class: 'add-card', onClick: () => addListMenu(groupId, eventId) }, '＋ リストを追加'),
+      h('div', { class: 'tabs', role: 'tablist' }, tabBtn('schedule', '🗓 旅程', planned), tabBtn('lists', '📝 リスト', mine.length)),
+      tab === 'schedule'
+        ? scheduleSection(groupId, ev, schedule)
+        : [
+            mine.length === 0 && h('p', { class: 'empty small' }, '持ち物リストなどを追加しましょう。日常のリストや過去のイベントから取り込むこともできます。'),
+            h('div', { class: 'card-list' }, mine.map((l) => listCard(groupId, l))),
+            h('button', { class: 'add-card', onClick: () => addListMenu(groupId, eventId) }, '＋ リストを追加'),
+          ],
     );
   }
 
