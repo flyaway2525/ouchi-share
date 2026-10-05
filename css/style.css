@@ -1906,6 +1906,112 @@ select.text-input {
   white-space: nowrap;
 }
 
+/* ---- 欲しいものリスト ---- */
+
+.wish-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.wish-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wish-row:last-child {
+  border-bottom: 0;
+}
+
+.wish-row.closed {
+  opacity: 0.65;
+}
+
+.wish-thumb-btn {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  overflow: hidden;
+}
+
+.wish-thumb {
+  display: block;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  background: var(--border);
+  object-fit: cover;
+}
+
+.wish-thumb.missing {
+  opacity: 0.3;
+}
+
+.wish-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.wish-text {
+  overflow-wrap: anywhere;
+}
+
+.wish-row.closed .wish-text {
+  text-decoration: line-through;
+}
+
+.wish-result {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.wish-close {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.wish-photo-btn {
+  flex-shrink: 0;
+  padding: 0 12px;
+  font-size: 20px;
+}
+
+.wish-photo-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wish-photo {
+  display: block;
+  width: 100%;
+  max-height: 60dvh;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  object-fit: contain;
+  background: var(--surface);
+}
+
 /* ---- 貸し借りリスト ---- */
 
 .money-board {

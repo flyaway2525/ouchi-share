@@ -1405,6 +1405,13 @@ function addListMenu(groupId, eventId = null) {
       },
     },
     {
+      label: '🛍️ 欲しいものリストを作る',
+      onClick: async () => {
+        const res = await askText({ title: '新しい欲しいものリスト', value: '欲しいもの', placeholder: '例：欲しいもの、買い物メモ', okLabel: '作成' });
+        if (res) store.createList(groupId, { title: res, emoji: '🛍️', type: 'wish', eventId }).then((id) => (location.hash = `#/g/${groupId}/l/${id}`), showError);
+      },
+    },
+    {
       label: '💰 貸し借りリストを作る',
       onClick: async () => {
         const res = await askText({ title: '新しい貸し借りリスト', value: eventId ? '旅行の立て替え' : 'お金・ものの貸し借り', placeholder: '例：旅行の立て替え', okLabel: '作成' });
@@ -2175,7 +2182,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
 
 // 一覧に出すリスト（旅程は旅程タブに出すので除く）
 function isShownList(l) {
-  return ['checklist', 'money'].includes(l.type ?? 'checklist');
+  return ['checklist', 'money', 'wish'].includes(l.type ?? 'checklist');
 }
 
 function listCard(groupId, l) {
@@ -2192,8 +2199,13 @@ function listCard(groupId, l) {
       h('span', { class: 'card-title' }, l.title),
       money
         ? h('span', { class: 'card-sub' }, open.length ? `未精算 ${open.length}件${yen ? ` ・ ${fmtYen(yen)}` : ''}` : l.total ? 'すべて精算済み' : 'まだ登録なし')
-        : h('span', { class: 'card-sub' }, l.total ? `${l.done} / ${l.total} 完了` : '空のリスト'),
-      !money && l.total > 0 && progressBar(l.done, l.total),
+        : l.type === 'wish'
+          ? h('span', { class: 'card-sub' }, (() => {
+              const wishOpen = l.items.filter((i) => (i.status ?? 'open') === 'open').length;
+              return l.total ? `欲しいもの ${wishOpen}件${l.total - wishOpen ? ` ・ 完了 ${l.total - wishOpen}件` : ''}` : 'まだ登録なし';
+            })())
+          : h('span', { class: 'card-sub' }, l.total ? `${l.done} / ${l.total} 完了` : '空のリスト'),
+      !money && l.type !== 'wish' && l.total > 0 && progressBar(l.done, l.total),
     ),
     h('span', { class: 'chevron' }, '›'),
   );
@@ -2423,12 +2435,12 @@ function listView(root, params) {
     kind = k;
     inner?.();
     root.replaceChildren();
-    inner = (k === 'money' ? moneyView : checklistView)(root, params);
+    inner = ({ money: moneyView, wish: wishView }[k] ?? checklistView)(root, params);
   };
   const unwatch = store.watchList(
     params.groupId,
     params.listId,
-    (list) => mount(list.type === 'money' ? 'money' : 'checklist'),
+    (list) => mount(['money', 'wish'].includes(list.type) ? list.type : 'checklist'),
     // 読めないときはチェックリストの画面に任せる（そちらで「見つかりません」を出す）
     () => mount('checklist'),
   );
@@ -2436,6 +2448,416 @@ function listView(root, params) {
     unwatch();
     inner?.();
   };
+}
+
+// ---- 画面：欲しいものリスト ----
+// 基本はメモ（例：玉ねぎ）。URL や写真も付けられる。買った／あきらめたら結果を書いてクローズする。
+
+// 写真を縮小して JPEG の data URL にする（長い辺 1024px。大きすぎたら 800px・画質を下げてやり直す）
+async function resizeImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('画像を読み込めませんでした'));
+      el.src = url;
+    });
+    for (const [max, quality] of [[1024, 0.72], [800, 0.6], [640, 0.5]]) {
+      const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      const data = canvas.toDataURL('image/jpeg', quality);
+      if (data.length <= 850000) return data;
+    }
+    throw new Error('写真が大きすぎます');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// 写真を選ぶ（スマホならその場で撮影も選べる）。選ばなければ null
+function pickImageFile() {
+  return new Promise((resolve) => {
+    const input = h('input', { type: 'file', accept: 'image/*', style: 'display:none' });
+    input.addEventListener('change', () => {
+      resolve(input.files?.[0] ?? null);
+      input.remove();
+    });
+    document.body.append(input);
+    input.click();
+  });
+}
+
+// お店・サービスがわかるリンクのラベル
+function shopLabel(url) {
+  let host = '';
+  try {
+    host = new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '🔗 リンク';
+  }
+  const known = [
+    [/(^|\.)tiktok\.com$/, '🎵 TikTok'],
+    [/(^|\.)(youtube\.com|youtu\.be)$/, '▶️ YouTube'],
+    [/(^|\.)instagram\.com$/, '📷 Instagram'],
+    [/(^|\.)(x\.com|twitter\.com)$/, '𝕏 X'],
+    [/(^|\.)(amazon\.co\.jp|amazon\.com|amzn\.to|amzn\.asia)$/, '📦 Amazon'],
+    [/(^|\.)rakuten\.co\.jp$/, '🛍 楽天'],
+    [/(^|\.)(shopping\.yahoo\.co\.jp|paypaymall\.yahoo\.co\.jp)$/, '🛍 Yahoo!ショッピング'],
+    [/(^|\.)mercari\.com$|(^|\.)jp\.mercari\.com$/, '🛍 メルカリ'],
+  ];
+  return known.find(([re]) => re.test(host))?.[1] ?? `🔗 ${host}`;
+}
+
+// メモの中の最初の URL を取り出す
+function splitUrl(text) {
+  const m = text.match(/https?:\/\/\S+/) ?? text.match(/^(?:[a-z0-9-]+\.)+[a-z]{2,}\/\S*$/i);
+  if (!m) return { text: text.trim(), url: '' };
+  const url = normalizeUrl(m[0]);
+  return { text: text.replace(m[0], '').trim(), url: url || '' };
+}
+
+function photoThumb(groupId, photoId, onOpen) {
+  const img = h('img', { class: 'wish-thumb', alt: '写真', loading: 'lazy' });
+  store.getPhoto(groupId, photoId).then((data) => (data ? (img.src = data) : img.classList.add('missing')));
+  return h('button', { class: 'wish-thumb-btn', 'aria-label': '写真を大きく見る', onClick: () => onOpen?.() }, img);
+}
+
+function photoViewer(groupId, photoId, title) {
+  const img = h('img', { class: 'wish-photo', alt: title });
+  store.getPhoto(groupId, photoId).then((data) => data && (img.src = data));
+  openSheet((close) => [h('div', { class: 'sheet-title' }, title), img, h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる')]);
+}
+
+function wishTitle(w) {
+  if (w.text) return w.text;
+  if (w.url) return shopLabel(w.url).replace(/^\S+\s/, '');
+  return w.photoId ? '（写真）' : '（なし）';
+}
+
+// 追加・編集シート。photo の結果は { action: 'keep' | 'remove' | 'new', data }
+function wishSheet(groupId, initial = {}, { editing = false } = {}) {
+  return openSheet((close) => {
+    const text = h('input', { class: 'text-input', value: initial.text ?? '', placeholder: '欲しいもの（例：玉ねぎ）', maxlength: 200, 'aria-label': 'メモ' });
+    const url = h('input', { class: 'text-input', type: 'text', inputmode: 'url', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', value: initial.url ?? '', placeholder: 'URL（例：TikTok や通販のリンク）', maxlength: 2000, 'aria-label': 'URL' });
+    let photo = { action: 'keep', data: null };
+    const photoBox = h('div', { class: 'wish-photo-edit' });
+    const renderPhoto = () => {
+      const has = photo.action === 'new' || (photo.action === 'keep' && initial.photoId);
+      const preview = h('img', { class: 'wish-thumb', alt: '写真' });
+      if (photo.action === 'new') preview.src = photo.data;
+      else if (has) store.getPhoto(groupId, initial.photoId).then((d) => d && (preview.src = d));
+      setChildren(
+        photoBox,
+        has && preview,
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn',
+            onClick: async () => {
+              const file = await pickImageFile();
+              if (!file) return;
+              try {
+                photo = { action: 'new', data: await resizeImage(file) };
+              } catch (e) {
+                return toast(e.message);
+              }
+              renderPhoto();
+            },
+          },
+          has ? '📷 写真を変える' : '📷 写真を付ける',
+        ),
+        has &&
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn',
+              onClick: () => {
+                photo = { action: 'remove', data: null };
+                renderPhoto();
+              },
+            },
+            '外す',
+          ),
+      );
+    };
+    renderPhoto();
+    return [
+      h('div', { class: 'sheet-title' }, editing ? '欲しいものを編集' : '欲しいものを追加'),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            const u = url.value.trim() ? normalizeUrl(url.value) : '';
+            if (u === null) return toast('http:// か https:// で始まるリンクを入れてください');
+            const hasPhoto = photo.action === 'new' || (photo.action === 'keep' && initial.photoId);
+            if (!text.value.trim() && !u && !hasPhoto) return toast('メモ・URL・写真のどれかを入れてください');
+            close({ text: text.value.trim(), url: u, photo });
+          },
+        },
+        text,
+        url,
+        photoBox,
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, editing ? '保存' : '追加'),
+        ),
+      ),
+    ];
+  });
+}
+
+// クローズ：買った／あきらめた ＋ 結果のメモ
+function closeWishSheet(w) {
+  return openSheet((close) => {
+    let status = 'bought';
+    const chips = h('div', { class: 'people-chips' });
+    const syncChips = () =>
+      setChildren(
+        chips,
+        [['bought', '🛒 買った'], ['gaveup', '🙅 あきらめた']].map(([k, label]) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              class: `chip${status === k ? ' on' : ''}`,
+              onClick: () => {
+                status = k;
+                result.placeholder = k === 'bought' ? '結果（例：Amazonで1,980円）' : '結果（例：売り切れだった）';
+                syncChips();
+              },
+            },
+            label,
+          ),
+        ),
+      );
+    const result = h('input', { class: 'text-input', placeholder: '結果（例：Amazonで1,980円）', maxlength: 200, 'aria-label': '結果' });
+    syncChips();
+    return [
+      h('div', { class: 'sheet-title' }, `「${wishTitle(w)}」をクローズ`),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            close({ status, result: result.value.trim() });
+          },
+        },
+        chips,
+        result,
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, 'クローズ'),
+        ),
+      ),
+    ];
+  });
+}
+
+function wishView(root, { groupId, listId }) {
+  const top = h('div');
+  const body = h('main', { class: 'content with-footer' });
+  const input = h('input', { class: 'text-input', placeholder: '欲しいもの・URL を追加', maxlength: 300, enterkeyhint: 'enter', 'aria-label': '欲しいものを追加' });
+  let list = null;
+  let showClosed = false;
+
+  // 写真を付けて追加（入力欄に書いてあればそれをメモにする）
+  const addWithPhoto = async () => {
+    const file = await pickImageFile();
+    if (!file) return;
+    let data;
+    try {
+      data = await resizeImage(file);
+    } catch (e) {
+      return toast(e.message);
+    }
+    const parts = splitUrl(input.value);
+    input.value = '';
+    try {
+      const photoId = await store.savePhoto(groupId, data);
+      await store.addWish(groupId, listId, { ...parts, photoId });
+    } catch (e) {
+      showError(e);
+    }
+  };
+
+  // 入力欄は再描画しない（連続入力中にフォーカスが外れないように）
+  const footer = h(
+    'form',
+    {
+      class: 'add-bar',
+      onSubmit: (e) => {
+        e.preventDefault();
+        if (!input.value.trim()) return;
+        const parts = splitUrl(input.value);
+        input.value = '';
+        input.focus();
+        store.addWish(groupId, listId, { ...parts, photoId: null }).catch(showError);
+      },
+    },
+    h('button', { type: 'button', class: 'btn wish-photo-btn', 'aria-label': '写真を付けて追加', onClick: addWithPhoto }, '📷'),
+    input,
+    h('button', { type: 'submit', class: 'btn primary' }, '追加'),
+  );
+  root.append(top, body, footer);
+
+  const statusLabel = { bought: '🛒 買った', gaveup: '🙅 あきらめた' };
+
+  const applyPhoto = async (w, photo) => {
+    if (photo.action === 'keep') return w.photoId ?? null;
+    if (w.photoId) store.deletePhoto(groupId, w.photoId);
+    return photo.action === 'new' ? store.savePhoto(groupId, photo.data) : null;
+  };
+
+  function render() {
+    if (!list) return;
+    const items = [...list.items];
+    const open = items.filter((w) => (w.status ?? 'open') === 'open').sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    const closed = items.filter((w) => (w.status ?? 'open') !== 'open').sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
+    const back = list.eventId ? `#/g/${groupId}/e/${list.eventId}` : `#/g/${groupId}`;
+
+    const row = (w) => {
+      const isOpen = (w.status ?? 'open') === 'open';
+      const safeUrl = w.url ? normalizeUrl(w.url) : '';
+      return h(
+        'li',
+        { class: `wish-row${isOpen ? '' : ' closed'}` },
+        w.photoId && photoThumb(groupId, w.photoId, () => photoViewer(groupId, w.photoId, wishTitle(w))),
+        h(
+          'span',
+          { class: 'wish-main' },
+          h('span', { class: 'wish-text' }, wishTitle(w)),
+          safeUrl && h('a', { class: 'sch-link', href: safeUrl, target: '_blank', rel: 'noopener noreferrer' }, shopLabel(safeUrl)),
+          !isOpen &&
+            h('span', { class: 'wish-result' }, h('b', {}, statusLabel[w.status] ?? 'クローズ'), w.result && ` ${w.result}`, w.closedAt && ` ・ ${fmtDateTime(w.closedAt)}`),
+        ),
+        isOpen &&
+          h(
+            'button',
+            {
+              class: 'wish-close',
+              onClick: async () => {
+                const res = await closeWishSheet(w);
+                if (res) store.patchListItem(groupId, listId, w.id, { ...res, closedAt: Date.now() }).catch(showError);
+              },
+            },
+            '完了',
+          ),
+        h(
+          'button',
+          {
+            class: 'sch-more',
+            'aria-label': 'メニュー',
+            onClick: () =>
+              actionSheet(wishTitle(w), [
+                {
+                  label: '編集',
+                  onClick: async () => {
+                    const res = await wishSheet(groupId, w, { editing: true });
+                    if (!res) return;
+                    try {
+                      const photoId = await applyPhoto(w, res.photo);
+                      await store.patchListItem(groupId, listId, w.id, { text: res.text, url: res.url, photoId });
+                    } catch (e) {
+                      showError(e);
+                    }
+                  },
+                },
+                !isOpen && { label: '未完了に戻す', onClick: () => store.patchListItem(groupId, listId, w.id, { status: 'open', result: '', closedAt: null }).catch(showError) },
+                {
+                  label: '削除',
+                  danger: true,
+                  onClick: async () => {
+                    if (!(await confirmSheet(`「${wishTitle(w)}」を削除しますか？`))) return;
+                    if (w.photoId) store.deletePhoto(groupId, w.photoId);
+                    store.deleteItem(groupId, listId, w.id).catch(showError);
+                  },
+                },
+              ].filter(Boolean)),
+          },
+          '⋮',
+        ),
+      );
+    };
+
+    setChildren(
+      top,
+      header({
+        title: `${list.emoji} ${list.title}`,
+        back,
+        onMenu: () =>
+          actionSheet(list.title, [
+            {
+              label: '詳しく追加（URL・写真）',
+              onClick: async () => {
+                const res = await wishSheet(groupId);
+                if (!res) return;
+                try {
+                  const photoId = res.photo.action === 'new' ? await store.savePhoto(groupId, res.photo.data) : null;
+                  await store.addWish(groupId, listId, { text: res.text, url: res.url, photoId });
+                } catch (e) {
+                  showError(e);
+                }
+              },
+            },
+            {
+              label: 'リスト名を変更',
+              onClick: async () => {
+                const name = await askText({ title: 'リスト名を変更', value: list.title, okLabel: '保存' });
+                if (name) store.updateList(groupId, listId, { title: name }).catch(showError);
+              },
+            },
+            {
+              label: 'リストを削除',
+              danger: true,
+              onClick: async () => {
+                if (!(await confirmSheet(`「${list.title}」を削除しますか？（写真も消えます）`))) return;
+                for (const w of list.items) if (w.photoId) store.deletePhoto(groupId, w.photoId);
+                store.deleteList(groupId, listId).then(() => (location.hash = back), showError);
+              },
+            },
+          ]),
+      }),
+    );
+
+    setChildren(
+      body,
+      open.length === 0 && closed.length === 0 && h('p', { class: 'empty small' }, '下の欄に書くとメモとして追加できます。URL を貼るとリンクに、📷 で写真付きにできます。'),
+      open.length > 0 && h('ul', { class: 'wish-list' }, open.map(row)),
+      closed.length > 0 &&
+        h(
+          'button',
+          {
+            class: 'past-toggle',
+            onClick: () => {
+              showClosed = !showClosed;
+              render();
+            },
+          },
+          `${showClosed ? '▾' : '▸'} 完了済み（${closed.length}）`,
+        ),
+      showClosed && closed.length > 0 && h('ul', { class: 'wish-list' }, closed.map(row)),
+    );
+  }
+
+  const onGone = (e) => {
+    if (e?.code !== 'permission-denied' && e?.message !== 'not-found') return showError(e);
+    toast('リストが見つかりません');
+    location.hash = `#/g/${groupId}`;
+  };
+  return store.watchList(groupId, listId, (l) => ((list = l), render()), onGone);
 }
 
 // ---- 画面：貸し借りリスト ----

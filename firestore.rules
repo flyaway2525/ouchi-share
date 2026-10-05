@@ -224,7 +224,7 @@ service cloud.firestore {
 
         function isValidList(d) {
           return isNonEmptyString(d.title, 100)
-            && d.type in ['checklist', 'inventory', 'schedule', 'money']
+            && d.type in ['checklist', 'inventory', 'schedule', 'money', 'wish']
             && d.items is map
             && (!('eventId' in d) || d.eventId == null || d.eventId is string);
         }
@@ -274,6 +274,23 @@ service cloud.firestore {
         allow update: if false;
         allow delete: if isGroupMember()
           && (resource.data.createdBy == request.auth.uid || groupData().members[request.auth.uid].role == 'owner');
+      }
+
+      // ---- 写真（欲しいものリストなど）。縮小した JPEG を data URL の文字列で 1 枚 1 ドキュメント ----
+      match /photos/{photoId} {
+        function isGroupMember() {
+          return signedIn()
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        }
+
+        allow read: if isGroupMember();
+        allow create: if isGroupMember()
+          && request.resource.data.keys().hasOnly(['data', 'createdAt', 'createdBy'])
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.data is string
+          && request.resource.data.data.size() <= 900000;
+        allow update: if false;
+        allow delete: if isGroupMember();
       }
 
       // ---- 普段の予定（歯医者など。カレンダーに表示） ----

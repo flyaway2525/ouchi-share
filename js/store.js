@@ -539,6 +539,51 @@ export async function deleteList(groupId, listId) {
   await deleteDoc(listRef(groupId, listId));
 }
 
+// ---- 欲しいものリスト（type: 'wish'） ----
+// items の 1 件 = { text: メモ, url, photoId, status: 'open' | 'bought' | 'gaveup', result: 結果のメモ, closedAt, createdAt, createdBy }
+
+export async function addWish(groupId, listId, wish) {
+  await updateDoc(listRef(groupId, listId), { [`items.${newId()}`]: { ...wish, status: 'open', result: '', createdAt: Date.now(), createdBy: uid() } });
+}
+
+// リストのアイテム 1 件の一部の項目を書き換える（欲しいもの・貸し借りで共通）
+export async function patchListItem(groupId, listId, itemId, patch) {
+  const fields = {};
+  for (const [k, v] of Object.entries(patch)) fields[`items.${itemId}.${k}`] = v;
+  await updateDoc(listRef(groupId, listId), fields);
+}
+
+// ---- 写真 ----
+// Firebase Storage は無料プランで使えないため、縮小した JPEG を data URL の文字列で Firestore に 1 枚 1 ドキュメント保存する
+
+const photoRef = (groupId, photoId) => doc(db, 'groups', groupId, 'photos', photoId);
+const photoCache = new Map();
+
+export async function savePhoto(groupId, dataUrl) {
+  const ref = doc(collection(db, 'groups', groupId, 'photos'));
+  await setDoc(ref, { data: dataUrl, createdAt: Date.now(), createdBy: uid() });
+  photoCache.set(`${groupId}/${ref.id}`, dataUrl);
+  return ref.id;
+}
+
+export async function getPhoto(groupId, photoId) {
+  const key = `${groupId}/${photoId}`;
+  if (!photoCache.has(key)) {
+    photoCache.set(
+      key,
+      getDoc(photoRef(groupId, photoId))
+        .then((s) => (s.exists() ? s.data().data : null))
+        .catch(() => null),
+    );
+  }
+  return photoCache.get(key);
+}
+
+export async function deletePhoto(groupId, photoId) {
+  photoCache.delete(`${groupId}/${photoId}`);
+  await deleteDoc(photoRef(groupId, photoId)).catch(() => {});
+}
+
 // ---- 貸し借りリスト（type: 'money'） ----
 // items の 1 件 = { from: 貸した人の uid, to: 借りた人の uid, kind: 'money' | 'item', amount: 円, item: もの,
 //                   memo, date: "YYYY-MM-DD", settled: 精算済みか, createdAt, createdBy }
