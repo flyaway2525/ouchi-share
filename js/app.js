@@ -204,6 +204,18 @@ async function pushSettingsSheet() {
       h(
         'button',
         {
+          class: 'sheet-action',
+          onClick: async () => {
+            await push.notify({ kind: 'test', title: 'テスト' });
+            toast('テスト通知を送りました（数秒で届きます）');
+          },
+        },
+        '🔔 テスト通知を送る（自分の端末だけ）',
+      ),
+    status.state === 'on' &&
+      h(
+        'button',
+        {
           class: 'sheet-action danger',
           onClick: async () => {
             await push.disablePush();

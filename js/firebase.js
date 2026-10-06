@@ -23,8 +23,8 @@ const firebaseConfig = {
 // VAPID_KEY：Firebase コンソール → プロジェクトの設定 → Cloud Messaging → ウェブプッシュ証明書 の「鍵ペア」（公開してよい値）
 // NOTIFY_URL：通知を送る Cloudflare Workers の URL（worker/ を公開すると決まる）
 // どちらかが空のあいだは、通知の設定画面に「準備中」と出て、通知は送らない
-export const VAPID_KEY = '';
-export const NOTIFY_URL = '';
+export const VAPID_KEY = 'BCwRG2xTpB5gK3gFr-LwrmWhSPfuW5X65XyYh3rK_8qAUnxlIXGQ4nPsS_rJDfqKKfkzF4iPFrlNu3Bfz531NJU';
+export const NOTIFY_URL = 'https://ouchi-share-notify.flyaway2525.workers.dev/';
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);

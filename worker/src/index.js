@@ -14,7 +14,7 @@
 const PROJECT_ID = 'ouchi-share';
 const FIRESTORE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const ALLOWED_ORIGINS = ['https://flyaway2525.github.io', 'http://localhost:5173', 'capacitor://localhost', 'ionic://localhost'];
-const PREF_FOR_KIND = { news: 'news', appnews: 'news', plan: 'plans', reminder: 'reminders' };
+const PREF_FOR_KIND = { news: 'news', appnews: 'news', plan: 'plans', reminder: 'reminders', test: null };
 
 export default {
   async fetch(request, env) {
@@ -68,11 +68,14 @@ function rateLimit(uid) {
 // ---- 頼まれた通知を送る ----
 async function handleNotify(env, sender, req) {
   const kind = String(req.kind ?? '');
-  if (!PREF_FOR_KIND[kind] || kind === 'reminder') throw fail(400, 'kind');
+  if (!(kind in PREF_FOR_KIND) || kind === 'reminder') throw fail(400, 'kind');
   const title = String(req.title ?? '').slice(0, 100) || 'ouchi-share';
   const body = String(req.body ?? '').slice(0, 300);
   const url = /^#\/[\w/-]*$/.test(req.url ?? '') ? req.url : '#/';
   const token = await accessToken(env);
+
+  // テスト通知：頼んだ本人の端末にだけ送る（受け取る種類の設定は見ない）
+  if (kind === 'test') return sendToUsers(token, [sender], null, { title: '🔔 テスト通知', body: 'ouchi-share の通知が届きました', url: '#/' });
 
   let recipients;
   if (kind === 'appnews') {
@@ -96,7 +99,7 @@ async function sendToUsers(token, uids, prefKey, message) {
   let sent = 0;
   for (const uid of [...new Set(uids)]) {
     const push = await getDoc(token, `push/${uid}`);
-    if (!push || push.prefs?.[prefKey] === false) continue;
+    if (!push || (prefKey && push.prefs?.[prefKey] === false)) continue;
     for (const [id, t] of Object.entries(push.tokens ?? {})) {
       const res = await sendFcm(token, t.token, message);
       if (res === 'ok') sent++;
