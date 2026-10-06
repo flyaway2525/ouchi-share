@@ -31,7 +31,7 @@ groups/{groupId}
   ├─ memberIds: [uid, ...]          「自分が入っているグループ」を検索するための配列
   ├─ members: { uid: { name, role, guest, joinedAt, lastSeen } }   role = owner / member
   ├─ events/{eventId}                 イベント（旅行など）{ title, emoji, startDate, endDate, participants }（日付は "YYYY-MM-DD"）
-  ├─ plans/{planId}                   普段の予定（歯医者など）{ title, date, start, duration, place, memo, participants }
+  ├─ plans/{planId}                   普段の予定（歯医者など）{ title, date, start, duration, place, memo, links, participants }
   └─ lists/{listId}
         ├─ eventId                   イベントのリストならそのイベント ID、日常のリストなら null / なし
         ├─ type: checklist | inventory | schedule
@@ -103,7 +103,8 @@ groups/{groupId}
 - グループ画面は「📅 カレンダー」「✈️ イベント」「📝 リスト」（日常のリスト）のタブ（最後に開いたタブを端末に保存。初期はカレンダー）
 - 月のカレンダー：イベントは期間の帯（週をまたぐと分割、1 週に 3 段まで、超えた分は「+」）、旅程の予定と普段の予定は日ごとの点
 - 日をタップすると下にその日の一覧（イベント → その日の画面へ、旅程の予定 → その日の画面へ、普段の予定 → 編集・削除）
-- 普段の予定：`groups/{id}/plans/{planId}` = `{ title, date（null なら日付未定）, start（null なら終日）, duration, place, memo, participants }`
+- 普段の予定：`groups/{id}/plans/{planId}` = `{ title, date（null なら日付未定）, start（null なら終日）, duration, place, memo, links, participants }`
+  - リンクは旅程の予定と同じ入力欄（種類 ＋ URL をいくつでも、最大 20 件）。一覧ではメモの下にボタンで並ぶ
   - カレンダー右下の ＋ ボタンで、日付を選ばなくても追加できる（日付の初期値は選んでいる日）
   - 「日付を決めない」で登録した予定は、カレンダーの下の「📌 日付未定の予定」に並ぶ。編集で日付を入れるとカレンダーへ移る
 - 参加者：イベントと普段の予定の `participants`（uid の配列。空なら全員）。カレンダー上部で人を選ぶと、

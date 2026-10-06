@@ -1812,6 +1812,10 @@ select.text-input {
   color: inherit;
 }
 
+.cal-row.plan {
+  cursor: pointer;
+}
+
 .cal-row.event {
   background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
 }

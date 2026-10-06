@@ -892,6 +892,64 @@ function linkLabel(link) {
   }
 }
 
+// リンクの入力欄：種類 ＋ URL の行をいくつでも（旅程の予定・普段の予定で共通）
+// value() は入力が正しければ [{ type, url }]、http / https 以外があれば注意を出して null
+function linksEditor(initialLinks = []) {
+  const rows = h('div', { class: 'link-rows' });
+  const addRow = (link = { type: 'none', url: '' }) => {
+    const type = h('select', { class: 'text-input link-type', 'aria-label': 'リンクの種類' }, LINK_TYPES.map((t) => h('option', { value: t.id }, `${t.icon} ${t.label}`)));
+    type.value = linkType(link.type).id;
+    const url = h('input', { class: 'text-input link-url', type: 'text', inputmode: 'url', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', value: link.url, placeholder: 'https://…', maxlength: 2000, 'aria-label': 'URL' });
+    url.addEventListener('change', () => {
+      if (type.value === 'none') type.value = guessLinkType(url.value);
+    });
+    const row = h('div', { class: 'link-row' }, type, url, h('button', { type: 'button', class: 'link-remove', 'aria-label': 'このリンクを削除', onClick: () => row.remove() }, '×'));
+    rows.append(row);
+    return url;
+  };
+  (initialLinks ?? []).forEach((l) => addRow(l));
+  const el = h(
+    'div',
+    { class: 'links-editor' },
+    h('span', { class: 'links-label' }, 'リンク（いくつでも）'),
+    rows,
+    h('button', { type: 'button', class: 'link-add', onClick: () => addRow().focus() }, '＋ リンクを追加'),
+  );
+  const value = () => {
+    const links = [];
+    for (const row of rows.querySelectorAll('.link-row')) {
+      const raw = row.querySelector('.link-url').value;
+      if (!raw.trim()) continue;
+      const url = normalizeUrl(raw);
+      if (!url) {
+        row.querySelector('.link-url').focus();
+        toast('http:// か https:// で始まるリンクを入れてください');
+        return null;
+      }
+      links.push({ type: row.querySelector('.link-type').value, url });
+    }
+    if (links.length > 20) {
+      toast('リンクは 20 件までです');
+      return null;
+    }
+    return links;
+  };
+  return { el, value };
+}
+
+// 保存済みのリンクを、http / https のものだけにしてボタンで並べる
+function linkChips(links) {
+  const safe = (links ?? []).map((l) => ({ ...l, url: normalizeUrl(l.url ?? '') })).filter((l) => l.url);
+  return (
+    safe.length > 0 &&
+    h(
+      'span',
+      { class: 'sch-links' },
+      safe.map((l) => h('a', { class: `sch-link ${linkType(l.type).id}`, href: l.url, target: '_blank', rel: 'noopener noreferrer', onClick: (e) => e.stopPropagation() }, linkLabel(l))),
+    )
+  );
+}
+
 function mapsUrl(place) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
 }
@@ -919,27 +977,7 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
     const place = h('input', { class: 'text-input', value: initial.place ?? '', placeholder: '場所（例：浅草寺）', maxlength: 100, 'aria-label': '場所' });
     const memo = h('textarea', { class: 'text-input memo-input', placeholder: 'メモ（例：予約済み、雨なら中止）', maxlength: 500, rows: 2, 'aria-label': 'メモ' }, initial.memo ?? '');
 
-    // リンク：種類 ＋ URL の行をいくつでも
-    const linkRows = h('div', { class: 'link-rows' });
-    const addLinkRow = (link = { type: 'none', url: '' }) => {
-      const type = h('select', { class: 'text-input link-type', 'aria-label': 'リンクの種類' }, LINK_TYPES.map((t) => h('option', { value: t.id }, `${t.icon} ${t.label}`)));
-      type.value = linkType(link.type).id;
-      const url = h('input', { class: 'text-input link-url', type: 'text', inputmode: 'url', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', value: link.url, placeholder: 'https://…', maxlength: 2000, 'aria-label': 'URL' });
-      url.addEventListener('change', () => {
-        if (type.value === 'none') type.value = guessLinkType(url.value);
-      });
-      const row = h('div', { class: 'link-row' }, type, url, h('button', { type: 'button', class: 'link-remove', 'aria-label': 'このリンクを削除', onClick: () => row.remove() }, '×'));
-      linkRows.append(row);
-      return url;
-    };
-    (initial.links ?? []).forEach((l) => addLinkRow(l));
-    const linksBox = h(
-      'div',
-      { class: 'links-editor' },
-      h('span', { class: 'links-label' }, 'リンク'),
-      linkRows,
-      h('button', { type: 'button', class: 'link-add', onClick: () => addLinkRow().focus() }, '＋ リンクを追加'),
-    );
+    const linksEdit = linksEditor(initial.links);
     const timeRow = h('div', { class: 'date-row' }, h('label', {}, '開始', start), h('label', {}, '長さ', durationSel));
     // 「時間を決めない」：日は決まっているけど時刻は未定（順番だけ持つ）
     const untimed = h('input', { type: 'checkbox', checked: editing && !!initial.date && !initial.start });
@@ -968,17 +1006,8 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
             const date = dateSel.value || null;
             const timed = date && !untimed.checked;
             if (timed && !start.value) return toast('開始時刻を入れてください');
-            const links = [];
-            for (const row of linkRows.querySelectorAll('.link-row')) {
-              const raw = row.querySelector('.link-url').value;
-              if (!raw.trim()) continue;
-              const url = normalizeUrl(raw);
-              if (!url) {
-                row.querySelector('.link-url').focus();
-                return toast('http:// か https:// で始まるリンクを入れてください');
-              }
-              links.push({ type: row.querySelector('.link-type').value, url });
-            }
+            const links = linksEdit.value();
+            if (!links) return;
             close({
               links,
               title: t,
@@ -996,7 +1025,7 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
         timeRow,
         place,
         memo,
-        linksBox,
+        linksEdit.el,
         h(
           'div',
           { class: 'sheet-buttons' },
@@ -1257,27 +1286,15 @@ function scheduleSection(groupId, ev, schedule, { focusDate = null } = {}) {
     ].filter(Boolean));
   };
 
-  // 保存済みのリンクも、表示の前にもう一度 http / https か確かめる
-  const safeLinks = (item) => (item.links ?? []).map((l) => ({ ...l, url: normalizeUrl(l.url ?? '') })).filter((l) => l.url);
-
-  const details = (item) => {
-    const links = safeLinks(item);
-    return (
-      (item.place || item.memo || links.length > 0) &&
-      h(
-        'span',
-        { class: 'sch-details' },
-        item.place && h('a', { class: 'sch-place', href: mapsUrl(item.place), target: '_blank', rel: 'noopener', onClick: (e) => e.stopPropagation() }, `📍${item.place}`),
-        item.memo && h('span', { class: 'sch-memo' }, item.memo),
-        links.length > 0 &&
-          h(
-            'span',
-            { class: 'sch-links' },
-            links.map((l) => h('a', { class: `sch-link ${linkType(l.type).id}`, href: l.url, target: '_blank', rel: 'noopener noreferrer', onClick: (e) => e.stopPropagation() }, linkLabel(l))),
-          ),
-      )
+  const details = (item) =>
+    (item.place || item.memo || item.links?.length > 0) &&
+    h(
+      'span',
+      { class: 'sch-details' },
+      item.place && h('a', { class: 'sch-place', href: mapsUrl(item.place), target: '_blank', rel: 'noopener', onClick: (e) => e.stopPropagation() }, `📍${item.place}`),
+      item.memo && h('span', { class: 'sch-memo' }, item.memo),
+      linkChips(item.links),
     );
-  };
 
   const timedRow = (item, day, { scaled = false, compact = false } = {}) => {
     const dur = item.duration ?? DEFAULT_DURATION;
@@ -2012,6 +2029,7 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
     sync();
     const place = h('input', { class: 'text-input', value: initial.place ?? '', placeholder: '場所（例：〇〇歯科）', maxlength: 100, 'aria-label': '場所' });
     const memo = h('textarea', { class: 'text-input memo-input', placeholder: 'メモ', maxlength: 500, rows: 2, 'aria-label': 'メモ' }, initial.memo ?? '');
+    const linksEdit = linksEditor(initial.links);
     const people = participantPicker(members, initial.participants ?? []);
     return [
       h('div', { class: 'sheet-title' }, editing ? '予定を編集' : '予定を追加'),
@@ -2026,6 +2044,8 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
             const dated = !noDate.checked;
             if (dated && !date.value) return toast('日にちを入れてください（決めない場合は「日付を決めない」）');
             if (dated && !allDay.checked && !start.value) return toast('開始時刻を入れてください');
+            const links = linksEdit.value();
+            if (!links) return;
             close({
               title: t,
               date: dated ? date.value : null,
@@ -2033,6 +2053,7 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
               duration: Number(duration.value),
               place: place.value.trim(),
               memo: memo.value.trim(),
+              links,
               participants: people.value(),
             });
           },
@@ -2044,6 +2065,7 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
         timeRow,
         place,
         memo,
+        linksEdit.el,
         people.el,
         h(
           'div',
@@ -2235,10 +2257,22 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     }
   };
 
+  // リンク（<a>）を中に置くので <button> ではなく role=button の div
   const planRow = (plan) =>
     h(
-      'button',
-      { class: 'cal-row plan', onClick: () => planMenu(plan) },
+      'div',
+      {
+        class: 'cal-row plan',
+        role: 'button',
+        tabindex: 0,
+        onClick: () => planMenu(plan),
+        onKeydown: (e) => {
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            planMenu(plan);
+          }
+        },
+      },
       h('span', { class: 'cal-row-time' }, plan.date ? timeText(plan) : '未定'),
       h(
         'span',
@@ -2246,6 +2280,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         h('span', { class: 'cal-row-title' }, plan.title),
         h('span', { class: 'cal-row-sub' }, [plan.place && `📍${plan.place}`, `👥 ${participantsLabel(members, plan.participants)}`].filter(Boolean).join(' ・ ')),
         plan.memo && h('span', { class: 'cal-row-sub' }, plan.memo),
+        linkChips(plan.links),
       ),
       h('span', { class: 'sch-more' }, '⋮'),
     );
