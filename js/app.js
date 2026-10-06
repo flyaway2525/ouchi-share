@@ -2358,7 +2358,8 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     }
   };
 
-  // 長押しで複数選択を始め、そのまま指でなぞった日も選ぶ（なぞり始めの日が選ばれていなければ「選ぶ」、選ばれていれば「外す」）。
+  // 長押しで複数選択を始め、そのまま指を動かすと、長押しした日から指のある日までを続けて選ぶ（戻せば縮む）。
+  // 長押しした日が選ばれていなければ「選ぶ」、選ばれていれば「外す」。
   // なぞっている間は描き直さず、日付のマスの見た目だけ変える（掴んでいる要素が消えないように）。離したら描き直す
   const enableDayPick = (grid) => {
     grid.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -2370,17 +2371,22 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       const sy = e.clientY;
       let picking = false;
       let add = true;
+      let base = [];
+      let last = null;
+      // 長押しした日から d までの日を、長押しする前の選択に足す（外す）
       const apply = (d) => {
-        const has = state.multi.includes(d);
-        if (add === has) return;
-        state.multi = add ? [...state.multi, d] : state.multi.filter((x) => x !== d);
-        grid.querySelector(`[data-date="${d}"]`)?.classList.toggle('picked', add);
+        if (d === last) return;
+        last = d;
+        const [from, to] = first <= d ? [first, d] : [d, first];
+        const range = Array.from({ length: daysBetween(from, to) + 1 }, (_, i) => addDays(from, i));
+        state.multi = add ? [...new Set([...base, ...range])] : base.filter((x) => !range.includes(x));
+        grid.querySelectorAll('.cal-day').forEach((el) => el.classList.toggle('picked', state.multi.includes(el.dataset.date)));
       };
       const start = () => {
         picking = true;
         calPick.active = true;
-        state.multi ??= [];
-        add = !state.multi.includes(first);
+        base = state.multi ?? [];
+        add = !base.includes(first);
         grid.querySelectorAll('.cal-day.selected').forEach((el) => el.classList.remove('selected'));
         apply(first);
         navigator.vibrate?.(15);
