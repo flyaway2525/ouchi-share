@@ -2561,8 +2561,8 @@ function isShownList(l) {
 }
 
 // リストのカード：1 回目のタップでその場に中身を開き（もう一度で閉じる）、「開く ›」でリストの画面へ。
-// やることリストは開いた中でチェックできる。開いているカードは描き直しても保つ。
-const openCards = new Set(); // 'groupId/listId'
+// やることリストは開いた中でチェックできる。開けるのは 1 枚だけ（開くと、ほかのカードは閉じる）。開いているカードは描き直しても保つ。
+let openCard = null; // 'groupId/listId'
 const groupMembers = {}; // groupId → メンバー（貸し借りの名前の表示用。グループ画面で覚える）
 const PREVIEW_MAX = 8;
 
@@ -2674,13 +2674,14 @@ function listCard(groupId, l) {
     wrap.querySelector('.card-preview')?.remove();
     if (on) wrap.append(preview());
   };
+  wrap.closeCard = () => show(false);
   const toggle = () => {
-    const on = !openCards.has(key);
-    if (on) openCards.add(key);
-    else openCards.delete(key);
+    const on = openCard !== key;
+    openCard = on ? key : null;
+    if (on) document.querySelectorAll('.card-wrap.open').forEach((w) => w !== wrap && w.closeCard?.());
     show(on);
   };
-  if (openCards.has(key)) show(true);
+  if (openCard === key) show(true);
   return wrap;
 }
 
