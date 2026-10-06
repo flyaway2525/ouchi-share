@@ -2224,10 +2224,12 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     if (d === state.selected) return addPlan();
     select(d);
   };
-  const shiftMonth = (n) => {
+  // slide：月を変えたあとの表に付けるすべり込みの向き（左右のスワイプで変えたとき）
+  const shiftMonth = (n, slide = null) => {
     const d = new Date(`${viewMonth}-01T00:00:00`);
     d.setMonth(d.getMonth() + n);
     Object.assign(state, monthView(dateStr(d).slice(0, 7)));
+    state.slide = slide;
     rerender();
   };
   const shiftWeeks = (n) => {
@@ -2362,6 +2364,62 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     } else {
       toast('「📌 日付未定の予定」に入れました');
     }
+  };
+
+  // 左右のスワイプで月を変える。表は指に付いて動き、離すと次の月がすべり込む（少しだけなら元に戻る）。
+  // 縦のスクロールはブラウザに任せる（.cal-grid は touch-action: pan-y）
+  const slideIn = state.slide;
+  state.slide = null;
+  const enableSwipe = (grid) => {
+    grid.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const id = e.pointerId;
+      const sx = e.clientX;
+      const sy = e.clientY;
+      let swiping = false;
+      let dx = 0;
+      const move = (ev) => {
+        if (ev.pointerId !== id || calPick.active) return;
+        dx = ev.clientX - sx;
+        const dy = ev.clientY - sy;
+        if (!swiping) {
+          if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.2) {
+            if (Math.abs(dy) > 12) cleanup();
+            return;
+          }
+          swiping = true;
+          grid.classList.remove('slide-next', 'slide-prev', 'snap');
+        }
+        grid.style.transform = `translateX(${dx}px)`;
+        grid.style.opacity = String(1 - Math.min(Math.abs(dx) / grid.offsetWidth, 1) * 0.5);
+      };
+      const up = (ev) => {
+        if (ev.pointerId !== id) return;
+        cleanup();
+        if (!swiping) return;
+        calPick.ignoreTapUntil = Date.now() + 400;
+        const dir = dx < 0 ? 1 : -1; // 左へ払うと来月
+        if (Math.abs(dx) > Math.min(80, grid.offsetWidth * 0.2)) {
+          grid.classList.add('snap');
+          grid.style.transform = `translateX(${-dir * grid.offsetWidth}px)`;
+          grid.style.opacity = '0';
+          setTimeout(() => shiftMonth(dir, dir > 0 ? 'next' : 'prev'), 160);
+        } else {
+          grid.classList.add('snap');
+          grid.style.transform = '';
+          grid.style.opacity = '';
+        }
+      };
+      function cleanup() {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+      }
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
+    return grid;
   };
 
   // 長押しで複数選択を始め、そのまま指を動かすと、長押しした日から指のある日までを続けて選ぶ（戻せば縮む）。
@@ -2506,7 +2564,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       h('button', { class: 'day-nav-btn', 'aria-label': '来月', title: '来月', onClick: () => shiftMonth(1) }, '›'),
       (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
-    enableDayPick(h('div', { class: 'cal-grid' }, h('div', { class: 'cal-dow' }, '日月火水木金土'.split('').map((w, i) => h('span', { class: i === 0 ? 'sun' : i === 6 ? 'sat' : '' }, w))), weeks.map(weekRow))),
+    enableSwipe(enableDayPick(h('div', { class: `cal-grid${slideIn ? ` slide-${slideIn}` : ''}` }, h('div', { class: 'cal-dow' }, '日月火水木金土'.split('').map((w, i) => h('span', { class: i === 0 ? 'sun' : i === 6 ? 'sat' : '' }, w))), weeks.map(weekRow)))),
     !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定を追加 ・ 長押しで何日も選べます'),
     h(
       'div',
