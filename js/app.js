@@ -2247,12 +2247,13 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     if (d === state.selected) return addPlan();
     select(d);
   };
-  // slide：月を変えたあとの表に付けるすべり込みの向き（左右のスワイプで変えたとき）
-  const shiftMonth = (n, slide = null) => {
+  const monthOf = (n) => {
     const d = new Date(`${viewMonth}-01T00:00:00`);
     d.setMonth(d.getMonth() + n);
-    Object.assign(state, monthView(dateStr(d).slice(0, 7)));
-    state.slide = slide;
+    return dateStr(d).slice(0, 7);
+  };
+  const shiftMonth = (n) => {
+    Object.assign(state, monthView(monthOf(n)));
     rerender();
   };
   const shiftWeeks = (n) => {
@@ -2265,7 +2266,8 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   };
 
   const MAX_LANES = 3;
-  const weekRow = (ws) => {
+  // vm：その表の月（ほかの月の日を薄くする基準）。となりの月の表にも使う
+  const weekRow = (ws, vm = viewMonth) => {
     const we = addDays(ws, 6);
     const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
     // 帯：週と重なるイベントを、空いている段に順に置く
@@ -2291,7 +2293,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         h(
           'button',
           {
-            class: `cal-day${d.slice(0, 7) !== viewMonth ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected && !state.multi ? ' selected' : ''}${pickClasses(d).map((c) => ` ${c}`).join('')}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
+            class: `cal-day${d.slice(0, 7) !== vm ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected && !state.multi ? ' selected' : ''}${pickClasses(d).map((c) => ` ${c}`).join('')}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
             style: `grid-column: ${i + 1}; grid-row: 1 / -1`,
             'aria-label': fmtDate(d),
             'data-date': d,
@@ -2389,12 +2391,20 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     }
   };
 
-  // 左右のスワイプで月を変える。表は指に付いて動き、離すと次の月がすべり込む（少しだけなら元に戻る）。
-  // 縦のスクロールはブラウザに任せる（.cal-grid は touch-action: pan-y）
-  const slideIn = state.slide;
-  state.slide = null;
-  const enableSwipe = (grid) => {
-    grid.addEventListener('pointerdown', (e) => {
+  // 左右のスワイプで月を変える。今の月の表の左右に、となりの月の表（中身も本物）を並べておき、
+  // 指に付いて全体が動く。離すと、となりの月の位置までするっと動いてから、その月で描き直す（少しだけなら元に戻る）。
+  // 縦のスクロールはブラウザに任せる（.cal-pager は touch-action: pan-y）
+  const PAGER_GAP = 12;
+  let track = null;
+  // ‹ › ボタンも同じように横に流してから月を変える
+  const slideMonth = (dir) => {
+    if (!track?.isConnected) return shiftMonth(dir);
+    track.classList.add('snap');
+    track.style.transform = `translateX(${-dir * (track.offsetWidth + PAGER_GAP)}px)`;
+    setTimeout(() => shiftMonth(dir), 220);
+  };
+  const enableSwipe = (pager) => {
+    pager.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       const id = e.pointerId;
       const sx = e.clientX;
@@ -2411,10 +2421,9 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
             return;
           }
           swiping = true;
-          grid.classList.remove('slide-next', 'slide-prev', 'snap');
+          track.classList.remove('snap');
         }
-        grid.style.transform = `translateX(${dx}px)`;
-        grid.style.opacity = String(1 - Math.min(Math.abs(dx) / grid.offsetWidth, 1) * 0.5);
+        track.style.transform = `translateX(${dx}px)`;
       };
       const up = (ev) => {
         if (ev.pointerId !== id) return;
@@ -2422,15 +2431,11 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         if (!swiping) return;
         calPick.ignoreTapUntil = Date.now() + 400;
         const dir = dx < 0 ? 1 : -1; // 左へ払うと来月
-        if (Math.abs(dx) > Math.min(80, grid.offsetWidth * 0.2)) {
-          grid.classList.add('snap');
-          grid.style.transform = `translateX(${-dir * grid.offsetWidth}px)`;
-          grid.style.opacity = '0';
-          setTimeout(() => shiftMonth(dir, dir > 0 ? 'next' : 'prev'), 160);
+        if (Math.abs(dx) > Math.min(80, track.offsetWidth * 0.2)) {
+          slideMonth(dir);
         } else {
-          grid.classList.add('snap');
-          grid.style.transform = '';
-          grid.style.opacity = '';
+          track.classList.add('snap');
+          track.style.transform = '';
         }
       };
       function cleanup() {
@@ -2442,7 +2447,24 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       window.addEventListener('pointerup', up);
       window.addEventListener('pointercancel', up);
     });
-    return grid;
+    return pager;
+  };
+  // 月の表（曜日の行 ＋ 週の行）。となりの月の表は見せるだけ（操作はしない）
+  const dowRow = () => h('div', { class: 'cal-dow' }, '日月火水木金土'.split('').map((w, i) => h('span', { class: i === 0 ? 'sun' : i === 6 ? 'sat' : '' }, w)));
+  const ghostGrid = (n) => {
+    const vm = monthOf(n);
+    const v = monthView(vm);
+    const [color] = SEASONS[Number(vm.slice(5)) - 1];
+    return h(
+      'div',
+      { class: `cal-grid cal-ghost ${n < 0 ? 'prev' : 'next'}`, style: `--season: ${color}`, 'aria-hidden': 'true', inert: '' },
+      dowRow(),
+      Array.from({ length: v.weeks }, (_, i) => weekRow(addDays(v.start, i * 7), vm)),
+    );
+  };
+  const pagerEl = () => {
+    track = h('div', { class: 'cal-track' }, ghostGrid(-1), enableDayPick(h('div', { class: 'cal-grid' }, dowRow(), weeks.map((ws) => weekRow(ws)))), ghostGrid(1));
+    return enableSwipe(h('div', { class: 'cal-pager' }, track));
   };
 
   // 長押しで複数選択を始め、そのまま指を動かすと、長押しした日から指のある日までを続けて選ぶ（戻せば縮む）。
@@ -2581,14 +2603,14 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       'div',
       { class: 'cal-head' },
       // 先月 / −2週 / （見出し） / +2週 / 来月
-      h('button', { class: 'day-nav-btn', 'aria-label': '先月', title: '先月', onClick: () => shiftMonth(-1) }, '‹'),
+      h('button', { class: 'day-nav-btn', 'aria-label': '先月', title: '先月', onClick: () => slideMonth(-1) }, '‹'),
       h('button', { class: 'cal-mini', 'aria-label': '2週間前へ', onClick: () => shiftWeeks(-2) }, '−2週'),
       h('span', { class: 'cal-title' }, `${seasonEmoji} ${Number(viewMonth.slice(0, 4))}年${Number(viewMonth.slice(5))}月`),
       h('button', { class: 'cal-mini', 'aria-label': '2週間後へ', onClick: () => shiftWeeks(2) }, '+2週'),
-      h('button', { class: 'day-nav-btn', 'aria-label': '来月', title: '来月', onClick: () => shiftMonth(1) }, '›'),
+      h('button', { class: 'day-nav-btn', 'aria-label': '来月', title: '来月', onClick: () => slideMonth(1) }, '›'),
       (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
-    enableSwipe(enableDayPick(h('div', { class: `cal-grid${slideIn ? ` slide-${slideIn}` : ''}` }, h('div', { class: 'cal-dow' }, '日月火水木金土'.split('').map((w, i) => h('span', { class: i === 0 ? 'sun' : i === 6 ? 'sat' : '' }, w))), weeks.map(weekRow)))),
+    pagerEl(),
     !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定を追加 ・ 長押しで何日も選べます'),
     h(
       'div',
