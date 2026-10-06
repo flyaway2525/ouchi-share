@@ -1752,6 +1752,20 @@ select.text-input {
   font-weight: 700;
 }
 
+/* 季節の色（.calendar の --season。月ごとに変わる） */
+.calendar .cal-title {
+  color: var(--season, var(--text));
+}
+
+.calendar .cal-grid {
+  border-color: color-mix(in srgb, var(--season, var(--border)) 65%, var(--border));
+}
+
+.calendar .cal-dow {
+  background: color-mix(in srgb, var(--season, transparent) 24%, var(--surface));
+  border-bottom-color: color-mix(in srgb, var(--season, var(--border)) 55%, var(--border));
+}
+
 .cal-today {
   margin-left: auto;
   padding: 6px 12px;

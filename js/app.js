@@ -2153,6 +2153,22 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
 
 const calState = {};
 
+// 月ごとの季節の色と絵文字（見出し・曜日の帯・枠に付けて、何月を見ているか分かりやすくする）
+const SEASONS = [
+  ['#d0453c', '🎍'], // 1 月：お正月
+  ['#d9608a', '🌺'], // 2 月：梅
+  ['#d4a800', '🌼'], // 3 月：菜の花
+  ['#e57fa3', '🌸'], // 4 月：桜
+  ['#43a047', '🌿'], // 5 月：新緑
+  ['#7e66c9', '☔'], // 6 月：紫陽花
+  ['#1e96d2', '🌊'], // 7 月：海
+  ['#f29a0c', '🌻'], // 8 月：ひまわり
+  ['#a8873a', '🎑'], // 9 月：すすき・お月見
+  ['#ec7424', '🎃'], // 10 月：柿・ハロウィン
+  ['#c2412d', '🍁'], // 11 月：紅葉
+  ['#2e8a5c', '🎄'], // 12 月：クリスマス
+];
+
 // その月の 1 日を含む週の日曜日から、月末を含む週の土曜日までを表示する範囲
 function monthView(month) {
   const first = new Date(`${month}-01T00:00:00`);
@@ -2533,9 +2549,10 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       h('span', { class: 'sch-more' }, '⋮'),
     );
 
+  const [seasonColor, seasonEmoji] = SEASONS[Number(viewMonth.slice(5)) - 1];
   return h(
     'div',
-    { class: 'calendar' },
+    { class: 'calendar', style: `--season: ${seasonColor}` },
     h(
       'div',
       { class: 'cal-filter people-chips' },
@@ -2559,7 +2576,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       // 先月 / −2週 / （見出し） / +2週 / 来月
       h('button', { class: 'day-nav-btn', 'aria-label': '先月', title: '先月', onClick: () => shiftMonth(-1) }, '‹'),
       h('button', { class: 'cal-mini', 'aria-label': '2週間前へ', onClick: () => shiftWeeks(-2) }, '−2週'),
-      h('span', { class: 'cal-title' }, `${Number(viewMonth.slice(0, 4))}年${Number(viewMonth.slice(5))}月`),
+      h('span', { class: 'cal-title' }, `${seasonEmoji} ${Number(viewMonth.slice(0, 4))}年${Number(viewMonth.slice(5))}月`),
       h('button', { class: 'cal-mini', 'aria-label': '2週間後へ', onClick: () => shiftWeeks(2) }, '+2週'),
       h('button', { class: 'day-nav-btn', 'aria-label': '来月', title: '来月', onClick: () => shiftMonth(1) }, '›'),
       (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
