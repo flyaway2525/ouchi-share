@@ -42,11 +42,19 @@ service cloud.firestore {
         && d.createdByName is string && d.createdByName.size() <= 40;
     }
 
-    // アプリからのお知らせ：ログインしている人は読める。書く・消すのは管理者だけ
+    // 再アナウンス：変えてよいのは announcedAt / announcedBy / announcedByName だけ
+    function isReannounce() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['announcedAt', 'announcedBy', 'announcedByName'])
+        && request.resource.data.announcedBy == request.auth.uid
+        && request.resource.data.announcedAt is int
+        && request.resource.data.announcedByName is string && request.resource.data.announcedByName.size() <= 40;
+    }
+
+    // アプリからのお知らせ：ログインしている人は読める。書く・消す・再アナウンスは管理者だけ
     match /announcements/{newsId} {
       allow read: if signedIn();
       allow create: if isAdmin() && isValidNews(request.resource.data);
-      allow update: if false;
+      allow update: if isAdmin() && isReannounce();
       allow delete: if isAdmin();
     }
 
@@ -277,7 +285,9 @@ service cloud.firestore {
 
         allow read: if isGroupMember();
         allow create: if isGroupMember() && isValidNews(request.resource.data);
-        allow update: if false;
+        // 再アナウンスと削除：書いた本人かオーナー
+        allow update: if isGroupMember() && isReannounce()
+          && (resource.data.createdBy == request.auth.uid || groupData().members[request.auth.uid].role == 'owner');
         allow delete: if isGroupMember()
           && (resource.data.createdBy == request.auth.uid || groupData().members[request.auth.uid].role == 'owner');
       }

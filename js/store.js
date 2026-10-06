@@ -362,7 +362,8 @@ export async function deleteEvent(groupId, eventId) {
 }
 
 // ---- お知らせ ----
-// お知らせ 1 件 = { title, body, createdAt, createdBy, createdByName }
+// お知らせ 1 件 = { title, body, createdAt, createdBy, createdByName,
+//   announcedAt, announcedBy, announcedByName（再アナウンスしたとき。これより前に読んだ人は未読に戻る） }
 
 const appNewsCol = () => collection(db, 'announcements');
 const groupNewsCol = (groupId) => collection(db, 'groups', groupId, 'announcements');
@@ -393,6 +394,12 @@ export async function createGroupNews(groupId, news) {
   const ref = doc(groupNewsCol(groupId));
   await setDoc(ref, newsFields(news));
   return ref.id;
+}
+
+// 再アナウンス：みんなの未読に戻す（通知は app.js から頼む）
+export async function reannounceNews(groupId, id) {
+  const ref = groupId ? doc(db, 'groups', groupId, 'announcements', id) : doc(db, 'announcements', id);
+  await updateDoc(ref, { announcedAt: Date.now(), announcedBy: uid(), announcedByName: displayName() });
 }
 
 export async function deleteGroupNews(groupId, id) {

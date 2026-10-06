@@ -45,9 +45,15 @@ let newsShowing = null;
 let unwatchReads = null;
 let unwatchAppNews = null;
 
+// 再アナウンスされたお知らせは、そのあとに読んでいなければ未読（再アナウンスした本人は既読あつかい）
 function isNewsRead(n) {
+  if (n.announcedAt) return (newsReads?.[n.key] ?? 0) >= n.announcedAt || n.announcedBy === user?.uid;
   return !!newsReads?.[n.key] || n.createdBy === user?.uid;
 }
+
+// 並べる時刻（再アナウンスしたらその時刻）と、「あとで見る」の記録の鍵（再アナウンスされたらまた出す）
+const newsTime = (n) => n.announcedAt ?? n.createdAt ?? 0;
+const snoozeKey = (n) => `${n.key}@${n.announcedAt ?? 0}`;
 
 function unreadNewsCount(sourceId) {
   return (newsSources.get(sourceId) ?? []).filter((n) => !isNewsRead(n)).length;
@@ -66,9 +72,9 @@ function clearNewsSource(sourceId) {
 function checkNews() {
   // 読み込み前・ログイン処理中・名前の入力前は出さない
   if (!newsReads || !user || authBusy || auth.needsName()) return;
-  const all = [...newsSources.values()].flat().sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  const all = [...newsSources.values()].flat().sort((a, b) => newsTime(a) - newsTime(b));
   for (const n of all) {
-    if (isNewsRead(n) || snoozedNews.has(n.key) || newsShowing === n.key || newsQueue.some((q) => q.key === n.key)) continue;
+    if (isNewsRead(n) || snoozedNews.has(snoozeKey(n)) || newsShowing === n.key || newsQueue.some((q) => q.key === n.key)) continue;
     newsQueue.push(n);
   }
   pumpNews();
@@ -78,11 +84,11 @@ async function pumpNews() {
   if (newsShowing) return;
   const n = newsQueue.shift();
   if (!n) return;
-  if (isNewsRead(n) || snoozedNews.has(n.key)) return pumpNews();
+  if (isNewsRead(n) || snoozedNews.has(snoozeKey(n))) return pumpNews();
   newsShowing = n.key;
   const res = await newsPopup(n, newsQueue.length);
   if (res === 'read') store.markRead(n.key).catch(showError);
-  else snoozedNews.add(n.key);
+  else snoozedNews.add(snoozeKey(n));
   newsShowing = null;
   pumpNews();
 }
@@ -102,6 +108,7 @@ function newsPopup(n, remaining = 0) {
       { class: 'news-card' },
       h('h2', { class: 'news-title' }, n.title),
       h('p', { class: 'news-meta' }, `${n.createdByName ?? ''} ・ ${fmtDateTime(n.createdAt)}`),
+      n.announcedAt && h('p', { class: 'news-meta' }, `🔁 再アナウンス ${n.announcedByName ?? ''} ・ ${fmtDateTime(n.announcedAt)}`),
       n.body && h('p', { class: 'news-body' }, n.body),
     ),
     !read && h('button', { class: 'sheet-action', onClick: () => close('read') }, '✓ 既読にする'),
@@ -4230,23 +4237,35 @@ function newsListView(root, { groupId = null }) {
   const canWrite = () => (groupId ? true : isAdmin);
   const canDelete = (n) => (groupId ? n.createdBy === user.uid || group?.members?.[user.uid]?.role === 'owner' : isAdmin);
 
+  const notifyNews = (title, again = false) =>
+    requestNotify(
+      groupId
+        ? { groupId, kind: 'news', title: `📢 ${group.name}${again ? '（再アナウンス）' : ''}`, body: `${title}（${auth.displayName()}さん）`, url: `#/g/${groupId}/news` }
+        : { kind: 'appnews', title: `📢 ouchi-share からのお知らせ${again ? '（再アナウンス）' : ''}`, body: title, url: '#/news' },
+    );
+
   const write = async () => {
     const res = await newsSheet();
     if (!res) return;
     (groupId ? store.createGroupNews(groupId, res) : store.createAppNews(res)).then(() => {
       toast('お知らせを送りました');
-      requestNotify(
-        groupId
-          ? { groupId, kind: 'news', title: `📢 ${group.name}`, body: `${res.title}（${auth.displayName()}さん）`, url: `#/g/${groupId}/news` }
-          : { kind: 'appnews', title: '📢 ouchi-share からのお知らせ', body: res.title, url: '#/news' },
-      );
+      notifyNews(res.title);
+    }, showError);
+  };
+
+  // 再アナウンス：みんなの未読に戻して、通知もあらためて送る
+  const reannounce = async (n) => {
+    if (!(await confirmSheet(`「${n.title}」をもう一度みんなに知らせますか？（みんなの未読に戻り、通知も届きます）`, '再アナウンスする'))) return;
+    store.reannounceNews(groupId, n.id).then(() => {
+      toast('もう一度お知らせしました');
+      notifyNews(n.title, true);
     }, showError);
   };
 
   function render() {
     if (!items || (groupId && !group)) return;
     setChildren(top, header({ title: groupId ? `${group.name}のお知らせ` : 'アプリからのお知らせ', back: groupId ? `#/g/${groupId}` : '#/' }));
-    const sorted = [...items].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    const sorted = [...items].sort((a, b) => newsTime(b) - newsTime(a));
     setChildren(
       body,
       canWrite() && h('button', { class: 'add-card news-add', onClick: write }, '＋ お知らせを書く'),
@@ -4267,8 +4286,10 @@ function newsListView(root, { groupId = null }) {
                 },
               },
               h('span', { class: 'news-row-title' }, !isNewsRead(n) && h('i', { class: 'news-dot', 'aria-label': '未読' }), n.title),
-              h('span', { class: 'news-row-meta' }, `${n.createdByName ?? ''} ・ ${fmtDateTime(n.createdAt)}`),
+              h('span', { class: 'news-row-meta' }, `${n.createdByName ?? ''} ・ ${fmtDateTime(n.createdAt)}${n.announcedAt ? ` ・ 🔁 ${fmtDateTime(n.announcedAt)}` : ''}`),
             ),
+            canDelete(n) &&
+              h('button', { class: 'news-delete', 'aria-label': `${n.title} を再アナウンス`, title: 'もう一度みんなに知らせる', onClick: () => reannounce(n) }, '🔁'),
             canDelete(n) &&
               h(
                 'button',
