@@ -38,6 +38,8 @@
 html,
 body {
   margin: 0;
+  /* iPhone で端を越えて引っぱったときの「びよーん」を止める（その間だけ上のバーがずれて見えるため） */
+  overscroll-behavior: none;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
