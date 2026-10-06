@@ -25,11 +25,11 @@ export function setChildren(el, ...children) {
 }
 
 // extra：右側の「⋯」の左に置く要素（グループ画面のメンバーボタンなど）
-export function header({ title, back, onMenu, extra }) {
+export function header({ title, back, onMenu, extra, extraLeft }) {
   return h(
     'header',
     { class: 'topbar' },
-    h('div', { class: 'topbar-side left' }, back ? h('a', { class: 'topbar-btn', href: back, 'aria-label': '戻る' }, '‹') : h('span', { class: 'topbar-btn' })),
+    h('div', { class: 'topbar-side left' }, back ? h('a', { class: 'topbar-btn', href: back, 'aria-label': '戻る' }, '‹') : h('span', { class: 'topbar-btn' }), extraLeft),
     h('h1', { class: 'topbar-title' }, title),
     h(
       'div',

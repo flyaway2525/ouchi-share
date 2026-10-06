@@ -1726,6 +1726,12 @@ function groupView(root, { groupId }) {
           title: g.name,
           back: '#/',
           extra: memberPill,
+          // コピーしたリンクの登録は、どのタブからでもすぐ使えるようにヘッダーに置く
+          extraLeft: h(
+            'button',
+            { class: 'register-link', 'aria-label': 'コピーしたリンクを登録', title: 'コピーしたリンクを登録', onClick: () => lists && registerLink(groupId, lists, events ?? []) },
+            '📋 登録',
+          ),
           onMenu: () =>
             actionSheet(g.name, [
               {
@@ -1836,7 +1842,6 @@ function groupView(root, { groupId }) {
       setChildren(
         body,
         tabs,
-        h('button', { class: 'register-link', onClick: () => registerLink(groupId, lists, events) }, '📋 コピーしたリンクを登録'),
         daily.length === 0 && h('p', { class: 'empty small' }, '日用品の在庫や、やることリストなど、イベントに関係ないリストを置けます。'),
         h('div', { class: 'card-list' }, daily.map((l) => listCard(groupId, l))),
         h('button', { class: 'add-card', onClick: () => addListMenu(groupId) }, '＋ リストを追加'),

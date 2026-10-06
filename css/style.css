@@ -2135,17 +2135,20 @@ select.text-input {
   display: none;
 }
 
-/* リストタブの「📋 コピーしたリンクを登録」 */
+/* ヘッダーの「📋 登録」（コピーしたリンクを登録） */
 .register-link {
-  width: 100%;
-  margin-bottom: 12px;
-  padding: 12px;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--accent);
-  border-radius: var(--radius);
+  border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent);
   font: inherit;
+  font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .wish-photo {
@@ -2533,7 +2536,12 @@ select.text-input {
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+  /* 左右のボタンは縮めず、長いタイトルのほうを「…」で省略する */
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
+}
+
+.topbar-side > * {
+  flex-shrink: 0;
 }
 
 .topbar-side {
