@@ -68,7 +68,8 @@ export function openSheet(build) {
       if (downOnBackdrop && e.target === backdrop) close(null);
       downOnBackdrop = false;
     });
-    sheet.append(...build(close));
+    // 条件付きで出す部品（false / null）は飛ばす
+    sheet.append(...build(close).flat().filter((c) => c != null && c !== false));
     backdrop.append(sheet);
     document.body.append(backdrop);
     requestAnimationFrame(() => {

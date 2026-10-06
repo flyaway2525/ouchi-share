@@ -55,6 +55,12 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == userId;
     }
 
+    // 通知の宛先（端末ごとのトークン）と、受け取る種類の設定：本人だけ。
+    // 通知を送る Cloudflare Workers はサービスアカウントで読むので、このルールの影響を受けない
+    match /push/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
     // ---- 最終アクセス時刻（オンライン表示用） ----
     match /presence/{userId} {
       allow get: if signedIn() && (request.auth.uid == userId || isAdmin());

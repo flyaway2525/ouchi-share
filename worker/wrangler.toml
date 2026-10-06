@@ -1,0 +1,11 @@
+# ouchi-share の通知を送る Cloudflare Workers（無料プラン）
+name = "ouchi-share-notify"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# 毎日 11:00 UTC（日本時間 20:00）に、翌日の予定のリマインドを送る
+[triggers]
+crons = ["0 11 * * *"]
+
+# 秘密の値はここに書かない。次のコマンドで登録する：
+#   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT

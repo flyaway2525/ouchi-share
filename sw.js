@@ -2,8 +2,8 @@
 // ネットワーク優先で、つながらないときだけキャッシュを使う
 // （開発中に古いファイルが表示され続けるのを避けるため）。
 
-const CACHE = 'ouchi-share-v27';
-const SHELL = ['./', './index.html', './css/style.css', './js/app.js', './js/store.js', './js/ui.js', './js/auth.js', './js/firebase.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
+const CACHE = 'ouchi-share-v29';
+const SHELL = ['./', './index.html', './css/style.css', './js/app.js', './js/store.js', './js/ui.js', './js/auth.js', './js/firebase.js', './js/push.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
@@ -15,6 +15,48 @@ self.addEventListener('activate', (e) => {
     caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))),
   );
   self.clients.claim();
+});
+
+// ---- 通知 ----
+// 送る側（Cloudflare Workers）は FCM の「データだけのメッセージ」で送るので、表示はここで行う。
+// iPhone は届いた通知を必ず表示しないと通知の許可が取り消されることがあるため、毎回表示する。
+
+self.addEventListener('push', (e) => {
+  let payload = {};
+  try {
+    payload = e.data ? e.data.json() : {};
+  } catch {
+    payload = { data: { body: e.data ? e.data.text() : '' } };
+  }
+  const d = payload.data ?? {};
+  const n = payload.notification ?? {};
+  const title = d.title || n.title || 'ouchi-share';
+  e.waitUntil(
+    self.registration.showNotification(title, {
+      body: d.body || n.body || '',
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+      tag: d.tag || undefined,
+      data: { url: d.url || './' },
+    }),
+  );
+});
+
+// 通知をタップしたら、開いているアプリをその画面にする（なければ開く）
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ('focus' in c) {
+          if ('navigate' in c) c.navigate(url).catch(() => {});
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
 });
 
 self.addEventListener('fetch', (e) => {

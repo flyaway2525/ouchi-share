@@ -139,6 +139,93 @@ function newsSheet() {
   });
 }
 
+// ---- 通知の設定 ----
+// 通知のコード（Firebase Messaging）は使うときだけ読み込む（対応していないブラウザで余計な読み込みをしない）
+const loadPush = () => import('./push.js');
+
+// お知らせ・予定を追加したときに、Cloudflare Workers に通知を頼む（失敗しても何もしない）
+function requestNotify(params) {
+  loadPush()
+    .then((push) => push.notify(params))
+    .catch(() => {});
+}
+
+async function pushSettingsSheet() {
+  let push;
+  let status;
+  try {
+    push = await loadPush();
+    status = await push.pushStatus();
+  } catch {
+    status = { state: 'unsupported' };
+  }
+  const prefs = push && ['on', 'off'].includes(status.state) ? await push.getPushPrefs() : null;
+  const messages = {
+    'not-ready': '通知は準備中です（通知を送る仕組みの設定がまだ終わっていません）。',
+    'ios-home-screen': 'iPhone では、Safari の共有ボタン（□↑）→「ホーム画面に追加」で追加したアプリから開くと、通知をオンにできます。',
+    unsupported: 'このブラウザでは通知を受け取れません。',
+    denied: '通知がブロックされています。端末の「設定」で、このアプリ（またはブラウザ）の通知を許可してください。',
+    off: 'この端末では、まだ通知を受け取っていません。',
+    on: '🔔 この端末で通知を受け取ります。',
+  };
+  const pref = (key, label) => {
+    const box = h('input', {
+      type: 'checkbox',
+      checked: !!prefs[key],
+      onChange: () => {
+        prefs[key] = box.checked;
+        push.setPushPrefs(prefs).catch(showError);
+      },
+    });
+    return h('label', { class: 'check-row' }, box, h('span', {}, label));
+  };
+  openSheet((close) => [
+    h('div', { class: 'sheet-title' }, '通知の設定'),
+    h('p', { class: 'push-status' }, messages[status.state]),
+    status.state === 'off' &&
+      h(
+        'button',
+        {
+          class: 'sheet-action',
+          onClick: async () => {
+            try {
+              await push.enablePush();
+              toast('通知をオンにしました');
+            } catch (e) {
+              toast(e.message === 'denied' ? '通知が許可されませんでした' : '通知をオンにできませんでした');
+            }
+            close(null);
+            pushSettingsSheet();
+          },
+        },
+        '🔔 この端末で通知を受け取る',
+      ),
+    status.state === 'on' &&
+      h(
+        'button',
+        {
+          class: 'sheet-action danger',
+          onClick: async () => {
+            await push.disablePush();
+            toast('この端末の通知をオフにしました');
+            close(null);
+          },
+        },
+        'この端末の通知をやめる',
+      ),
+    prefs &&
+      h(
+        'div',
+        { class: 'push-prefs' },
+        h('span', { class: 'links-label' }, '受け取る通知（すべての端末に共通）'),
+        pref('news', '📢 お知らせ'),
+        pref('plans', '📅 予定・イベントが追加されたとき'),
+        pref('reminders', '⏰ 前日のリマインド（夜8時ごろ）'),
+      ),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
+  ]);
+}
+
 function startNewsWatchers(u) {
   unwatchReads?.();
   unwatchAppNews?.();
@@ -220,6 +307,7 @@ function accountMenu() {
   const unread = unreadNewsCount('app');
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
     { label: `📢 アプリからのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
+    { label: '🔔 通知の設定', onClick: pushSettingsSheet },
     isAdmin && { label: '管理者ダッシュボード', onClick: () => (location.hash = '#/admin') },
     { label: '名前を変更', onClick: renameAccount },
     guest && { label: '復旧IDを確認', onClick: myRecoverySheet },
@@ -1748,7 +1836,18 @@ function groupView(root, { groupId }) {
           class: 'add-card',
           onClick: async () => {
             const res = await eventSheet({}, '作成', memberList(group));
-            if (res) store.createEvent(groupId, res).then((id) => (location.hash = `#/g/${groupId}/e/${id}`), showError);
+            if (!res) return;
+            store.createEvent(groupId, res).then((id) => {
+              requestNotify({
+                groupId,
+                kind: 'plan',
+                title: `📅 ${group.name}`,
+                body: `${auth.displayName()}さんがイベント「${res.emoji} ${res.title}」（${fmtRange(res)}）を追加しました`,
+                url: `#/g/${groupId}/e/${id}`,
+                participants: res.participants ?? [],
+              });
+              location.hash = `#/g/${groupId}/e/${id}`;
+            }, showError);
           },
         },
         '＋ イベントを作成',
@@ -2169,7 +2268,16 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           onClick: async () => {
             const res = await planSheet(members, { date: sel, participants: filter === 'all' ? [] : [filter] });
             if (res) {
-              store.createPlan(groupId, res).catch(showError);
+              store.createPlan(groupId, res).then(() => {
+                requestNotify({
+                  groupId,
+                  kind: 'plan',
+                  title: `📅 ${group.name}`,
+                  body: `${auth.displayName()}さんが予定を追加しました：${fmtDate(res.date)}${res.start ? ` ${res.start}` : ''} ${res.title}`,
+                  url: `#/g/${groupId}`,
+                  participants: res.participants ?? [],
+                });
+              }, showError);
               if (res.date !== sel) select(res.date);
             }
           },
@@ -3403,7 +3511,14 @@ function newsListView(root, { groupId = null }) {
   const write = async () => {
     const res = await newsSheet();
     if (!res) return;
-    (groupId ? store.createGroupNews(groupId, res) : store.createAppNews(res)).then(() => toast('お知らせを送りました'), showError);
+    (groupId ? store.createGroupNews(groupId, res) : store.createAppNews(res)).then(() => {
+      toast('お知らせを送りました');
+      requestNotify(
+        groupId
+          ? { groupId, kind: 'news', title: `📢 ${group.name}`, body: `${res.title}（${auth.displayName()}さん）`, url: `#/g/${groupId}/news` }
+          : { kind: 'appnews', title: '📢 ouchi-share からのお知らせ', body: res.title, url: '#/news' },
+      );
+    }, showError);
   };
 
   function render() {

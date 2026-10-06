@@ -2217,6 +2217,24 @@ select.text-input {
   white-space: nowrap;
 }
 
+/* ---- 通知の設定 ---- */
+
+.push-status {
+  margin: 0 4px 12px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.push-prefs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
 /* ---- お知らせ ---- */
 
 .news-card {
