@@ -1849,9 +1849,63 @@ select.text-input {
   user-select: none;
 }
 
-.cal-day.picked {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
-  box-shadow: inset 0 0 0 2px var(--accent);
+/* 選んだ日：となりどうしがつながった丸い帯（週の端では丸く閉じる）。新しく選ばれた日はゴムのように伸びる */
+.cal-day {
+  position: relative;
+}
+
+.cal-day .cal-num {
+  position: relative;
+  z-index: 1;
+}
+
+.cal-day.picked::before {
+  content: '';
+  position: absolute;
+  inset: 2px 3px;
+  border-radius: 16px;
+  /* 重なった境目が濃く見えないように、不透明な色にする */
+  background: color-mix(in srgb, var(--accent) 26%, var(--surface));
+  border: 2px solid var(--accent);
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cal-day.pick-l::before {
+  left: -1px;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.cal-day.pick-r::before {
+  right: 0;
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.cal-day.grow-r::before {
+  transform-origin: left center;
+  animation: pick-grow 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cal-day.grow-l::before {
+  transform-origin: right center;
+  animation: pick-grow 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 指のある日（伸びている先）は、少しふくらむ */
+.cal-day.tip::before {
+  transform: scaleY(1.08);
+}
+
+@keyframes pick-grow {
+  from {
+    transform: scaleX(0.15);
+  }
+  to {
+    transform: scaleX(1);
+  }
 }
 
 .cal-day.picked .cal-num {

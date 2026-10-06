@@ -2211,6 +2211,12 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     state.multi = null;
     rerender();
   };
+  // 選んだ日は、つながった 1 本の帯に見せる。左右（同じ週）のとなりも選ばれていれば pick-l / pick-r（その側は丸めない）
+  const pickClasses = (d, picked = state.multi) => {
+    if (!picked?.includes(d)) return [];
+    const dow = new Date(`${d}T00:00:00`).getDay();
+    return ['picked', dow > 0 && picked.includes(addDays(d, -1)) && 'pick-l', dow < 6 && picked.includes(addDays(d, 1)) && 'pick-r'].filter(Boolean);
+  };
   // タップ：選んでいる日をもう一度タップすると、その日の予定の追加へ。複数選択中は選ぶ・外す
   const tapDay = (d) => {
     if (Date.now() < calPick.ignoreTapUntil) return;
@@ -2260,7 +2266,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         h(
           'button',
           {
-            class: `cal-day${d.slice(0, 7) !== viewMonth ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected && !state.multi ? ' selected' : ''}${state.multi?.includes(d) ? ' picked' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
+            class: `cal-day${d.slice(0, 7) !== viewMonth ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected && !state.multi ? ' selected' : ''}${pickClasses(d).map((c) => ` ${c}`).join('')}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
             style: `grid-column: ${i + 1}; grid-row: 1 / -1`,
             'aria-label': fmtDate(d),
             'data-date': d,
@@ -2380,7 +2386,19 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         const [from, to] = first <= d ? [first, d] : [d, first];
         const range = Array.from({ length: daysBetween(from, to) + 1 }, (_, i) => addDays(from, i));
         state.multi = add ? [...new Set([...base, ...range])] : base.filter((x) => !range.includes(x));
-        grid.querySelectorAll('.cal-day').forEach((el) => el.classList.toggle('picked', state.multi.includes(el.dataset.date)));
+        // 新しく選ばれた日は、長押しした日の側から「うにょーん」と伸びる（grow-r：左から右へ、grow-l：右から左へ）
+        for (const el of grid.querySelectorAll('.cal-day')) {
+          const day = el.dataset.date;
+          const was = el.classList.contains('picked');
+          el.classList.remove('picked', 'pick-l', 'pick-r', 'tip');
+          el.classList.add(...pickClasses(day));
+          if (!was && el.classList.contains('picked') && day !== first) {
+            el.classList.remove('grow-l', 'grow-r');
+            void el.offsetWidth; // アニメーションをやり直す
+            el.classList.add(day > first ? 'grow-r' : 'grow-l');
+          }
+          if (day === d && el.classList.contains('picked')) el.classList.add('tip');
+        }
       };
       const start = () => {
         picking = true;
