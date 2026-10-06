@@ -29,6 +29,13 @@
 - [ ] シミュレーター・自分の iPhone で起動
 - [ ] ログインの作り直し：アプリ内ではポップアップの Google ログインが動かないので、iPhone の仕組みの Google ログイン＋「Apple でサインイン」に
 - [ ] アプリの通知（APNs キーを Firebase に登録）
+- [ ] 通知の左のアイコンを送った人のアイコンにする（「コミュニケーション通知」。iOS 15 以降）
+  - Notification Service Extension で、届いた通知を送った人の情報（INSendMessageIntent）付きに書き換える
+  - Xcode で Communication Notifications の項目を有効にする。送った人の uid・名前・アイコン画像を Workers から送る
+  - LINE のように送った人のアイコンが大きく出て、アプリのアイコンは右下に小さく重なる
+- [ ] 通知の右側に画像を付ける（欲しいもの・行きたいところの写真など。同じ Notification Service Extension で添付）
+- [ ] 「📋 登録」の強化：アプリを開いたときにクリップボードの URL を確認して「このリンクを登録しますか？」と出す。
+      共有メニュー（TikTok などの「共有」→ おうちでシェア）から直接登録できるようにする（Share Extension）
 - [ ] ウィジェット（WidgetKit / Swift。例：今日の予定、買い物リスト）
 - [ ] Apple Developer Program に登録（年 99 ドル）
 - [ ] TestFlight で家族に配る（ビルドは 90 日で期限切れ → それまでに Mac から再アップロード）
