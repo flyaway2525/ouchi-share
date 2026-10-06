@@ -192,6 +192,92 @@ a {
   color: var(--muted);
 }
 
+/* リストのカード：タップでその場に中身を開く */
+.card-wrap > .card {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.card-wrap .chevron {
+  transition: transform 0.2s;
+}
+
+.card-wrap.open .chevron {
+  transform: rotate(90deg);
+}
+
+.card-wrap.open > .card {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow: none;
+}
+
+.card-preview {
+  padding: 4px 14px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.card-preview .money-balances {
+  margin: 8px 0 4px;
+}
+
+.preview-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.preview-item {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.preview-items > :last-child {
+  border-bottom: 0;
+}
+
+.preview-item.check {
+  padding: 0;
+}
+
+.preview-item .item-label {
+  min-height: 44px;
+  padding: 6px 0;
+}
+
+.preview-item.checked .item-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.preview-more,
+.preview-empty {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.card-open {
+  display: block;
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
 .add-card {
   width: 100%;
   margin-top: 12px;

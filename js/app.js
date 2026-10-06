@@ -1715,6 +1715,7 @@ function groupView(root, { groupId }) {
     groupId,
     (g) => {
       group = g;
+      groupMembers[groupId] = memberList(g);
       const owner = g.members?.[user.uid]?.role === 'owner';
       if (owner && !unwatchRecovery) {
         unwatchRecovery = store.watchRecoveryCodes(groupId, (codes) => (recoveryCodes = codes), () => {});
@@ -2361,13 +2362,23 @@ function isShownList(l) {
   return ['checklist', 'money', 'wish'].includes(l.type ?? 'checklist');
 }
 
+// リストのカード：1 回目のタップでその場に中身を開き（もう一度で閉じる）、「開く ›」でリストの画面へ。
+// やることリストは開いた中でチェックできる。開いているカードは描き直しても保つ。
+const openCards = new Set(); // 'groupId/listId'
+const groupMembers = {}; // groupId → メンバー（貸し借りの名前の表示用。グループ画面で覚える）
+const PREVIEW_MAX = 8;
+
 function listCard(groupId, l) {
   const money = l.type === 'money';
+  const wish = l.type === 'wish';
   const open = money ? l.items.filter((i) => !i.settled) : [];
   const yen = open.filter((i) => i.kind !== 'item').reduce((n, i) => n + (i.amount ?? 0), 0);
-  return h(
-    'a',
-    { class: 'card', href: `#/g/${groupId}/l/${l.id}` },
+  const key = `${groupId}/${l.id}`;
+  const href = `#/g/${groupId}/l/${l.id}`;
+  const wrap = h('div', { class: 'card-wrap' });
+  const head = h(
+    'button',
+    { type: 'button', class: 'card', 'aria-expanded': 'false', onClick: () => toggle() },
     h('span', { class: 'card-icon' }, l.emoji),
     h(
       'span',
@@ -2375,16 +2386,104 @@ function listCard(groupId, l) {
       h('span', { class: 'card-title' }, l.title),
       money
         ? h('span', { class: 'card-sub' }, open.length ? `未精算 ${open.length}件${yen ? ` ・ ${fmtYen(yen)}` : ''}` : l.total ? 'すべて精算済み' : 'まだ登録なし')
-        : l.type === 'wish'
+        : wish
           ? h('span', { class: 'card-sub' }, (() => {
               const wishOpen = l.items.filter((i) => (i.status ?? 'open') === 'open').length;
               return l.total ? `欲しいもの ${wishOpen}件${l.total - wishOpen ? ` ・ 完了 ${l.total - wishOpen}件` : ''}` : 'まだ登録なし';
             })())
           : h('span', { class: 'card-sub' }, l.total ? `${l.done} / ${l.total} 完了` : '空のリスト'),
-      !money && l.type !== 'wish' && l.total > 0 && progressBar(l.done, l.total),
+      !money && !wish && l.total > 0 && progressBar(l.done, l.total),
     ),
     h('span', { class: 'chevron' }, '›'),
   );
+  wrap.append(head);
+
+  const more = (n) => n > 0 && h('li', { class: 'preview-more' }, `ほか ${n}件`);
+  const preview = () => {
+    let content;
+    if (money) {
+      const members = groupMembers[groupId] ?? [];
+      const nameOf = (u) => members.find((m) => m.uid === u)?.name ?? '？';
+      const balance = {};
+      for (const e of open) {
+        if (e.kind === 'item') continue;
+        balance[e.from] = (balance[e.from] ?? 0) + (e.amount ?? 0);
+        balance[e.to] = (balance[e.to] ?? 0) - (e.amount ?? 0);
+      }
+      const balances = Object.entries(balance).filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]);
+      const things = open.filter((e) => e.kind === 'item');
+      content =
+        open.length === 0
+          ? h('p', { class: 'preview-empty' }, '未精算の貸し借りはありません')
+          : [
+              balances.length > 0 &&
+                h(
+                  'div',
+                  { class: 'money-balances' },
+                  balances.map(([u, v]) =>
+                    h('span', { class: `money-balance ${v > 0 ? 'plus' : 'minus'}` }, nameOf(u), h('b', {}, `${v > 0 ? '+' : '−'}${fmtYen(Math.abs(v))}`), v > 0 ? '貸している' : '借りている'),
+                  ),
+                ),
+              things.length > 0 &&
+                h(
+                  'ul',
+                  { class: 'preview-items' },
+                  things.slice(0, PREVIEW_MAX).map((e) => h('li', { class: 'preview-item' }, `📦 ${e.item || e.memo || 'もの'}（${nameOf(e.from)} → ${nameOf(e.to)}）`)),
+                  more(things.length - PREVIEW_MAX),
+                ),
+            ];
+    } else if (wish) {
+      const items = l.items.filter((i) => (i.status ?? 'open') === 'open');
+      content =
+        items.length === 0
+          ? h('p', { class: 'preview-empty' }, '欲しいものはありません')
+          : h('ul', { class: 'preview-items' }, items.slice(0, PREVIEW_MAX).map((w) => h('li', { class: 'preview-item' }, `・${wishTitle(w)}`)), more(items.length - PREVIEW_MAX));
+    } else {
+      // 未完了 → 完了の順。チェックしても数が多くなければその場に残るので、押し間違えてもすぐ戻せる
+      const items = [...l.items.filter((i) => !i.checked), ...l.items.filter((i) => i.checked)];
+      content =
+        items.length === 0
+          ? h('p', { class: 'preview-empty' }, 'アイテムはまだありません')
+          : h(
+              'ul',
+              { class: 'preview-items' },
+              items.slice(0, PREVIEW_MAX).map((item) =>
+                h(
+                  'li',
+                  { class: `preview-item check${item.checked ? ' checked' : ''}` },
+                  h(
+                    'label',
+                    { class: 'item-label' },
+                    h('input', {
+                      type: 'checkbox',
+                      class: 'item-check',
+                      checked: item.checked,
+                      onChange: (e) => store.setItemChecked(groupId, l.id, item.id, e.target.checked).catch(showError),
+                    }),
+                    h('span', { class: 'item-text' }, item.text),
+                  ),
+                ),
+              ),
+              more(items.length - PREVIEW_MAX),
+            );
+    }
+    return h('div', { class: 'card-preview' }, content, h('a', { class: 'card-open', href }, '開く ›'));
+  };
+
+  const show = (on) => {
+    wrap.classList.toggle('open', on);
+    head.setAttribute('aria-expanded', String(on));
+    wrap.querySelector('.card-preview')?.remove();
+    if (on) wrap.append(preview());
+  };
+  const toggle = () => {
+    const on = !openCards.has(key);
+    if (on) openCards.add(key);
+    else openCards.delete(key);
+    show(on);
+  };
+  if (openCards.has(key)) show(true);
+  return wrap;
 }
 
 function fmtYen(n) {
