@@ -38,8 +38,6 @@
 html,
 body {
   margin: 0;
-  /* iPhone で端を越えて引っぱったときの「びよーん」を止める（その間だけ上のバーがずれて見えるため） */
-  overscroll-behavior: none;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
@@ -70,11 +68,21 @@ a {
 
 /* ---- ヘッダー ---- */
 
-/* ヘッダーを包む枠ごと上に残す（.topbar だけだと、同じ高さの枠の中でしか止まらずに流れてしまう） */
+/* ヘッダーは画面に貼り付ける（position: fixed）。枠はその高さぶんの場所取り。
+   sticky だと、iPhone で端を越えて引っぱったとき（びよーん）に中身と一緒に動いて消えて見えるため */
 .topbar-wrap {
-  position: sticky;
+  height: calc(var(--safe-top) + 61px);
+}
+
+.topbar-wrap > .topbar {
+  position: fixed;
   top: 0;
-  z-index: 10;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  max-width: 640px;
+  height: calc(var(--safe-top) + 61px);
+  margin: 0 auto;
 }
 
 .topbar {
