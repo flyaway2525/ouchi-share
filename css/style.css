@@ -68,6 +68,13 @@ a {
 
 /* ---- ヘッダー ---- */
 
+/* ヘッダーを包む枠ごと上に残す（.topbar だけだと、同じ高さの枠の中でしか止まらずに流れてしまう） */
+.topbar-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
 .topbar {
   position: sticky;
   top: 0;

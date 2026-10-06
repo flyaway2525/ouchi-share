@@ -1684,7 +1684,7 @@ async function shareInvite(group) {
 }
 
 function groupView(root, { groupId }) {
-  const top = h('div');
+  const top = h('div', { class: 'topbar-wrap' });
   const body = h('main', { class: 'content' });
   root.append(top, body);
   let group;
@@ -2499,7 +2499,7 @@ function fmtYen(n) {
 // ---- 画面：イベント ----
 
 function eventView(root, { groupId, eventId, date = null }) {
-  const top = h('div');
+  const top = h('div', { class: 'topbar-wrap' });
   const body = h('main', { class: 'content' });
   root.append(top, body);
   let ev = null;
@@ -3170,7 +3170,7 @@ async function registerLink(groupId, lists, events = []) {
 }
 
 function wishView(root, { groupId, listId }) {
-  const top = h('div');
+  const top = h('div', { class: 'topbar-wrap' });
   const body = h('main', { class: 'content with-footer' });
   const input = h('input', { class: 'text-input', placeholder: '欲しいもの・URL を追加', maxlength: 300, enterkeyhint: 'enter', 'aria-label': '追加' });
   let list = null;
@@ -3656,7 +3656,7 @@ function moneyDiagram(members, entries, onLink) {
 }
 
 function moneyView(root, { groupId, listId }) {
-  const top = h('div');
+  const top = h('div', { class: 'topbar-wrap' });
   const body = h('main', { class: 'content' });
   root.append(top, body);
   let group = null;
@@ -3830,7 +3830,7 @@ function moneyView(root, { groupId, listId }) {
 }
 
 function checklistView(root, { groupId, listId }) {
-  const top = h('div');
+  const top = h('div', { class: 'topbar-wrap' });
   const body = h('main', { class: 'content with-footer' });
   const input = h('input', { class: 'text-input', placeholder: 'アイテムを追加', maxlength: 100, enterkeyhint: 'enter', 'aria-label': 'アイテムを追加' });
   // 入力欄は再描画しない（連続入力中にフォーカスが外れないように）
@@ -3953,7 +3953,7 @@ function checklistView(root, { groupId, listId }) {
 // ---- 画面：お知らせ一覧（groupId があればグループのお知らせ、なければアプリからのお知らせ） ----
 
 function newsListView(root, { groupId = null }) {
-  const top = h('div');
+  const top = h('div', { class: 'topbar-wrap' });
   const body = h('main', { class: 'content' });
   root.append(top, body);
   let group = null;
