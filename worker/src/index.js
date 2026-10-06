@@ -316,7 +316,7 @@ async function sendReminders(env) {
       const who = participants?.length ? participants.filter((u) => members.includes(u)) : members;
       for (const u of who) perUser.set(u, [...(perUser.get(u) ?? []), line]);
     };
-    for (const p of plans) add(p.participants, `${p.start ? `${p.start} ` : ''}${p.title}`);
+    for (const p of plans) add(p.participants, `${p.start ? `${p.start} ` : ''}${p.title}${p.endDate ? `（〜${Number(p.endDate.slice(5, 7))}/${Number(p.endDate.slice(8))}）` : ''}`);
     for (const e of events) add(e.participants, `${e.emoji ?? ''} ${e.title}（イベント開始）`);
     for (const [uid, lines] of perUser) {
       await sendToUsers(token, [uid], 'reminders', {

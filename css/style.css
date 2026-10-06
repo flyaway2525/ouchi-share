@@ -1053,6 +1053,15 @@ a {
   color: var(--muted);
 }
 
+/* 普段の予定の「〜 終わりの日」 */
+.end-date-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* ---- 取り込み ---- */
 
 .sheet {
@@ -1919,6 +1928,11 @@ select.text-input {
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
+}
+
+/* 何日か続く普段の予定の帯（イベントと色を変える） */
+.cal-bar.plan {
+  background: color-mix(in srgb, #2f9e8f 80%, transparent);
 }
 
 .cal-bar.head {

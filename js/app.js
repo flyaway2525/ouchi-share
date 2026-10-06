@@ -2012,9 +2012,12 @@ function participantPicker(members, selected = []) {
 
 // ---- 普段の予定（歯医者など）の追加・編集シート ----
 
-// initial.dates（2 日以上）を渡すと、その日すべてに同じ予定を入れる（結果の dates）
+// initial.dates（2 日以上）を渡すと、その日すべてに同じ予定を入れる（結果の dates）。
+// 連続した日なら「1 つの予定（開始日〜終わりの日）にする」も選べる。
+// 何日か続く予定は endDate（終わりの日）を持ち、終日扱い（start は null）。カレンダーでは帯で表示する
 function planSheet(members, initial = {}, { editing = false } = {}) {
   const multiDates = !editing && initial.dates?.length > 1 ? [...initial.dates].sort() : null;
+  const consecutive = !!multiDates && multiDates.every((d, i) => i === 0 || addDays(multiDates[i - 1], 1) === d);
   return openSheet((close) => {
     const title = h('input', { class: 'text-input', value: initial.title ?? '', placeholder: '例：歯医者', maxlength: 100, 'aria-label': 'タイトル' });
     const date = h('input', { class: 'text-input', type: 'date', value: initial.date ?? todayStr(), 'aria-label': '日にち' });
@@ -2031,15 +2034,58 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
     const timeRow = h('div', { class: 'date-row' }, h('label', {}, '開始', start), h('label', {}, '長さ', duration));
     const allDayRow = h('label', { class: 'check-row' }, allDay, h('span', {}, '終日（時刻を決めない）'));
     const noDateRow = h('label', { class: 'check-row' }, noDate, h('span', {}, '日付を決めない（あとで決める）'));
-    const datesBox = multiDates && h('div', { class: 'multi-dates' }, h('b', {}, `📅 ${multiDates.length}日に追加`), h('span', {}, multiDates.map(fmtDate).join('・')));
+    // 何日か続く（終わりの日）
+    const hasEnd = !!initial.endDate && initial.endDate > (initial.date ?? '');
+    const multiDay = h('input', { type: 'checkbox', checked: editing && hasEnd });
+    const endDate = h('input', { class: 'text-input', type: 'date', value: hasEnd ? initial.endDate : addDays(initial.date ?? todayStr(), 1), 'aria-label': '終わりの日' });
+    const multiDayRow = h('label', { class: 'check-row' }, multiDay, h('span', {}, '何日か続く（終わりの日を入れる）'));
+    const endRow = h('label', { class: 'end-date-row' }, h('span', {}, '〜 終わりの日'), endDate);
+    // 複数選択した日：連続していれば「1 つの予定にする」が初期値
+    let spanMode = consecutive;
+    const modeChips = consecutive && h('div', { class: 'people-chips' });
+    const datesBox = multiDates && h('div', { class: 'multi-dates' }, h('b', {}), h('span', {}), modeChips);
     const sync = () => {
+      if (multiDates) {
+        const span = spanMode;
+        datesBox.children[0].textContent = span ? `📅 ${fmtDate(multiDates[0])} 〜 ${fmtDate(multiDates.at(-1))}（${multiDates.length}日間）` : `📅 ${multiDates.length}日に追加`;
+        datesBox.children[1].textContent = span ? '1 つの予定として、カレンダーに帯で表示します' : multiDates.map(fmtDate).join('・');
+        if (modeChips) {
+          setChildren(
+            modeChips,
+            [
+              [true, '1 つの予定にする'],
+              [false, 'それぞれの日に入れる'],
+            ].map(([v, label]) =>
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: `chip${spanMode === v ? ' on' : ''}`,
+                  onClick: () => {
+                    spanMode = v;
+                    sync();
+                  },
+                },
+                label,
+              ),
+            ),
+          );
+        }
+      }
+      const span = multiDates ? spanMode : !noDate.checked && multiDay.checked;
       noDateRow.style.display = multiDates ? 'none' : '';
       date.style.display = noDate.checked || multiDates ? 'none' : '';
-      allDayRow.style.display = noDate.checked ? 'none' : '';
-      timeRow.style.display = noDate.checked || allDay.checked ? 'none' : '';
+      multiDayRow.style.display = noDate.checked || multiDates ? 'none' : '';
+      endRow.style.display = !multiDates && !noDate.checked && multiDay.checked ? '' : 'none';
+      allDayRow.style.display = noDate.checked || span ? 'none' : '';
+      timeRow.style.display = noDate.checked || allDay.checked || span ? 'none' : '';
     };
     noDate.addEventListener('change', sync);
     allDay.addEventListener('change', sync);
+    multiDay.addEventListener('change', () => {
+      if (multiDay.checked && date.value && endDate.value <= date.value) endDate.value = addDays(date.value, 1);
+      sync();
+    });
     sync();
     const place = h('input', { class: 'text-input', value: initial.place ?? '', placeholder: '場所（例：〇〇歯科）', maxlength: 100, 'aria-label': '場所' });
     const memo = h('textarea', { class: 'text-input memo-input', placeholder: 'メモ', maxlength: 500, rows: 2, 'aria-label': 'メモ' }, initial.memo ?? '');
@@ -2057,14 +2103,18 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
             if (!t) return title.focus();
             const dated = !noDate.checked || !!multiDates;
             if (dated && !multiDates && !date.value) return toast('日にちを入れてください（決めない場合は「日付を決めない」）');
-            if (dated && !allDay.checked && !start.value) return toast('開始時刻を入れてください');
+            const span = multiDates ? spanMode : dated && multiDay.checked;
+            const end = multiDates ? multiDates.at(-1) : endDate.value;
+            if (span && !multiDates && !(end > date.value)) return toast('終わりの日は、始まりの日より後にしてください');
+            if (dated && !span && !allDay.checked && !start.value) return toast('開始時刻を入れてください');
             const links = linksEdit.value();
             if (!links) return;
             close({
               title: t,
-              ...(multiDates ? { dates: multiDates } : {}),
+              ...(multiDates && !span ? { dates: multiDates } : {}),
               date: multiDates ? multiDates[0] : dated ? date.value : null,
-              start: dated && !allDay.checked ? start.value : null,
+              endDate: span ? end : null,
+              start: dated && !span && !allDay.checked ? start.value : null,
               duration: Number(duration.value),
               place: place.value.trim(),
               memo: memo.value.trim(),
@@ -2077,6 +2127,8 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
         datesBox,
         noDateRow,
         date,
+        multiDayRow,
+        endRow,
         allDayRow,
         timeRow,
         place,
@@ -2134,7 +2186,10 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     (lists.find((l) => l.id === store.scheduleId(ev.id))?.items ?? []).filter((i) => i.date).map((item) => ({ ev, item })),
   );
   const ps = plans.filter((p) => visible(p.participants));
-  const dotsOn = (d) => schedItems.filter((x) => x.item.date === d).length + ps.filter((p) => p.date === d).length;
+  // 何日か続く普段の予定は、イベントと同じく帯で表示する（点は付けない）
+  const isSpan = (p) => !!p.date && !!p.endDate && p.endDate > p.date;
+  const spanPlans = ps.filter(isSpan);
+  const dotsOn = (d) => schedItems.filter((x) => x.item.date === d).length + ps.filter((p) => p.date === d && !isSpan(p)).length;
 
   // 表示範囲の真ん中の日がある月を「表示中の月」とする（見出しと、薄く表示する日の基準）
   const mid = addDays(state.start, Math.floor((state.weeks * 7) / 2));
@@ -2183,7 +2238,8 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     const we = addDays(ws, 6);
     const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
     // 帯：週と重なるイベントを、空いている段に順に置く
-    const segs = evs
+    const bars = [...evs.map((e) => ({ ...e, kind: 'event' })), ...spanPlans.map((p) => ({ startDate: p.date, endDate: p.endDate, emoji: '📅', title: p.title, kind: 'plan' }))];
+    const segs = bars
       .filter((e) => e.startDate <= we && e.endDate >= ws)
       .sort((a, b) => a.startDate.localeCompare(b.startDate) || b.endDate.localeCompare(a.endDate))
       .map((e) => ({ e, s: daysBetween(ws, e.startDate > ws ? e.startDate : ws), t: daysBetween(ws, e.endDate < we ? e.endDate : we) }));
@@ -2219,7 +2275,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           h(
             'span',
             {
-              class: `cal-bar${seg.e.startDate >= ws ? ' head' : ''}${seg.e.endDate <= we ? ' tail' : ''}`,
+              class: `cal-bar${seg.e.kind === 'plan' ? ' plan' : ''}${seg.e.startDate >= ws ? ' head' : ''}${seg.e.endDate <= we ? ' tail' : ''}`,
               style: `grid-column: ${seg.s + 1} / ${seg.t + 2}; grid-row: ${seg.lane + 2}`,
             },
             `${seg.e.emoji} ${seg.e.title}`,
@@ -2244,7 +2300,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   const sel = state.selected;
   const dayEvents = evs.filter((e) => e.startDate <= sel && e.endDate >= sel).sort((a, b) => a.startDate.localeCompare(b.startDate));
   const daySched = schedItems.filter((x) => x.item.date === sel).sort((a, b) => a.ev.startDate.localeCompare(b.ev.startDate) || bySeq(a.item, b.item));
-  const dayPlans = ps.filter((p) => p.date === sel).sort((a, b) => (a.start ?? '') .localeCompare(b.start ?? '') || (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  const dayPlans = ps.filter((p) => p.date === sel || (isSpan(p) && p.date <= sel && p.endDate >= sel)).sort((a, b) => (a.start ?? '') .localeCompare(b.start ?? '') || (a.createdAt ?? 0) - (b.createdAt ?? 0));
   const eventHref = (ev, d) => (ev.startDate === ev.endDate || !d ? `#/g/${groupId}/e/${ev.id}` : `#/g/${groupId}/e/${ev.id}/d/${d}`);
   const timeText = (x) => (x.start ? `${fmtTime(toMin(x.start))}–${fmtTime(endOf(x))}` : '終日');
 
@@ -2278,7 +2334,13 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     const { dates: days = [res.date], ...plan } = res;
     if (dates) state.multi = null;
     Promise.all(days.map((date) => store.createPlan(groupId, { ...plan, date }))).then(() => {
-      const when = !plan.date ? '日付未定' : days.length > 1 ? `${fmtDate(days[0])}ほか${days.length - 1}日` : `${fmtDate(plan.date)}${plan.start ? ` ${plan.start}` : ''}`;
+      const when = !plan.date
+        ? '日付未定'
+        : days.length > 1
+          ? `${fmtDate(days[0])}ほか${days.length - 1}日`
+          : plan.endDate
+            ? `${fmtDate(plan.date)}〜${fmtDate(plan.endDate)}`
+            : `${fmtDate(plan.date)}${plan.start ? ` ${plan.start}` : ''}`;
       requestNotify({
         groupId,
         kind: 'plan',
@@ -2373,12 +2435,16 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           }
         },
       },
-      h('span', { class: 'cal-row-time' }, plan.date ? timeText(plan) : '未定'),
+      h('span', { class: 'cal-row-time' }, !plan.date ? '未定' : isSpan(plan) ? `${daysBetween(plan.date, sel) + 1}日目` : timeText(plan)),
       h(
         'span',
         { class: 'cal-row-main' },
         h('span', { class: 'cal-row-title' }, plan.title),
-        h('span', { class: 'cal-row-sub' }, [plan.place && `📍${plan.place}`, `👥 ${participantsLabel(members, plan.participants)}`].filter(Boolean).join(' ・ ')),
+        h(
+          'span',
+          { class: 'cal-row-sub' },
+          [isSpan(plan) && `${fmtDate(plan.date)} 〜 ${fmtDate(plan.endDate)}`, plan.place && `📍${plan.place}`, `👥 ${participantsLabel(members, plan.participants)}`].filter(Boolean).join(' ・ '),
+        ),
         plan.memo && h('span', { class: 'cal-row-sub' }, plan.memo),
         linkChips(plan.links),
       ),

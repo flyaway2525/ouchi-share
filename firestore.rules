@@ -307,9 +307,12 @@ service cloud.firestore {
         }
 
         function isValidPlan(d) {
-          return d.keys().hasOnly(['title', 'date', 'start', 'duration', 'place', 'memo', 'links', 'participants', 'createdAt', 'createdBy'])
+          return d.keys().hasOnly(['title', 'date', 'endDate', 'start', 'duration', 'place', 'memo', 'links', 'participants', 'createdAt', 'createdBy'])
             && isNonEmptyString(d.title, 100)
             && (d.date == null || (d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+            // 何日か続く予定の終わりの日（開始日より後）
+            && (!('endDate' in d) || d.endDate == null
+              || (d.date is string && d.endDate is string && d.endDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') && d.endDate > d.date))
             && (d.start == null || (d.start is string && d.start.matches('^[0-9]{2}:[0-9]{2}$')))
             && (!('participants' in d) || (d.participants is list && d.participants.size() <= 100))
             && (!('links' in d) || (d.links is list && d.links.size() <= 20));
