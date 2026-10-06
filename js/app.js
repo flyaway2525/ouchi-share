@@ -1046,10 +1046,12 @@ function scheduleItemSheet(ev, items, initial = {}, { editing = false } = {}) {
 // つまみで pointermove / pointerup を待っていると「離した」が届かずドラッグが終わらなくなるので、window で受け取る。
 
 const scheduleDrag = { active: false, pendingRender: null };
+// カレンダーの日付を長押しして指でなぞっている間（スクロールを止める）と、離した直後のタップを無視する時刻
+const calPick = { active: false, ignoreTapUntil: 0 };
 
 // ドラッグ中は画面の指スクロールを止める（自動スクロールは scrollBy で動かすので影響しない）
 function blockTouchScroll(e) {
-  if (scheduleDrag.active || moneyDrag.active) e.preventDefault();
+  if (scheduleDrag.active || moneyDrag.active || calPick.active) e.preventDefault();
 }
 document.addEventListener('touchmove', blockTouchScroll, { passive: false });
 
@@ -2010,7 +2012,9 @@ function participantPicker(members, selected = []) {
 
 // ---- 普段の予定（歯医者など）の追加・編集シート ----
 
+// initial.dates（2 日以上）を渡すと、その日すべてに同じ予定を入れる（結果の dates）
 function planSheet(members, initial = {}, { editing = false } = {}) {
+  const multiDates = !editing && initial.dates?.length > 1 ? [...initial.dates].sort() : null;
   return openSheet((close) => {
     const title = h('input', { class: 'text-input', value: initial.title ?? '', placeholder: '例：歯医者', maxlength: 100, 'aria-label': 'タイトル' });
     const date = h('input', { class: 'text-input', type: 'date', value: initial.date ?? todayStr(), 'aria-label': '日にち' });
@@ -2026,8 +2030,11 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
     duration.value = String(initial.duration ?? DEFAULT_DURATION);
     const timeRow = h('div', { class: 'date-row' }, h('label', {}, '開始', start), h('label', {}, '長さ', duration));
     const allDayRow = h('label', { class: 'check-row' }, allDay, h('span', {}, '終日（時刻を決めない）'));
+    const noDateRow = h('label', { class: 'check-row' }, noDate, h('span', {}, '日付を決めない（あとで決める）'));
+    const datesBox = multiDates && h('div', { class: 'multi-dates' }, h('b', {}, `📅 ${multiDates.length}日に追加`), h('span', {}, multiDates.map(fmtDate).join('・')));
     const sync = () => {
-      date.style.display = noDate.checked ? 'none' : '';
+      noDateRow.style.display = multiDates ? 'none' : '';
+      date.style.display = noDate.checked || multiDates ? 'none' : '';
       allDayRow.style.display = noDate.checked ? 'none' : '';
       timeRow.style.display = noDate.checked || allDay.checked ? 'none' : '';
     };
@@ -2048,14 +2055,15 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
             e.preventDefault();
             const t = title.value.trim();
             if (!t) return title.focus();
-            const dated = !noDate.checked;
-            if (dated && !date.value) return toast('日にちを入れてください（決めない場合は「日付を決めない」）');
+            const dated = !noDate.checked || !!multiDates;
+            if (dated && !multiDates && !date.value) return toast('日にちを入れてください（決めない場合は「日付を決めない」）');
             if (dated && !allDay.checked && !start.value) return toast('開始時刻を入れてください');
             const links = linksEdit.value();
             if (!links) return;
             close({
               title: t,
-              date: dated ? date.value : null,
+              ...(multiDates ? { dates: multiDates } : {}),
+              date: multiDates ? multiDates[0] : dated ? date.value : null,
               start: dated && !allDay.checked ? start.value : null,
               duration: Number(duration.value),
               place: place.value.trim(),
@@ -2066,7 +2074,8 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
           },
         },
         title,
-        h('label', { class: 'check-row' }, noDate, h('span', {}, '日付を決めない（あとで決める）')),
+        datesBox,
+        noDateRow,
         date,
         allDayRow,
         timeRow,
@@ -2138,6 +2147,22 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     state.selected = d;
     rerender();
   };
+  // 日付の複数選択（長押しで始める）。選んでいる間は state.multi に日付の配列
+  const toggleMulti = (d) => {
+    state.multi = state.multi?.includes(d) ? state.multi.filter((x) => x !== d) : [...(state.multi ?? []), d];
+    rerender();
+  };
+  const endMulti = () => {
+    state.multi = null;
+    rerender();
+  };
+  // タップ：選んでいる日をもう一度タップすると、その日の予定の追加へ。複数選択中は選ぶ・外す
+  const tapDay = (d) => {
+    if (Date.now() < calPick.ignoreTapUntil) return;
+    if (state.multi) return toggleMulti(d);
+    if (d === state.selected) return addPlan();
+    select(d);
+  };
   const shiftMonth = (n) => {
     const d = new Date(`${viewMonth}-01T00:00:00`);
     d.setMonth(d.getMonth() + n);
@@ -2179,10 +2204,11 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         h(
           'button',
           {
-            class: `cal-day${d.slice(0, 7) !== viewMonth ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected ? ' selected' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
+            class: `cal-day${d.slice(0, 7) !== viewMonth ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected && !state.multi ? ' selected' : ''}${state.multi?.includes(d) ? ' picked' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
             style: `grid-column: ${i + 1}; grid-row: 1 / -1`,
             'aria-label': fmtDate(d),
-            onClick: () => select(d),
+            'data-date': d,
+            onClick: () => tapDay(d),
           },
           h('span', { class: 'cal-num' }, Number(d.slice(8))),
         ),
@@ -2243,25 +2269,92 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   const empty = !dayEvents.length && !daySched.length && !dayPlans.length;
   const undated = ps.filter((p) => !p.date).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
 
-  // 予定を追加（右下の ＋ と、その日の一覧の「＋ この日に予定を追加」で共通。日付は選んでいる日が初期値）
-  const addPlan = async () => {
-    const res = await planSheet(members, { date: sel, participants: filter === 'all' ? [] : [filter] });
+  // 予定を追加（右下の ＋、その日の一覧の「＋ この日に予定を追加」、日付の 2 回タップ、複数選択で共通。日付は選んでいる日が初期値）
+  // dates（複数選択した日）を渡すと、その日すべてに同じ予定を入れる
+  const addPlan = async (dates = null) => {
+    const many = dates?.length > 1;
+    const res = await planSheet(members, { date: dates?.[0] ?? sel, ...(many ? { dates } : {}), participants: filter === 'all' ? [] : [filter] });
     if (!res) return;
-    store.createPlan(groupId, res).then(() => {
+    const { dates: days = [res.date], ...plan } = res;
+    if (dates) state.multi = null;
+    Promise.all(days.map((date) => store.createPlan(groupId, { ...plan, date }))).then(() => {
+      const when = !plan.date ? '日付未定' : days.length > 1 ? `${fmtDate(days[0])}ほか${days.length - 1}日` : `${fmtDate(plan.date)}${plan.start ? ` ${plan.start}` : ''}`;
       requestNotify({
         groupId,
         kind: 'plan',
         title: `📅 ${group.name}`,
-        body: `${auth.displayName()}さんが予定を追加しました：${res.date ? `${fmtDate(res.date)}${res.start ? ` ${res.start}` : ''}` : '日付未定'} ${res.title}`,
+        body: `${auth.displayName()}さんが予定を追加しました：${when} ${plan.title}`,
         url: `#/g/${groupId}`,
-        participants: res.participants ?? [],
+        participants: plan.participants ?? [],
       });
     }, showError);
-    if (res.date) {
-      if (res.date !== sel) select(res.date);
+    if (days.length > 1) toast(`${days.length}日に「${plan.title}」を入れました`);
+    if (plan.date) {
+      if (days[0] !== sel || dates) select(days[0]);
     } else {
       toast('「📌 日付未定の予定」に入れました');
     }
+  };
+
+  // 長押しで複数選択を始め、そのまま指でなぞった日も選ぶ（なぞり始めの日が選ばれていなければ「選ぶ」、選ばれていれば「外す」）。
+  // なぞっている間は描き直さず、日付のマスの見た目だけ変える（掴んでいる要素が消えないように）。離したら描き直す
+  const enableDayPick = (grid) => {
+    grid.addEventListener('contextmenu', (e) => e.preventDefault());
+    grid.addEventListener('pointerdown', (e) => {
+      const first = e.target.closest?.('.cal-day')?.dataset.date;
+      if (!first || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      const id = e.pointerId;
+      const sx = e.clientX;
+      const sy = e.clientY;
+      let picking = false;
+      let add = true;
+      const apply = (d) => {
+        const has = state.multi.includes(d);
+        if (add === has) return;
+        state.multi = add ? [...state.multi, d] : state.multi.filter((x) => x !== d);
+        grid.querySelector(`[data-date="${d}"]`)?.classList.toggle('picked', add);
+      };
+      const start = () => {
+        picking = true;
+        calPick.active = true;
+        state.multi ??= [];
+        add = !state.multi.includes(first);
+        grid.querySelectorAll('.cal-day.selected').forEach((el) => el.classList.remove('selected'));
+        apply(first);
+        navigator.vibrate?.(15);
+      };
+      const timer = setTimeout(start, 450);
+      const move = (ev) => {
+        if (ev.pointerId !== id) return;
+        if (!picking) {
+          if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) cleanup();
+          return;
+        }
+        const d = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.cal-day')?.dataset.date;
+        if (d) apply(d);
+      };
+      const up = (ev) => {
+        if (ev.pointerId !== id) return;
+        const was = picking;
+        cleanup();
+        if (!was) return;
+        // 離した直後に届くタップ（click）で選択が戻らないように
+        calPick.ignoreTapUntil = Date.now() + 500;
+        if (!state.multi.length) state.multi = null;
+        rerender();
+      };
+      function cleanup() {
+        clearTimeout(timer);
+        calPick.active = false;
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+      }
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
+    return grid;
   };
 
   // リンク（<a>）を中に置くので <button> ではなく role=button の div
@@ -2323,7 +2416,8 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       h('button', { class: 'day-nav-btn', 'aria-label': '来月', title: '来月', onClick: () => shiftMonth(1) }, '›'),
       (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
-    h('div', { class: 'cal-grid' }, h('div', { class: 'cal-dow' }, '日月火水木金土'.split('').map((w, i) => h('span', { class: i === 0 ? 'sun' : i === 6 ? 'sat' : '' }, w))), weeks.map(weekRow)),
+    enableDayPick(h('div', { class: 'cal-grid' }, h('div', { class: 'cal-dow' }, '日月火水木金土'.split('').map((w, i) => h('span', { class: i === 0 ? 'sun' : i === 6 ? 'sat' : '' }, w))), weeks.map(weekRow))),
+    !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定を追加 ・ 長押しで何日も選べます'),
     h(
       'div',
       { class: 'cal-panel' },
@@ -2348,7 +2442,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         ),
       ),
       dayPlans.map(planRow),
-      h('button', { class: 'sch-add', onClick: addPlan }, '＋ この日に予定を追加'),
+      h('button', { class: 'sch-add', onClick: () => addPlan() }, '＋ この日に予定を追加'),
     ),
     undated.length > 0 &&
       h(
@@ -2358,8 +2452,16 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         undated.map(planRow),
         h('p', { class: 'cal-undated-hint' }, '日付が決まったら ⋮ →「編集」で日付を入れると、カレンダーに移ります'),
       ),
-    // 日付を選ばなくても追加できる ＋ ボタン（画面の右下に固定）
-    h('button', { class: 'cal-fab', 'aria-label': '予定を追加', title: '予定を追加', onClick: addPlan }, '＋'),
+    // 日付を選ばなくても追加できる ＋ ボタン（画面の右下に固定）。複数選択中は代わりに選んだ日数と「追加」のバー
+    state.multi
+      ? h(
+          'div',
+          { class: 'cal-multi-bar' },
+          h('span', { class: 'cal-multi-count' }, h('b', {}, `${state.multi.length}日`), '選択中', h('small', {}, 'タップで選ぶ・外す')),
+          h('button', { class: 'btn', onClick: endMulti }, 'やめる'),
+          h('button', { class: 'btn primary', disabled: !state.multi.length, onClick: () => addPlan([...state.multi].sort()) }, '予定を追加'),
+        )
+      : h('button', { class: 'cal-fab', 'aria-label': '予定を追加', title: '予定を追加', onClick: () => addPlan() }, '＋'),
   );
 }
 

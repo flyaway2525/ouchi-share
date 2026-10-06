@@ -1833,6 +1833,79 @@ select.text-input {
   background: var(--accent-soft);
 }
 
+/* 長押しの複数選択：iPhone の長押しメニューや文字の選択を出さない */
+.cal-day {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.cal-day.picked {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cal-day.picked .cal-num {
+  font-weight: 700;
+}
+
+.cal-hint {
+  margin: 6px 4px 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.cal-multi-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(12px + var(--safe-bottom));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: calc(100% - 24px);
+  max-width: 616px;
+  margin: 0 auto;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+}
+
+.cal-multi-count {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 4px;
+  font-size: 14px;
+}
+
+.cal-multi-count b {
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.cal-multi-count small {
+  width: 100%;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.multi-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  font-size: 14px;
+}
+
 .cal-bar {
   z-index: 1;
   margin: 0 1px;
