@@ -1990,6 +1990,8 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
   return openSheet((close) => {
     const title = h('input', { class: 'text-input', value: initial.title ?? '', placeholder: '例：歯医者', maxlength: 100, 'aria-label': 'タイトル' });
     const date = h('input', { class: 'text-input', type: 'date', value: initial.date ?? todayStr(), 'aria-label': '日にち' });
+    // 日付を決めない（「📌 日付未定の予定」に入る）。編集のときは今の状態から
+    const noDate = h('input', { type: 'checkbox', checked: editing && !initial.date });
     const allDay = h('input', { type: 'checkbox', checked: editing && !initial.start });
     const start = h('input', { class: 'text-input', type: 'time', step: 300, value: initial.start ?? '10:00', 'aria-label': '開始時刻' });
     const duration = h(
@@ -1999,7 +2001,13 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
     );
     duration.value = String(initial.duration ?? DEFAULT_DURATION);
     const timeRow = h('div', { class: 'date-row' }, h('label', {}, '開始', start), h('label', {}, '長さ', duration));
-    const sync = () => (timeRow.style.display = allDay.checked ? 'none' : '');
+    const allDayRow = h('label', { class: 'check-row' }, allDay, h('span', {}, '終日（時刻を決めない）'));
+    const sync = () => {
+      date.style.display = noDate.checked ? 'none' : '';
+      allDayRow.style.display = noDate.checked ? 'none' : '';
+      timeRow.style.display = noDate.checked || allDay.checked ? 'none' : '';
+    };
+    noDate.addEventListener('change', sync);
     allDay.addEventListener('change', sync);
     sync();
     const place = h('input', { class: 'text-input', value: initial.place ?? '', placeholder: '場所（例：〇〇歯科）', maxlength: 100, 'aria-label': '場所' });
@@ -2015,12 +2023,13 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
             e.preventDefault();
             const t = title.value.trim();
             if (!t) return title.focus();
-            if (!date.value) return toast('日にちを入れてください');
-            if (!allDay.checked && !start.value) return toast('開始時刻を入れてください');
+            const dated = !noDate.checked;
+            if (dated && !date.value) return toast('日にちを入れてください（決めない場合は「日付を決めない」）');
+            if (dated && !allDay.checked && !start.value) return toast('開始時刻を入れてください');
             close({
               title: t,
-              date: date.value,
-              start: allDay.checked ? null : start.value,
+              date: dated ? date.value : null,
+              start: dated && !allDay.checked ? start.value : null,
               duration: Number(duration.value),
               place: place.value.trim(),
               memo: memo.value.trim(),
@@ -2029,8 +2038,9 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
           },
         },
         title,
+        h('label', { class: 'check-row' }, noDate, h('span', {}, '日付を決めない（あとで決める）')),
         date,
-        h('label', { class: 'check-row' }, allDay, h('span', {}, '終日（時刻を決めない）')),
+        allDayRow,
         timeRow,
         place,
         memo,
@@ -2202,6 +2212,43 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     ]);
 
   const empty = !dayEvents.length && !daySched.length && !dayPlans.length;
+  const undated = ps.filter((p) => !p.date).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+
+  // 予定を追加（右下の ＋ と、その日の一覧の「＋ この日に予定を追加」で共通。日付は選んでいる日が初期値）
+  const addPlan = async () => {
+    const res = await planSheet(members, { date: sel, participants: filter === 'all' ? [] : [filter] });
+    if (!res) return;
+    store.createPlan(groupId, res).then(() => {
+      requestNotify({
+        groupId,
+        kind: 'plan',
+        title: `📅 ${group.name}`,
+        body: `${auth.displayName()}さんが予定を追加しました：${res.date ? `${fmtDate(res.date)}${res.start ? ` ${res.start}` : ''}` : '日付未定'} ${res.title}`,
+        url: `#/g/${groupId}`,
+        participants: res.participants ?? [],
+      });
+    }, showError);
+    if (res.date) {
+      if (res.date !== sel) select(res.date);
+    } else {
+      toast('「📌 日付未定の予定」に入れました');
+    }
+  };
+
+  const planRow = (plan) =>
+    h(
+      'button',
+      { class: 'cal-row plan', onClick: () => planMenu(plan) },
+      h('span', { class: 'cal-row-time' }, plan.date ? timeText(plan) : '未定'),
+      h(
+        'span',
+        { class: 'cal-row-main' },
+        h('span', { class: 'cal-row-title' }, plan.title),
+        h('span', { class: 'cal-row-sub' }, [plan.place && `📍${plan.place}`, `👥 ${participantsLabel(members, plan.participants)}`].filter(Boolean).join(' ・ ')),
+        plan.memo && h('span', { class: 'cal-row-sub' }, plan.memo),
+      ),
+      h('span', { class: 'sch-more' }, '⋮'),
+    );
 
   return h(
     'div',
@@ -2258,45 +2305,19 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           h('span', { class: 'chevron' }, '›'),
         ),
       ),
-      dayPlans.map((plan) =>
-        h(
-          'button',
-          { class: 'cal-row plan', onClick: () => planMenu(plan) },
-          h('span', { class: 'cal-row-time' }, timeText(plan)),
-          h(
-            'span',
-            { class: 'cal-row-main' },
-            h('span', { class: 'cal-row-title' }, plan.title),
-            h('span', { class: 'cal-row-sub' }, [plan.place && `📍${plan.place}`, `👥 ${participantsLabel(members, plan.participants)}`].filter(Boolean).join(' ・ ')),
-            plan.memo && h('span', { class: 'cal-row-sub' }, plan.memo),
-          ),
-          h('span', { class: 'sch-more' }, '⋮'),
-        ),
-      ),
-      h(
-        'button',
-        {
-          class: 'sch-add',
-          onClick: async () => {
-            const res = await planSheet(members, { date: sel, participants: filter === 'all' ? [] : [filter] });
-            if (res) {
-              store.createPlan(groupId, res).then(() => {
-                requestNotify({
-                  groupId,
-                  kind: 'plan',
-                  title: `📅 ${group.name}`,
-                  body: `${auth.displayName()}さんが予定を追加しました：${fmtDate(res.date)}${res.start ? ` ${res.start}` : ''} ${res.title}`,
-                  url: `#/g/${groupId}`,
-                  participants: res.participants ?? [],
-                });
-              }, showError);
-              if (res.date !== sel) select(res.date);
-            }
-          },
-        },
-        '＋ この日に予定を追加',
-      ),
+      dayPlans.map(planRow),
+      h('button', { class: 'sch-add', onClick: addPlan }, '＋ この日に予定を追加'),
     ),
+    undated.length > 0 &&
+      h(
+        'div',
+        { class: 'cal-panel undated' },
+        h('div', { class: 'cal-panel-head' }, h('span', {}, `📌 日付未定の予定（${undated.length}件）`)),
+        undated.map(planRow),
+        h('p', { class: 'cal-undated-hint' }, '日付が決まったら ⋮ →「編集」で日付を入れると、カレンダーに移ります'),
+      ),
+    // 日付を選ばなくても追加できる ＋ ボタン（画面の右下に固定）
+    h('button', { class: 'cal-fab', 'aria-label': '予定を追加', title: '予定を追加', onClick: addPlan }, '＋'),
   );
 }
 

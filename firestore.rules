@@ -309,7 +309,7 @@ service cloud.firestore {
         function isValidPlan(d) {
           return d.keys().hasOnly(['title', 'date', 'start', 'duration', 'place', 'memo', 'links', 'participants', 'createdAt', 'createdBy'])
             && isNonEmptyString(d.title, 100)
-            && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && (d.date == null || (d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
             && (d.start == null || (d.start is string && d.start.matches('^[0-9]{2}:[0-9]{2}$')))
             && (!('participants' in d) || (d.participants is list && d.participants.size() <= 100));
         }
