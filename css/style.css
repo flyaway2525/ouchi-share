@@ -2092,6 +2092,62 @@ select.text-input {
   gap: 8px;
 }
 
+.wish-how {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+
+.wish-stars {
+  color: #f5a623;
+  letter-spacing: 1px;
+}
+
+.star-input {
+  display: flex;
+  gap: 4px;
+}
+
+.star-input .star {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  background: none;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.star-input .star.on {
+  color: #f5a623;
+}
+
+.link-preview-status {
+  margin: -4px 4px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.link-preview-status:empty {
+  display: none;
+}
+
+/* リストタブの「📋 コピーしたリンクを登録」 */
+.register-link {
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+}
+
 .wish-photo {
   display: block;
   width: 100%;

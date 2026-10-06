@@ -86,3 +86,21 @@ export async function notify({ groupId = null, kind, title, body = '', url = '',
     console.warn('通知を頼めませんでした', e);
   }
 }
+
+// リンクのタイトルと画像を取ってくる（同じ Workers の /preview）。取れなければ null
+// → { title, site, image: 'data:image/...' | null }
+export async function linkPreview(groupId, url) {
+  if (!NOTIFY_URL || !auth.currentUser) return null;
+  try {
+    const idToken = await auth.currentUser.getIdToken();
+    const res = await fetch(new URL('preview', NOTIFY_URL), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({ groupId, url }),
+    });
+    return res.ok ? await res.json() : null;
+  } catch (e) {
+    console.warn('リンクの情報を読めませんでした', e);
+    return null;
+  }
+}

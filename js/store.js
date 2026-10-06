@@ -506,9 +506,9 @@ export async function fetchLists(groupId) {
   return snap.docs.map(toList);
 }
 
-export async function createList(groupId, { title, emoji = '📝', type = 'checklist', eventId = null, items = {} }) {
+export async function createList(groupId, { title, emoji = '📝', type = 'checklist', variant = null, eventId = null, items = {} }) {
   const id = newId();
-  await setDoc(listRef(groupId, id), { type, title, emoji, eventId, createdAt: Date.now(), createdBy: uid(), items });
+  await setDoc(listRef(groupId, id), { type, title, emoji, eventId, createdAt: Date.now(), createdBy: uid(), items, ...(variant ? { variant } : {}) });
   return id;
 }
 
@@ -540,10 +540,23 @@ export async function deleteList(groupId, listId) {
 }
 
 // ---- 欲しいものリスト（type: 'wish'） ----
-// items の 1 件 = { text: メモ, url, photoId, status: 'open' | 'bought' | 'gaveup', result: 結果のメモ, closedAt, createdAt, createdBy }
+// リストの variant：'buy'（欲しいもの。なし も同じ）| 'place'（行きたいところ・食べに行きたい）| 'food'（食べたいもの）
+// items の 1 件 = { text: 名前・メモ, url, photoId, place: 場所（place）, how: 'cook' | 'buy' | 'eatout'（food）,
+//   status: 'open' | 'bought' | 'visited' | 'ate' | 'gaveup', result: 結果・感想, rating: 0〜5, closedAt, createdAt, createdBy }
 
 export async function addWish(groupId, listId, wish) {
-  await updateDoc(listRef(groupId, listId), { [`items.${newId()}`]: { ...wish, status: 'open', result: '', createdAt: Date.now(), createdBy: uid() } });
+  const id = newId();
+  await updateDoc(listRef(groupId, listId), { [`items.${id}`]: { ...wish, status: 'open', result: '', createdAt: Date.now(), createdBy: uid() } });
+  return id;
+}
+
+// 欲しいもの系のアイテムを別のリストへ移す（写真はそのまま使う）
+export async function moveWish(groupId, fromListId, toListId, item) {
+  const { id, ...data } = item;
+  const batch = writeBatch(db);
+  batch.update(listRef(groupId, toListId), { [`items.${newId()}`]: data });
+  batch.update(listRef(groupId, fromListId), { [`items.${id}`]: deleteField() });
+  await batch.commit();
 }
 
 // リストのアイテム 1 件の一部の項目を書き換える（欲しいもの・貸し借りで共通）
