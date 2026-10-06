@@ -2781,3 +2781,172 @@ select.text-input {
   gap: 4px;
   color: var(--muted);
 }
+
+/* ---- ログインボーナス・スタンプ帳 ---- */
+
+.bonus-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 12px;
+  text-align: center;
+}
+
+.bonus-stamp {
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  border: 3px dashed var(--accent);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  font-size: 60px;
+  line-height: 1;
+  animation: bonus-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both;
+}
+
+.bonus-stamp.rare {
+  border-color: #f5a623;
+  background: radial-gradient(circle, #fff6d6, #ffe08a);
+  box-shadow: 0 0 24px rgb(245 166 35 / 0.6);
+}
+
+@keyframes bonus-pop {
+  0% {
+    transform: scale(2.2) rotate(-25deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(0.9) rotate(6deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(-8deg);
+  }
+}
+
+.bonus-labels {
+  display: flex;
+  gap: 6px;
+  min-height: 22px;
+}
+
+.bonus-tag {
+  padding: 1px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bonus-tag.rare {
+  background: #f5a623;
+}
+
+.bonus-extra {
+  margin: 0;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.bonus-streak {
+  margin: 0;
+  font-size: 15px;
+}
+
+.bonus-count {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.member-bonus:not(:empty) {
+  margin-left: 6px;
+}
+
+.stamp-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 12px 0 4px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stamp-summary span {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.stamp-summary b {
+  font-size: 18px;
+  color: var(--text);
+}
+
+.stamp-months {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stamp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.stamp-month {
+  width: 36px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--season, var(--muted));
+}
+
+.stamp-cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 2px solid color-mix(in srgb, var(--season, var(--accent)) 60%, var(--border));
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 26px;
+}
+
+.stamp-cell.missing {
+  border-style: dashed;
+  border-color: var(--border);
+  background: none;
+  font-size: 18px;
+  color: var(--muted);
+}
+
+.stamp-count {
+  position: absolute;
+  right: -6px;
+  bottom: -4px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.stamp-milestone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}

@@ -72,6 +72,11 @@ function clearNewsSource(sourceId) {
 function checkNews() {
   // 読み込み前・ログイン処理中・名前の入力前は出さない
   if (!newsReads || !user || authBusy || auth.needsName()) return;
+  // その日はじめてなら、先にログインボーナス（出し終わったら、お知らせの続き）
+  if (bonusCheckedFor !== `${user.uid}:${todayStr()}`) {
+    checkBonus().then(checkNews);
+    return;
+  }
   const all = [...newsSources.values()].flat().sort((a, b) => newsTime(a) - newsTime(b));
   for (const n of all) {
     if (isNewsRead(n) || snoozedNews.has(snoozeKey(n)) || newsShowing === n.key || newsQueue.some((q) => q.key === n.key)) continue;
@@ -144,6 +149,137 @@ function newsSheet() {
       ),
     ];
   });
+}
+
+// ---- ログインボーナス（スタンプ集め） ----
+// その日はじめて開いたら、スタンプを 1 つもらえる（月ごとの季節のスタンプ。たまにレア）。連続・合計の日数で記念スタンプも。
+// お知らせのポップアップと重ならないように、ボーナスを出している間はお知らせを待たせる（newsShowing を使う）。
+
+const SEASON_STAMPS = [
+  ['🎍', '🍊', '🎌', '🎴', '🪁'], // 1 月
+  ['👹', '🫘', '🍫', '🌺', '🧤'], // 2 月
+  ['🎎', '🌼', '🐣', '🌱', '🍙'], // 3 月
+  ['🌸', '🌷', '🎒', '🐝', '🍓'], // 4 月
+  ['🎏', '🌿', '🐛', '🌹', '🍃'], // 5 月
+  ['☔', '🐌', '🐸', '🫧', '🪻'], // 6 月
+  ['🌊', '🎋', '🍉', '🎐', '🐠'], // 7 月
+  ['🌻', '🎆', '🍧', '🦀', '🏖️'], // 8 月
+  ['🎑', '🍡', '🌕', '🐇', '🍇'], // 9 月
+  ['🎃', '🍠', '🌰', '👻', '🍂'], // 10 月
+  ['🍁', '🍄', '🦔', '🍎', '🧣'], // 11 月
+  ['🎄', '⛄', '🎅', '🎁', '🍰'], // 12 月
+];
+const RARE_STAMPS = ['🌈', '🦄', '👑', '💎', '🍀', '🐉'];
+const MILESTONE_STAMPS = [
+  ['🏅', '7日連続', (b) => b.streak === 7],
+  ['🏆', '30日連続', (b) => b.streak === 30],
+  ['🎖️', '合計50日', (b) => b.total === 50],
+  ['💯', '合計100日', (b) => b.total === 100],
+];
+const RARE_RATE = 0.05;
+
+let bonusCheckedFor = null; // 'uid:YYYY-MM-DD'（その日はもう確かめた）
+
+// 今日もらうスタンプ：レア（5%）か、今月の季節のスタンプ（まだ持っていないものが出やすい）。記念の日はそれも
+function pickStamps(b) {
+  const pool = SEASON_STAMPS[new Date().getMonth()];
+  const missing = pool.filter((s) => !b.stamps[s]);
+  const random = (list) => list[Math.floor(Math.random() * list.length)];
+  const main = Math.random() < RARE_RATE ? random(RARE_STAMPS) : missing.length && Math.random() < 0.6 ? random(missing) : random(pool);
+  return [main, ...MILESTONE_STAMPS.filter(([, , test]) => test(b)).map(([s]) => s)];
+}
+
+async function checkBonus() {
+  const key = `${user.uid}:${todayStr()}`;
+  if (bonusCheckedFor === key) return false;
+  bonusCheckedFor = key;
+  let res;
+  try {
+    res = await store.claimDailyBonus(todayStr(), addDays(todayStr(), -1), pickStamps);
+  } catch (e) {
+    // オフラインなどで書けなければ、この起動中はあきらめて次に開いたときにもう一度
+    console.warn('ログインボーナスを記録できませんでした', e);
+    return false;
+  }
+  if (!res) return false;
+  newsShowing = 'bonus';
+  await bonusPopup(res);
+  newsShowing = null;
+  return true;
+}
+
+function bonusPopup(res) {
+  const [main, ...extra] = res.got;
+  const isNew = (s) => !res.before[s];
+  const rare = RARE_STAMPS.includes(main);
+  return openSheet((close) => [
+    h('div', { class: 'sheet-title' }, '🎁 今日のログインボーナス'),
+    h(
+      'div',
+      { class: 'bonus-card' },
+      h('div', { class: `bonus-stamp${rare ? ' rare' : ''}` }, main),
+      h('div', { class: 'bonus-labels' }, rare && h('span', { class: 'bonus-tag rare' }, '✨ レア！'), isNew(main) && h('span', { class: 'bonus-tag' }, 'NEW')),
+      extra.map((s) => h('p', { class: 'bonus-extra' }, `${s} 記念スタンプ「${MILESTONE_STAMPS.find(([m]) => m === s)?.[1] ?? ''}」もゲット！`)),
+      h('p', { class: 'bonus-streak' }, h('b', {}, `🔥 ${res.streak}日連続`), ` ・ 合計 ${res.total}日`),
+      h('p', { class: 'bonus-count' }, `スタンプ ${Object.keys(res.stamps).length} / ${allStamps().length} 種類`),
+    ),
+    h('button', { class: 'sheet-action', onClick: () => (close(null), (location.hash = '#/stamps')) }, '📖 スタンプ帳を見る'),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'OK'),
+  ]);
+}
+
+const allStamps = () => [...SEASON_STAMPS.flat(), ...RARE_STAMPS, ...MILESTONE_STAMPS.map(([s]) => s)];
+
+// ---- 画面：スタンプ帳 ----
+function stampsView(root) {
+  const top = h('div', { class: 'topbar-wrap' }, header({ title: '📖 スタンプ帳', back: '#/' }));
+  const body = h('main', { class: 'content' }, h('p', { class: 'empty small' }, '読み込み中…'));
+  root.append(top, body);
+  let alive = true;
+  store
+    .getBonus()
+    .then((b) => {
+      if (!alive) return;
+      const stamps = b?.stamps ?? {};
+      const cell = (s, hint) =>
+        h(
+          'span',
+          { class: `stamp-cell${stamps[s] ? '' : ' missing'}`, title: stamps[s] ? `${stamps[s]}回` : hint },
+          h('span', { class: 'stamp-emoji' }, stamps[s] ? s : '？'),
+          stamps[s] > 1 && h('span', { class: 'stamp-count' }, `×${stamps[s]}`),
+        );
+      const have = allStamps().filter((s) => stamps[s]).length;
+      setChildren(
+        body,
+        h(
+          'div',
+          { class: 'stamp-summary' },
+          h('span', {}, h('b', {}, `🔥 ${b?.streak ?? 0}`), '日連続'),
+          h('span', {}, h('b', {}, `${b?.total ?? 0}`), '日ログイン'),
+          h('span', {}, h('b', {}, `${have} / ${allStamps().length}`), '種類'),
+        ),
+        h('p', { class: 'section-label' }, '季節のスタンプ（その月にだけ出ます）'),
+        h(
+          'div',
+          { class: 'stamp-months' },
+          SEASON_STAMPS.map((list, i) =>
+            h('div', { class: 'stamp-row', style: `--season: ${SEASONS[i][0]}` }, h('span', { class: 'stamp-month' }, `${i + 1}月`), list.map((s) => cell(s, `${i + 1}月に出ます`))),
+          ),
+        ),
+        h('p', { class: 'section-label' }, '✨ レアスタンプ（いつでも、たまに出ます）'),
+        h('div', { class: 'stamp-row' }, RARE_STAMPS.map((s) => cell(s, 'たまに出ます'))),
+        h('p', { class: 'section-label' }, '🏅 記念スタンプ'),
+        h(
+          'div',
+          { class: 'stamp-row milestones' },
+          MILESTONE_STAMPS.map(([s, label]) => h('span', { class: 'stamp-milestone' }, cell(s, label), h('small', {}, label))),
+        ),
+      );
+    })
+    .catch(showError);
+  return () => {
+    alive = false;
+  };
 }
 
 // ---- 通知の設定 ----
@@ -326,6 +462,7 @@ function accountMenu() {
   const unread = unreadNewsCount('app');
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
     { label: `📢 アプリからのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
+    { label: '📖 スタンプ帳（ログインボーナス）', onClick: () => (location.hash = '#/stamps') },
     { label: '🔔 通知の設定', onClick: pushSettingsSheet },
     isAdmin && { label: '管理者ダッシュボード', onClick: () => (location.hash = '#/admin') },
     { label: '名前を変更', onClick: renameAccount },
@@ -1601,6 +1738,19 @@ function membersSheet(group, recoveryCodes = {}) {
   const members = Object.entries(group.members ?? {}).sort(
     (a, b) => store.millis(b[1].lastSeen) - store.millis(a[1].lastSeen) || (a[1].joinedAt ?? 0) - (b[1].joinedAt ?? 0),
   );
+  // ログインボーナスの記録（🔥 連続日数・スタンプの数）は、開いてから読み込んで入れる
+  const bonusBoxes = new Map(members.map(([id]) => [id, h('span', { class: 'member-bonus' })]));
+  for (const [id, box] of bonusBoxes) {
+    store
+      .getBonus(id)
+      .then((b) => {
+        if (!b) return;
+        const alive = b.lastDate === todayStr() || b.lastDate === addDays(todayStr(), -1);
+        box.textContent = `${alive ? `🔥${b.streak}日` : ''}${alive ? ' ・ ' : ''}🎖${Object.keys(b.stamps ?? {}).length}`;
+        box.title = `連続 ${alive ? b.streak : 0}日 ・ 合計 ${b.total}日 ・ スタンプ ${Object.keys(b.stamps ?? {}).length}種類`;
+      })
+      .catch(() => {});
+  }
   openSheet((close) => [
     h('div', { class: 'sheet-title' }, `メンバー（${members.length} 人）`),
     h(
@@ -1619,7 +1769,7 @@ function membersSheet(group, recoveryCodes = {}) {
             'span',
             { class: 'member-name' },
             h('span', {}, m.name, id === user.uid && '（自分）'),
-            h('span', { class: 'member-seen' }, store.isOnline(m.lastSeen) ? 'オンライン' : timeAgo(store.millis(m.lastSeen))),
+            h('span', { class: 'member-seen' }, store.isOnline(m.lastSeen) ? 'オンライン' : timeAgo(store.millis(m.lastSeen)), bonusBoxes.get(id)),
           ),
           m.role === 'owner' && h('span', { class: 'badge' }, 'オーナー'),
           m.guest && h('span', { class: 'badge muted' }, 'ゲスト'),
@@ -4357,6 +4507,7 @@ const routes = [
   [/^#\/g\/([\w-]+)$/, (m) => [groupView, { groupId: m[1] }]],
   [/^#\/admin$/, () => [adminView, {}]],
   [/^#\/news$/, () => [newsListView, {}]],
+  [/^#\/stamps$/, () => [stampsView, {}]],
   [/^#\/g\/([\w-]+)\/news$/, (m) => [newsListView, { groupId: m[1] }]],
 ];
 

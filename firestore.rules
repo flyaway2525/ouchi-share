@@ -69,6 +69,18 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == userId;
     }
 
+    // ---- ログインボーナス（スタンプ集め）：書けるのは本人だけ。家族に連続日数を見せるので、ログインしている人は 1 件ずつ読める ----
+    match /bonus/{userId} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if signedIn() && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['lastDate', 'streak', 'total', 'stamps', 'lastStamp', 'updatedAt'])
+        && request.resource.data.lastDate is string && request.resource.data.lastDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.streak is int && request.resource.data.total is int
+        && request.resource.data.stamps is map && request.resource.data.stamps.size() <= 300;
+      allow delete: if false;
+    }
+
     // ---- 最終アクセス時刻（オンライン表示用） ----
     match /presence/{userId} {
       allow get: if signedIn() && (request.auth.uid == userId || isAdmin());

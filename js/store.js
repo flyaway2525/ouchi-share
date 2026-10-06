@@ -648,3 +648,31 @@ export async function deleteChecked(groupId, list) {
   for (const i of list.items) if (i.checked) patch[`items.${i.id}`] = deleteField();
   if (Object.keys(patch).length) await updateDoc(listRef(groupId, list.id), patch);
 }
+
+// ---- ログインボーナス ----
+// bonus/{uid} = { lastDate: "YYYY-MM-DD", streak: 連続日数, total: 合計日数, stamps: { 絵文字: もらった回数 }, lastStamp, updatedAt }
+// 家族の記録（メンバー一覧の 🔥）を見られるように、ログインしている人なら 1 件ずつ読める
+
+// 今日のぶんをもらう。今日もらい済みなら null。pick({ streak, total, stamps }) が今日もらうスタンプの配列を返す
+// （2 台の端末で同時に開いても二重にもらわないよう、トランザクションで確かめてから書く）
+export async function claimDailyBonus(today, yesterday, pick) {
+  const ref = doc(db, 'bonus', uid());
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists() ? snap.data() : {};
+    if (cur.lastDate === today) return null;
+    const streak = cur.lastDate === yesterday ? (cur.streak ?? 0) + 1 : 1;
+    const total = (cur.total ?? 0) + 1;
+    const before = cur.stamps ?? {};
+    const got = pick({ streak, total, stamps: before });
+    const stamps = { ...before };
+    for (const s of got) stamps[s] = (stamps[s] ?? 0) + 1;
+    tx.set(ref, { lastDate: today, streak, total, stamps, lastStamp: got[0], updatedAt: Date.now() });
+    return { streak, total, got, stamps, before };
+  });
+}
+
+export async function getBonus(userId = uid()) {
+  const snap = await getDoc(doc(db, 'bonus', userId));
+  return snap.exists() ? snap.data() : null;
+}
