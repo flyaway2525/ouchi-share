@@ -20,7 +20,13 @@ Web 版（GitHub Pages）のファイルを、そのまま **Capacitor** で iPh
 
 ## 1. Mac の準備
 
-1. App Store から **Xcode** を入れて、一度起動（追加のコンポーネントのインストールを済ませる）
+1. **Xcode 26.3** を入れて、一度起動（追加のコンポーネントのインストールを済ませる）
+   - 使う Mac は MacBook Pro 13 インチ（2018・Intel）で、macOS は **Sequoia（15.8.1）まで**（Tahoe には上げられない）
+   - App Store の最新 Xcode（26.4 以降）は Tahoe が必要で入らないので、https://developer.apple.com/download/all/ から
+     「Xcode 26.3.xip」をダウンロード → ダブルクリックで展開 →「アプリケーション」に移動
+   - アップロードの条件は「Xcode 26 以降」（2026-04-28 から）なので 26.3 で足りる。Capacitor 8 も Xcode 26 以上が条件
+   - 将来 Xcode 27 が必須になったら（例年なら 2027 年の春）、この Mac ではアップロードできなくなる →
+     クラウドでビルドする（Codemagic の無料枠など）に切り替える
 2. Xcode → Settings → Accounts で、上の Apple ID を追加（チームが表示されれば OK）
 3. **Node.js**（LTS）を https://nodejs.org から入れる
 4. **Claude Code** を入れる（デスクトップアプリか、ターミナルで `npm install -g @anthropic-ai/claude-code`）
