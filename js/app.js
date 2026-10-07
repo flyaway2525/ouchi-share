@@ -3179,8 +3179,10 @@ function listCard(groupId, l) {
         ? h('span', { class: 'card-sub' }, open.length ? `未精算 ${open.length}件${yen ? ` ・ ${fmtYen(yen)}` : ''}` : l.total ? 'すべて精算済み' : 'まだ登録なし')
         : wish
           ? h('span', { class: 'card-sub' }, (() => {
-              const wishOpen = l.items.filter((i) => (i.status ?? 'open') === 'open').length;
-              return l.total ? `${wishOpen}件${l.total - wishOpen ? ` ・ 完了 ${l.total - wishOpen}件` : ''}` : 'まだ登録なし';
+              const openItems = l.items.filter((i) => (i.status ?? 'open') === 'open');
+              const old = openItems.filter((i) => isOldWish(l, i)).length;
+              const doneCount = l.total - openItems.length;
+              return l.total ? `${openItems.length - old}件${old ? ` ・ 💭 ${old}件` : ''}${doneCount ? ` ・ 完了 ${doneCount}件` : ''}` : 'まだ登録なし';
             })())
           : h('span', { class: 'card-sub' }, l.total ? `${l.done} / ${l.total} 完了` : '空のリスト'),
       !money && !wish && l.total > 0 && progressBar(l.done, l.total),
@@ -3224,11 +3226,13 @@ function listCard(groupId, l) {
                 ),
             ];
     } else if (wish) {
-      const items = l.items.filter((i) => (i.status ?? 'open') === 'open');
+      const items = l.items
+        .filter((i) => (i.status ?? 'open') === 'open' && !isOldWish(l, i))
+        .sort(usesHearts(l) ? (a, b) => heartsOf(b) - heartsOf(a) : () => 0);
       content =
         items.length === 0
           ? h('p', { class: 'preview-empty' }, '欲しいものはありません')
-          : h('ul', { class: 'preview-items' }, items.slice(0, PREVIEW_MAX).map((w) => h('li', { class: 'preview-item' }, `・${wishTitle(w)}`)), more(items.length - PREVIEW_MAX));
+          : h('ul', { class: 'preview-items' }, items.slice(0, PREVIEW_MAX).map((w) => h('li', { class: 'preview-item' }, usesHearts(l) ? `❤️${heartsOf(w)}　${wishTitle(w)}` : `・${wishTitle(w)}`)), more(items.length - PREVIEW_MAX));
     } else {
       // 未完了 → 完了の順。チェックしても数が多くなければその場に残るので、押し間違えてもすぐ戻せる
       const items = [...l.items.filter((i) => !i.checked), ...l.items.filter((i) => i.checked)];
@@ -3611,6 +3615,7 @@ function wishTitle(w) {
 // 欲しいもの系リストの種類（list.variant）。中身の仕組みは同じで、入力する項目と言葉だけ変える
 const WISH_KINDS = {
   buy: {
+    hearts: true,
     placeholder: '欲しいもの（例：玉ねぎ）',
     addPlaceholder: '欲しいもの・URL を追加',
     empty: '下の欄に書くとメモとして追加できます。URL を貼るとリンクに、📷 で写真付きにできます。',
@@ -3634,6 +3639,52 @@ const WISH_KINDS = {
   },
 };
 const FOOD_HOW = [['cook', '🍳 作る'], ['buy', '🛒 買う'], ['eatout', '🍴 食べに行く']];
+
+// 欲しい度（❤️。欲しいものリストだけ）：タップで +1、長押しで連続。最後にハートを足してから 1 週間ごとに半分（切り捨て）になり、
+// 0 になったら「💭 昔欲しかったもの」へ。items の hearts（足したときの数）と heartsAt（足した時刻）から、今の数を計算する
+const HEART_WEEK = 7 * 24 * 60 * 60 * 1000;
+const NEW_HEARTS = 3; // 新しく追加したもの（hearts がまだないもの）は ❤️3 から
+function heartsOf(w, now = Date.now()) {
+  const since = w.heartsAt ?? w.createdAt ?? now;
+  const weeks = Math.max(0, Math.floor((now - since) / HEART_WEEK));
+  return weeks > 20 ? 0 : Math.floor((w.hearts ?? NEW_HEARTS) / 2 ** weeks);
+}
+// 次に半分になるまでの日数
+function daysToHalve(w, now = Date.now()) {
+  const since = w.heartsAt ?? w.createdAt ?? now;
+  const next = since + (Math.floor((now - since) / HEART_WEEK) + 1) * HEART_WEEK;
+  return Math.max(1, Math.ceil((next - now) / (24 * 60 * 60 * 1000)));
+}
+const usesHearts = (list) => !!wishKind(list).hearts;
+const isOldWish = (list, w) => usesHearts(list) && (w.status ?? 'open') === 'open' && heartsOf(w) === 0;
+
+// 押している間、だんだん速く step を呼ぶ（離したら止める）。ふつうのタップは 1 回
+function enableRepeatPress(btn, step) {
+  let timer = null;
+  let repeated = false;
+  const stop = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    repeated = false;
+    let n = 0;
+    const loop = () => {
+      repeated = true;
+      step();
+      n++;
+      timer = setTimeout(loop, Math.max(45, 150 - n * 8));
+    };
+    timer = setTimeout(loop, 380);
+  });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) btn.addEventListener(ev, stop);
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+  btn.addEventListener('click', () => {
+    if (repeated) repeated = false;
+    else step();
+  });
+}
 const WISH_STATUS = Object.fromEntries(Object.values(WISH_KINDS).flatMap((k) => k.statuses.map(([id, label]) => [id, label])));
 const wishKind = (list) => WISH_KINDS[list?.variant] ?? WISH_KINDS.buy;
 // 「＋ リストを追加」のひな形
@@ -4027,6 +4078,46 @@ function wishView(root, { groupId, listId }) {
     return photo.action === 'new' ? store.savePhoto(groupId, photo.data) : null;
   };
 
+  // ハート：押しているあいだは画面だけ増やし、手を離して少したったらまとめて保存する
+  const pendingHearts = new Map(); // itemId → { delta, timer }
+  let showOld = false;
+  const addHeart = (id, btn, paint) => {
+    const p = pendingHearts.get(id) ?? { delta: 0, timer: null };
+    p.delta++;
+    clearTimeout(p.timer);
+    p.timer = setTimeout(() => {
+      pendingHearts.delete(id);
+      const w = list?.items.find((i) => i.id === id);
+      if (!w) return;
+      store.patchListItem(groupId, listId, id, { hearts: Math.min(999, heartsOf(w) + p.delta), heartsAt: Date.now() }).catch(showError);
+    }, 700);
+    pendingHearts.set(id, p);
+    paint();
+    btn.classList.remove('pop');
+    void btn.offsetWidth; // アニメーションをやり直す
+    btn.classList.add('pop');
+    const float = h('span', { class: 'heart-float', style: `--dx: ${Math.round(Math.random() * 24 - 12)}px` }, '❤️');
+    float.addEventListener('animationend', () => float.remove());
+    btn.append(float);
+  };
+  const heartBox = (w) => {
+    const count = () => heartsOf(w) + (pendingHearts.get(w.id)?.delta ?? 0);
+    const num = h('b', {});
+    const icon = h('span', { class: 'heart-icon' });
+    const btn = h('button', { class: 'heart-btn', 'aria-label': '欲しい度を上げる（長押しで連続）' }, icon, num);
+    const note = h('small', { class: 'heart-note' });
+    const paint = () => {
+      const n = count();
+      icon.textContent = n > 0 ? '❤️' : '🤍';
+      num.textContent = String(n);
+      btn.classList.toggle('hot', n >= 10);
+      note.textContent = n > 0 && !pendingHearts.has(w.id) ? `${daysToHalve(w)}日後に半分` : '';
+    };
+    paint();
+    enableRepeatPress(btn, () => addHeart(w.id, btn, paint));
+    return h('span', { class: 'heart-box' }, btn, note);
+  };
+
   // 行きたいところ → カレンダーの予定（場所とリンク付き）
   const makePlan = async (w) => {
     const safeUrl = w.url ? normalizeUrl(w.url) : '';
@@ -4063,7 +4154,12 @@ function wishView(root, { groupId, listId }) {
     const kind = wishKind(list);
     input.placeholder = kind.addPlaceholder;
     const items = [...list.items];
-    const open = items.filter((w) => (w.status ?? 'open') === 'open').sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    // 欲しいものは、ハートの多い順。ハートが 0 になったものは「昔欲しかったもの」へ
+    const byNew = (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0);
+    const open = items
+      .filter((w) => (w.status ?? 'open') === 'open' && !isOldWish(list, w))
+      .sort(kind.hearts ? (a, b) => heartsOf(b) - heartsOf(a) || byNew(a, b) : byNew);
+    const old = items.filter((w) => isOldWish(list, w)).sort((a, b) => (b.heartsAt ?? b.createdAt ?? 0) - (a.heartsAt ?? a.createdAt ?? 0));
     const closed = items.filter((w) => (w.status ?? 'open') !== 'open').sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
     const back = list.eventId ? `#/g/${groupId}/e/${list.eventId}` : `#/g/${groupId}`;
 
@@ -4073,7 +4169,8 @@ function wishView(root, { groupId, listId }) {
       const howLabel = FOOD_HOW.find(([k]) => k === w.how)?.[1];
       return h(
         'li',
-        { class: `wish-row${isOpen ? '' : ' closed'}` },
+        { class: `wish-row${isOpen ? '' : ' closed'}${isOldWish(list, w) ? ' old' : ''}` },
+        kind.hearts && isOpen && heartBox(w),
         w.photoId && photoThumb(groupId, w.photoId, () => photoViewer(groupId, w.photoId, wishTitle(w))),
         h(
           'span',
@@ -4131,7 +4228,13 @@ function wishView(root, { groupId, listId }) {
                 },
                 kind.place && isOpen && { label: '📅 予定にする', onClick: () => makePlan(w) },
                 { label: 'ほかのリストへ移す', onClick: () => moveTo(w) },
-                !isOpen && { label: '未完了に戻す', onClick: () => store.patchListItem(groupId, listId, w.id, { status: 'open', result: '', rating: 0, closedAt: null }).catch(showError) },
+                !isOpen && {
+                  label: '未完了に戻す',
+                  onClick: () =>
+                    store
+                      .patchListItem(groupId, listId, w.id, { status: 'open', result: '', rating: 0, closedAt: null, ...(kind.hearts ? { hearts: NEW_HEARTS, heartsAt: Date.now() } : {}) })
+                      .catch(showError),
+                },
                 {
                   label: '削除',
                   danger: true,
@@ -4184,8 +4287,22 @@ function wishView(root, { groupId, listId }) {
 
     setChildren(
       body,
-      open.length === 0 && closed.length === 0 && h('p', { class: 'empty small' }, kind.empty),
+      open.length === 0 && closed.length === 0 && old.length === 0 && h('p', { class: 'empty small' }, kind.empty),
+      kind.hearts && open.length > 0 && h('p', { class: 'sch-hint' }, '❤️ をタップで欲しい度アップ（長押しで連続）。1週間ごとに半分になり、0 になると「昔欲しかったもの」へ'),
       open.length > 0 && h('ul', { class: 'wish-list' }, open.map(row)),
+      old.length > 0 &&
+        h(
+          'button',
+          {
+            class: 'past-toggle',
+            onClick: () => {
+              showOld = !showOld;
+              render();
+            },
+          },
+          `${showOld ? '▾' : '▸'} 💭 昔欲しかったもの（${old.length}）`,
+        ),
+      showOld && old.length > 0 && h('ul', { class: 'wish-list old-list' }, old.map(row)),
       closed.length > 0 &&
         h(
           'button',

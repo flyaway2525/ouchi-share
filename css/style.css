@@ -3199,3 +3199,91 @@ select.text-input {
   text-align: center;
   font-size: 20px;
 }
+
+/* ---- 欲しい度（❤️） ---- */
+
+.heart-box {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 52px;
+}
+
+.heart-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, #e5484d 45%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, #e5484d 8%, var(--surface));
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.heart-btn b {
+  min-width: 1.2em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.heart-btn.hot {
+  border-color: #e5484d;
+  background: color-mix(in srgb, #e5484d 18%, var(--surface));
+}
+
+.heart-btn.pop .heart-icon {
+  display: inline-block;
+  animation: heart-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes heart-pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.45);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* 押したときにふわっと上がるハート */
+.heart-float {
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  font-size: 14px;
+  pointer-events: none;
+  animation: heart-float 0.7s ease-out forwards;
+}
+
+@keyframes heart-float {
+  from {
+    transform: translate(-50%, 0) scale(0.8);
+    opacity: 1;
+  }
+  to {
+    transform: translate(calc(-50% + var(--dx, 0px)), -34px) scale(1.2);
+    opacity: 0;
+  }
+}
+
+.heart-note {
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.wish-row.old {
+  opacity: 0.6;
+}
