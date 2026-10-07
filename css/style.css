@@ -3329,3 +3329,45 @@ select.text-input {
 .items.is-sorting {
   overflow: visible;
 }
+
+/* ---- チケットの両替・換金 ---- */
+.ticket-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ticket-actions .btn {
+  flex: 1;
+}
+
+.ticket-actions .btn:disabled {
+  opacity: 0.45;
+}
+
+.ticket-rates {
+  width: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.rate-row {
+  display: grid;
+  grid-template-columns: 1fr 90px auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.cash-total {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.badge.admin {
+  background: #f5a623;
+}

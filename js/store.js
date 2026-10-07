@@ -170,6 +170,11 @@ export async function deleteGroup(groupId) {
   await batch.commit();
 }
 
+// オーナーが、ほかのメンバーを管理者にする（'admin'）／外す（'member'）
+export async function setMemberRole(groupId, memberUid, role) {
+  await updateDoc(groupRef(groupId), { [`members.${memberUid}.role`]: role, roleTarget: memberUid });
+}
+
 // 招待リンクから参加する。すでにメンバーならそのまま true を返す
 export async function joinGroup(groupId, inviteCode) {
   const me = uid();
@@ -752,6 +757,43 @@ export async function redeemReward(groupId, reward, name) {
     tickets[reward.ticket] -= reward.count;
     tx.update(ref, { tickets, updatedAt: Date.now() });
     tx.set(log, { uid: uid(), name, title: reward.title, emoji: reward.emoji, ticket: reward.ticket, count: reward.count, at: Date.now(), done: false });
+  });
+}
+
+// ---- チケットの両替・換金（レートはグループの設定 settings/tickets） ----
+
+export function watchTicketRates(groupId, cb, onError) {
+  return onSnapshot(doc(db, 'groups', groupId, 'settings', 'tickets'), (snap) => cb(snap.exists() ? snap.data() : null), onError);
+}
+
+export async function setTicketRates(groupId, { upgrade, yen }) {
+  await setDoc(doc(db, 'groups', groupId, 'settings', 'tickets'), { upgrade, yen, updatedAt: Date.now() });
+}
+
+// 両替：from を fromCount 枚へらして、to を toCount 枚ふやす（足りなければ Error('not-enough')）
+export async function exchangeTickets(groupId, from, fromCount, to, toCount) {
+  const ref = bonusRef(groupId, uid());
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const tickets = { ...(snap.exists() ? snap.data().tickets ?? {} : {}) };
+    if ((tickets[from] ?? 0) < fromCount) throw new Error('not-enough');
+    tickets[from] -= fromCount;
+    tickets[to] = (tickets[to] ?? 0) + toCount;
+    tx.update(ref, { tickets, updatedAt: Date.now() });
+  });
+}
+
+// 換金：チケットをへらして、換金の記録（kind: 'cash'）を残す。お金を渡したら、オーナー・管理者が「済み」にする
+export async function cashOutTickets(groupId, ticket, count, yen, name) {
+  const ref = bonusRef(groupId, uid());
+  const log = doc(redemptionsCol(groupId));
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const tickets = { ...(snap.exists() ? snap.data().tickets ?? {} : {}) };
+    if ((tickets[ticket] ?? 0) < count) throw new Error('not-enough');
+    tickets[ticket] -= count;
+    tx.update(ref, { tickets, updatedAt: Date.now() });
+    tx.set(log, { uid: uid(), name, kind: 'cash', title: `換金 ${yen.toLocaleString('ja-JP')}円`, emoji: '💴', ticket, count, yen, at: Date.now(), done: false });
   });
 }
 

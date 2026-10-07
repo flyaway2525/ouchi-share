@@ -301,6 +301,11 @@ function stampsView(root, { groupId }) {
   };
 }
 
+// グループの役割：'owner'（オーナー）/ 'admin'（管理者。オーナーが任命）/ 'member'。
+// 管理者はオーナーと同じく、ごほうび・交換の済み・お知らせの削除や再アナウンス・チケットのレートを扱える
+// （メンバーを外す・グループを消す・管理者を決めるのはオーナーだけ）
+const isManager = (group, uid = user.uid) => ['owner', 'admin'].includes(group?.members?.[uid]?.role);
+
 // ---- チケット（ログインボーナスでもらい、ごほうびと交換する） ----
 // 配布表（その月の何回目のログインで、どのチケットを何枚）はアプリの管理者が決める（config/bonus。全グループ共通）。
 // まだ決めていなければ DEFAULT_SCHEDULE。チケットはグループごとに貯まる。
@@ -413,8 +418,149 @@ function ticketsView(root, { groupId }) {
   let schedule = null;
   bonusSchedule().then((s) => ((schedule = s), render()));
 
-  const isOwner = () => group?.members?.[user.uid]?.role === 'owner';
+  const isOwner = () => isManager(group);
   const myName = () => group?.members?.[user.uid]?.name ?? auth.displayName();
+  let rates = null; // { upgrade: { silver, gold }, yen: { bronze, silver, gold } }（0 やなしは使えない）
+
+  // 両替：上（ブロンズ → シルバーなど）にも下にもできる。1 回ずつ
+  const exchange = () => {
+    const tickets = bonus?.tickets ?? {};
+    const pairs = [
+      ['bronze', 'silver', rates?.upgrade?.silver],
+      ['silver', 'gold', rates?.upgrade?.gold],
+    ].filter(([, , n]) => n > 0);
+    if (!pairs.length) return toast('両替のレートがまだ決まっていません');
+    const icon = (t) => ticketInfo(t)[2];
+    const options = pairs.flatMap(([low, high, n]) => [
+      { from: low, fromCount: n, to: high, toCount: 1 },
+      { from: high, fromCount: 1, to: low, toCount: n },
+    ]);
+    actionSheet(
+      '🔁 チケットを両替（1回ずつ）',
+      options.map((o) => {
+        const times = Math.floor((tickets[o.from] ?? 0) / o.fromCount);
+        return {
+          label: `${icon(o.from)}×${o.fromCount} → ${icon(o.to)}×${o.toCount}（${times ? `あと${times}回できます` : '足りません'}）`,
+          onClick: () => {
+            if (!times) return toast('チケットが足りません');
+            store
+              .exchangeTickets(groupId, o.from, o.fromCount, o.to, o.toCount)
+              .then(() => toast(`${icon(o.from)}×${o.fromCount} を ${icon(o.to)}×${o.toCount} に両替しました`), (e) => (e.message === 'not-enough' ? toast('チケットが足りません') : showError(e)));
+          },
+        };
+      }),
+    );
+  };
+
+  // 換金：チケットの種類と枚数を選んで申し込む（お金はオーナー・管理者が渡して「済み」にする）
+  const cashOut = async () => {
+    const tickets = bonus?.tickets ?? {};
+    const usable = TICKETS.filter(([t]) => rates?.yen?.[t] > 0);
+    if (!usable.length) return toast('換金のレートがまだ決まっていません');
+    const res = await openSheet((close) => {
+      let ticket = usable.find(([t]) => tickets[t] > 0)?.[0] ?? usable[0][0];
+      const count = h('input', { class: 'text-input', type: 'number', min: 1, value: 1, inputmode: 'numeric', 'aria-label': '枚数' });
+      const chips = h('div', { class: 'people-chips' });
+      const total = h('p', { class: 'cash-total' });
+      const sync = () => {
+        setChildren(
+          chips,
+          usable.map(([t, label, icon]) =>
+            h(
+              'button',
+              {
+                type: 'button',
+                class: `chip${ticket === t ? ' on' : ''}`,
+                onClick: () => {
+                  ticket = t;
+                  sync();
+                },
+              },
+              `${icon} ${label}（${tickets[t] ?? 0}枚）`,
+            ),
+          ),
+        );
+        const n = Math.max(0, Math.round(Number(count.value) || 0));
+        total.textContent = `💴 ${(n * rates.yen[ticket]).toLocaleString('ja-JP')}円（1枚 ${rates.yen[ticket].toLocaleString('ja-JP')}円）`;
+      };
+      count.addEventListener('input', sync);
+      sync();
+      return [
+        h('div', { class: 'sheet-title' }, '💴 チケットを換金'),
+        h(
+          'form',
+          {
+            class: 'sheet-form',
+            onSubmit: (e) => {
+              e.preventDefault();
+              const n = Math.round(Number(count.value));
+              if (!(n >= 1)) return toast('枚数を入れてください');
+              if ((tickets[ticket] ?? 0) < n) return toast('チケットが足りません');
+              close({ ticket, count: n, yen: n * rates.yen[ticket] });
+            },
+          },
+          chips,
+          h('label', { class: 'end-date-row' }, h('span', {}, '枚数'), count),
+          total,
+          h('p', { class: 'sch-hint' }, '申し込むとチケットが減り、オーナー・管理者にお知らせが届きます。お金を受け取ったら「済み」にしてもらいます'),
+          h(
+            'div',
+            { class: 'sheet-buttons' },
+            h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+            h('button', { type: 'submit', class: 'btn primary' }, '換金する'),
+          ),
+        ),
+      ];
+    });
+    if (!res) return;
+    try {
+      await store.cashOutTickets(groupId, res.ticket, res.count, res.yen, myName());
+    } catch (e) {
+      return e.message === 'not-enough' ? toast('チケットが足りません') : showError(e);
+    }
+    const [, label, icon] = ticketInfo(res.ticket);
+    toast(`${res.yen.toLocaleString('ja-JP')}円の換金を申し込みました`);
+    requestNotify({ groupId, kind: 'reward', title: `💴 ${group.name}`, body: `${myName()}さんが${icon}${label}チケット ${res.count}枚を換金しました（${res.yen.toLocaleString('ja-JP')}円）`, url: `#/g/${groupId}/tickets` });
+  };
+
+  // レートの設定（オーナー・管理者）
+  const editRates = async () => {
+    const res = await openSheet((close) => {
+      const num = (v, label) => h('input', { class: 'text-input', type: 'number', min: 0, value: v ?? 0, inputmode: 'numeric', 'aria-label': label });
+      const up = { silver: num(rates?.upgrade?.silver ?? 5, 'シルバー1枚あたりのブロンズ'), gold: num(rates?.upgrade?.gold ?? 5, 'ゴールド1枚あたりのシルバー') };
+      const yen = { bronze: num(rates?.yen?.bronze ?? 10, 'ブロンズ1枚の円'), silver: num(rates?.yen?.silver ?? 100, 'シルバー1枚の円'), gold: num(rates?.yen?.gold ?? 1000, 'ゴールド1枚の円') };
+      const row = (label, input, unit) => h('label', { class: 'rate-row' }, h('span', {}, label), input, h('span', {}, unit));
+      return [
+        h('div', { class: 'sheet-title' }, '⚙️ チケットのレート'),
+        h(
+          'form',
+          {
+            class: 'sheet-form',
+            onSubmit: (e) => {
+              e.preventDefault();
+              const val = (i) => Math.max(0, Math.round(Number(i.value) || 0));
+              close({ upgrade: { silver: val(up.silver), gold: val(up.gold) }, yen: { bronze: val(yen.bronze), silver: val(yen.silver), gold: val(yen.gold) } });
+            },
+          },
+          h('span', { class: 'links-label' }, '🔁 両替（上にも下にも、同じレート）'),
+          row('🥈 シルバー1枚 ＝ 🥉', up.silver, '枚'),
+          row('🥇 ゴールド1枚 ＝ 🥈', up.gold, '枚'),
+          h('span', { class: 'links-label' }, '💴 換金（1枚あたり）'),
+          row('🥉 ブロンズ1枚 ＝', yen.bronze, '円'),
+          row('🥈 シルバー1枚 ＝', yen.silver, '円'),
+          row('🥇 ゴールド1枚 ＝', yen.gold, '円'),
+          h('p', { class: 'sch-hint' }, '0 にすると、その両替・換金はできなくなります'),
+          h(
+            'div',
+            { class: 'sheet-buttons' },
+            h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+            h('button', { type: 'submit', class: 'btn primary' }, '保存'),
+          ),
+        ),
+      ];
+    });
+    if (res) store.setTicketRates(groupId, res).then(() => toast('レートを保存しました'), showError);
+  };
 
   const redeem = async (r) => {
     const [, label, icon] = ticketInfo(r.ticket);
@@ -445,6 +591,18 @@ function ticketsView(root, { groupId }) {
       body,
       h('p', { class: 'section-label' }, '持っているチケット'),
       h('div', { class: 'ticket-wallet' }, TICKETS.map(([t]) => ticketChip(t, tickets[t] ?? 0))),
+      (() => {
+        const ups = [['silver', 'bronze'], ['gold', 'silver']].filter(([t]) => rates?.upgrade?.[t] > 0).map(([t, low]) => `${ticketInfo(t)[2]}1 ＝ ${ticketInfo(low)[2]}${rates.upgrade[t]}`);
+        const yens = TICKETS.filter(([t]) => rates?.yen?.[t] > 0).map(([t, , icon]) => `${icon}1 ＝ ${rates.yen[t].toLocaleString('ja-JP')}円`);
+        return h(
+          'div',
+          { class: 'ticket-actions' },
+          h('button', { class: 'btn', disabled: !ups.length, onClick: exchange }, '🔁 両替'),
+          h('button', { class: 'btn', disabled: !yens.length, onClick: cashOut }, '💴 換金'),
+          isOwner() && h('button', { class: 'btn', onClick: editRates }, '⚙️ レート'),
+          h('p', { class: 'ticket-rates' }, ups.length || yens.length ? [...ups, ...yens].join(' ・ ') : isOwner() ? '「⚙️ レート」で両替・換金のレートを決めると使えるようになります' : '両替・換金のレートはまだ決まっていません'),
+        );
+      })(),
       h('p', { class: 'section-label' }, `今月のログインボーナス（${done}回 受け取り済み）`),
       h(
         'div',
@@ -502,7 +660,7 @@ function ticketsView(root, { groupId }) {
           }),
       ),
       isOwner() && h('button', { class: 'add-card', onClick: () => editReward() }, '＋ ごほうびを追加'),
-      logs.length > 0 && h('p', { class: 'section-label' }, `交換の記録${isOwner() ? '（タップで「済み」にできます）' : ''}`),
+      logs.length > 0 && h('p', { class: 'section-label' }, `交換・換金の記録${isOwner() ? '（タップで「済み」にできます）' : ''}`),
       logs.length > 0 &&
         h(
           'ul',
@@ -527,7 +685,9 @@ function ticketsView(root, { groupId }) {
   const unwatchBonus = store.watchBonus(groupId, (b) => ((bonus = b), render()), () => ((bonus = null), render()));
   const unwatchRewards = store.watchRewards(groupId, (list) => ((rewards = list), render()), onError);
   const unwatchLogs = store.watchRedemptions(groupId, (list) => ((logs = list), render()), () => {});
+  const unwatchRates = store.watchTicketRates(groupId, (r) => ((rates = r), render()), () => {});
   return () => {
+    unwatchRates();
     unwatchGroup();
     unwatchBonus();
     unwatchRewards();
@@ -2041,6 +2201,13 @@ async function renameInGroup(group) {
 function memberMenu(group, memberUid, m) {
   actionSheet(m.name, [
     {
+      label: m.role === 'admin' ? '👑 管理者から外す' : '👑 管理者にする',
+      onClick: () =>
+        store
+          .setMemberRole(group.id, memberUid, m.role === 'admin' ? 'member' : 'admin')
+          .then(() => toast(m.role === 'admin' ? `${m.name} さんを管理者から外しました` : `${m.name} さんを管理者にしました`), showError),
+    },
+    {
       label: 'このグループから外す',
       danger: true,
       onClick: async () => {
@@ -2107,6 +2274,7 @@ function membersSheet(group, recoveryCodes = {}) {
             h('span', { class: 'member-seen' }, store.isOnline(m.lastSeen) ? 'オンライン' : timeAgo(store.millis(m.lastSeen)), bonusBoxes.get(id)),
           ),
           m.role === 'owner' && h('span', { class: 'badge' }, 'オーナー'),
+          m.role === 'admin' && h('span', { class: 'badge admin' }, '管理者'),
           m.guest && h('span', { class: 'badge muted' }, 'ゲスト'),
           id === user.uid && h('span', { class: 'edit-hint' }, '変更'),
           isOwner && id !== user.uid && m.role !== 'owner' && h('span', { class: 'chevron' }, '›'),
@@ -2139,6 +2307,42 @@ function membersSheet(group, recoveryCodes = {}) {
     ),
     h('button', { class: 'sheet-action', onClick: () => (close(null), inviteQrSheet(group)) }, '＋ メンバーを招待（QRコード）'),
     h('button', { class: 'sheet-action', onClick: () => (close(null), renameInGroup(group)) }, 'このグループでの自分の名前を変更'),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
+  ]);
+}
+
+// オーナーが、メンバーを管理者にする／外す（チップをタップで切り替え）
+function managersSheet(group) {
+  const members = Object.entries(group.members ?? {}).filter(([, m]) => m.role !== 'owner');
+  openSheet((close) => [
+    h('div', { class: 'sheet-title' }, '👑 管理者を設定'),
+    h('p', { class: 'sch-hint' }, '管理者は、ごほうびの登録・交換の「済み」・お知らせの削除や再アナウンス・チケットのレート設定ができます（メンバーを外す・グループの削除はオーナーだけ）'),
+    members.length === 0 && h('p', { class: 'empty small' }, 'まだほかのメンバーがいません'),
+    h(
+      'ul',
+      { class: 'member-list' },
+      members.map(([id, m]) =>
+        h(
+          'li',
+          {},
+          h('span', { class: 'member-name' }, h('span', {}, m.name), m.guest && h('span', { class: 'member-seen' }, 'ゲスト')),
+          h(
+            'button',
+            {
+              class: `chip${m.role === 'admin' ? ' on' : ''}`,
+              onClick: (e) => {
+                const on = m.role !== 'admin';
+                m.role = on ? 'admin' : 'member';
+                e.currentTarget.classList.toggle('on', on);
+                e.currentTarget.textContent = on ? '👑 管理者' : '管理者にする';
+                store.setMemberRole(group.id, id, m.role).catch(showError);
+              },
+            },
+            m.role === 'admin' ? '👑 管理者' : '管理者にする',
+          ),
+        ),
+      ),
+    ),
     h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
   ]);
 }
@@ -2235,6 +2439,7 @@ function groupView(root, { groupId }) {
                 onClick: () => (location.hash = `#/g/${groupId}/news`),
               },
               { label: '🎟 チケット・ごほうび', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
+              g.members?.[user.uid]?.role === 'owner' && { label: '👑 管理者を設定', onClick: () => managersSheet(g) },
               { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
               { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
               { label: '招待リンクを送る', onClick: () => shareInvite(group) },
@@ -4998,7 +5203,7 @@ function newsListView(root, { groupId = null }) {
   let items = null;
 
   const canWrite = () => (groupId ? true : isAdmin);
-  const canDelete = (n) => (groupId ? n.createdBy === user.uid || group?.members?.[user.uid]?.role === 'owner' : isAdmin);
+  const canDelete = (n) => (groupId ? n.createdBy === user.uid || isManager(group) : isAdmin);
 
   const notifyNews = (title, again = false) =>
     requestNotify(

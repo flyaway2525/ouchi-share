@@ -82,7 +82,8 @@ export function openSheet(build) {
 export function actionSheet(title, actions) {
   return openSheet((close) => [
     h('div', { class: 'sheet-title' }, title),
-    ...actions.map((a) =>
+    // 条件付きの項目（false / null）は出さない
+    ...actions.filter(Boolean).map((a) =>
       h(
         'button',
         {
