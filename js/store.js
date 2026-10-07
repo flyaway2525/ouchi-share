@@ -304,6 +304,46 @@ export async function deleteMyRecoveryCodes() {
 
 // 参加中の全グループの自分の情報を更新する
 // （Google アカウントへ引き継いだとき = ゲスト表示、名前を全グループに反映したいとき = 名前も）
+// ---- プロフィール ----
+// 全体の設定 profiles/{uid} = { icon, title, colors: { main, sub, third }, updatedAt }（名前はログインの表示名）。
+// グループごとの設定は groups/{id}.members.{uid} の name / icon / title / colors と、
+// custom = { name, icon, title, colors }（true の項目は「このグループだけ変える」）。
+// 全体の設定を変えると、custom でない項目を参加中の全グループに書き写す（ほかの人はグループのデータだけで見られる）
+export const PROFILE_FIELDS = ['name', 'icon', 'title', 'colors'];
+
+export function watchMyProfile(cb, onError) {
+  return onSnapshot(doc(db, 'profiles', uid()), (snap) => cb(snap.exists() ? snap.data() : {}), onError);
+}
+
+export async function saveMyProfile({ icon, title, colors }) {
+  await setDoc(doc(db, 'profiles', uid()), { icon, title, colors, updatedAt: Date.now() });
+}
+
+// 全体の設定（profile）を、参加中のグループに書き写す（custom の項目はそのまま）。groupId を渡すとそのグループだけ
+export async function applyProfileToGroups(profile, groupId = null) {
+  const me = uid();
+  const docs = groupId
+    ? [await getDoc(groupRef(groupId))].filter((d) => d.exists())
+    : (await getDocs(query(collection(db, 'groups'), where('memberIds', 'array-contains', me)))).docs;
+  const global = { name: displayName(), icon: profile.icon ?? '', title: profile.title ?? '', colors: profile.colors ?? {} };
+  await Promise.all(
+    docs.map((d) => {
+      const custom = d.data().members?.[me]?.custom ?? {};
+      const patch = {};
+      for (const f of PROFILE_FIELDS) if (!custom[f]) patch[`members.${me}.${f}`] = global[f];
+      return Object.keys(patch).length ? updateDoc(d.ref, patch) : null;
+    }),
+  );
+}
+
+// このグループでのプロフィール。values = { name, icon, title, colors }、custom = { name: true, ... }（false は全体の設定を使う）
+export async function saveGroupProfile(groupId, values, custom) {
+  const me = uid();
+  const patch = { [`members.${me}.custom`]: custom };
+  for (const f of PROFILE_FIELDS) patch[`members.${me}.${f}`] = values[f];
+  await updateDoc(groupRef(groupId), patch);
+}
+
 export async function syncMyProfile({ name = false } = {}) {
   const me = uid();
   const snap = await getDocs(query(collection(db, 'groups'), where('memberIds', 'array-contains', me)));

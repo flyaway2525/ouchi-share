@@ -777,6 +777,275 @@ async function bonusScheduleSheet() {
   });
 }
 
+// ---- プロフィール ----
+// アイコン（絵文字）・名前・肩書き・3 つの色。全体の設定（profiles/{uid}）と、グループごとの設定（members.{uid}）がある。
+// - メインカラー：アプリの見た目の色（ボタンなど）。自分の画面だけ
+// - サブカラー：背景などの薄い色。自分の画面だけ
+// - サードカラー（識別カラー）：みんなの画面で「その人の色」として使う（アイコンの丸・参加者・カレンダーの予定の線など）
+
+const PROFILE_ICONS = ['😀', '😎', '🥰', '🤓', '😺', '👨', '👩', '👦', '👧', '👴', '👵', '👶', '🐶', '🐱', '🐻', '🐼', '🦊', '🐰', '🐸', '🐧', '🌸', '⭐', '⚽', '🎮'];
+const PROFILE_COLORS = ['#f08a4b', '#e5484d', '#e57fa3', '#9b6bd6', '#3b7ddd', '#1e96d2', '#2f9e8f', '#43a047', '#d4a800', '#8a7f76'];
+
+let myProfile = {}; // 全体の設定（profiles/{uid}）
+let unwatchProfile = null;
+const groupThemes = {}; // groupId → そのグループでの自分の色（メイン・サブ）
+
+function startProfileWatcher(u) {
+  unwatchProfile?.();
+  unwatchProfile = null;
+  myProfile = {};
+  if (!u) return applyTheme(null);
+  unwatchProfile = store.watchMyProfile(
+    (p) => {
+      myProfile = p;
+      applyTheme(themeForHash(location.hash));
+    },
+    () => {},
+  );
+}
+
+// その人の識別カラー（サードカラー。決めていなければ uid から決まった色）
+function personColor(m) {
+  if (m?.colors?.third) return m.colors.third;
+  let n = 0;
+  for (const c of m?.uid ?? '') n = (n * 31 + c.charCodeAt(0)) >>> 0;
+  return PROFILE_COLORS[n % PROFILE_COLORS.length];
+}
+
+// アイコンの丸（識別カラーの丸に、絵文字か名前の 1 文字目）
+function avatar(m, size = 28) {
+  return h(
+    'span',
+    { class: 'avatar', style: `--av: ${personColor(m)}; width: ${size}px; height: ${size}px; font-size: ${Math.round(size * 0.55)}px`, 'aria-hidden': 'true' },
+    m?.icon || (m?.name ?? '？').slice(0, 1),
+  );
+}
+
+// 背景の色に合う文字の色（明るい色なら黒っぽく、暗い色なら白）
+function textOn(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  return 0.299 * r + 0.587 * g + 0.114 * b > 170 ? '#2b2622' : '#ffffff';
+}
+
+// メインカラー・サブカラーをアプリの見た目に反映する（決めていなければアプリの色のまま）
+function applyTheme(colors) {
+  const root = document.documentElement.style;
+  if (colors?.main) {
+    root.setProperty('--accent', colors.main);
+    root.setProperty('--accent-text', textOn(colors.main));
+  } else {
+    root.removeProperty('--accent');
+    root.removeProperty('--accent-text');
+  }
+  if (colors?.sub) root.setProperty('--accent-soft', `color-mix(in srgb, ${colors.sub} 32%, var(--surface))`);
+  else root.removeProperty('--accent-soft');
+}
+
+// 開いている画面に合う色（グループの中ならそのグループでの設定、外なら全体の設定）
+function themeForHash(hash) {
+  const gid = hash.match(/^#\/g\/([\w-]+)/)?.[1];
+  return (gid && groupThemes[gid]) || myProfile.colors || null;
+}
+
+// プロフィールの編集。group を渡すと「このグループでのプロフィール」（項目ごとに、全体の設定を使うか選べる）
+function profileSheet({ group = null } = {}) {
+  const me = group?.members?.[user.uid] ?? {};
+  const custom = { ...(me.custom ?? {}) };
+  const global = { name: auth.displayName(), icon: myProfile.icon ?? '', title: myProfile.title ?? '', colors: { ...(myProfile.colors ?? {}) } };
+  const v = group
+    ? {
+        name: custom.name ? me.name ?? global.name : global.name,
+        icon: custom.icon ? me.icon ?? '' : global.icon,
+        title: custom.title ? me.title ?? '' : global.title,
+        colors: { ...(custom.colors ? me.colors ?? {} : global.colors) },
+      }
+    : { ...global, colors: { ...global.colors } };
+
+  return openSheet((close) => {
+    const preview = h('div', { class: 'profile-preview' });
+    const renderPreview = () =>
+      setChildren(preview, avatar({ uid: user.uid, ...v }, 64), h('div', {}, h('b', {}, v.name || '（名前）'), v.title && h('span', { class: 'profile-title' }, v.title)));
+
+    // 「全体の設定を使う」のチェック（グループのときだけ）。チェック中は全体の値を表示して、入力できない
+    const sections = [];
+    const section = (field, label, body, sync) => {
+      // 全体の設定の画面では、このチェックはない（いつでも入力できる）
+      const useGlobal = h('input', { type: 'checkbox', checked: !!group && !custom[field] });
+      const box = h('div', { class: 'profile-section' });
+      const update = () => {
+        box.classList.toggle('disabled', useGlobal.checked);
+        box.querySelectorAll('input, button').forEach((el) => el !== useGlobal && (el.disabled = useGlobal.checked));
+      };
+      useGlobal.addEventListener('change', () => {
+        custom[field] = !useGlobal.checked;
+        if (useGlobal.checked) {
+          v[field] = field === 'colors' ? { ...global.colors } : global[field];
+          sync();
+          renderPreview();
+        }
+        update();
+      });
+      setChildren(box, h('div', { class: 'profile-head' }, h('span', { class: 'links-label' }, label), group && h('label', { class: 'check-row small' }, useGlobal, h('span', {}, '全体の設定を使う'))), body);
+      sections.push(update);
+      return box;
+    };
+
+    // アイコン
+    const iconInput = h('input', { class: 'text-input icon-input', value: v.icon, maxlength: 4, placeholder: '絵文字', 'aria-label': 'アイコン（絵文字）' });
+    const iconChips = h('div', { class: 'icon-chips' });
+    const syncIcon = () => {
+      iconInput.value = v.icon;
+      setChildren(
+        iconChips,
+        PROFILE_ICONS.map((e) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              class: `icon-chip${v.icon === e ? ' on' : ''}`,
+              onClick: () => {
+                v.icon = v.icon === e ? '' : e;
+                syncIcon();
+                renderPreview();
+              },
+            },
+            e,
+          ),
+        ),
+      );
+      sections.forEach((u) => u());
+    };
+    iconInput.addEventListener('input', () => {
+      v.icon = iconInput.value.trim();
+      syncIcon();
+      renderPreview();
+    });
+
+    // 名前・肩書き
+    const nameInput = h('input', { class: 'text-input', value: v.name, maxlength: 40, placeholder: '例：たろう', 'aria-label': '名前' });
+    const titleInput = h('input', { class: 'text-input', value: v.title, maxlength: 20, placeholder: '例：パパ、長女、幹事', 'aria-label': '肩書き' });
+    nameInput.addEventListener('input', () => ((v.name = nameInput.value.trim()), renderPreview()));
+    titleInput.addEventListener('input', () => ((v.title = titleInput.value.trim()), renderPreview()));
+
+    // 色（メイン・サブ・サード）
+    const colorBox = h('div', { class: 'profile-colors' });
+    const COLOR_ROWS = [
+      ['main', 'メインカラー', 'アプリの色（ボタンなど）。自分の画面だけ'],
+      ['sub', 'サブカラー', '背景などの薄い色。自分の画面だけ'],
+      ['third', 'サードカラー（識別カラー）', 'みんなの画面での、あなたの色'],
+    ];
+    const syncColors = () => {
+      setChildren(
+        colorBox,
+        COLOR_ROWS.map(([key, label, hint]) => {
+          const picker = h('input', { type: 'color', class: 'color-picker', value: v.colors[key] || '#f08a4b', 'aria-label': `${label}を自由に選ぶ` });
+          picker.addEventListener('input', () => {
+            v.colors[key] = picker.value;
+            syncColors();
+            renderPreview();
+          });
+          return h(
+            'div',
+            { class: 'color-row' },
+            h('span', { class: 'color-label' }, label, h('small', {}, hint)),
+            h(
+              'div',
+              { class: 'swatches' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: `swatch none${v.colors[key] ? '' : ' on'}`,
+                  title: key === 'third' ? 'おまかせ' : 'アプリの色',
+                  onClick: () => {
+                    delete v.colors[key];
+                    syncColors();
+                    renderPreview();
+                  },
+                },
+                key === 'third' ? 'おまかせ' : 'なし',
+              ),
+              PROFILE_COLORS.map((c) =>
+                h('button', {
+                  type: 'button',
+                  class: `swatch${v.colors[key] === c ? ' on' : ''}`,
+                  style: `background: ${c}`,
+                  'aria-label': c,
+                  onClick: () => {
+                    v.colors[key] = c;
+                    syncColors();
+                    renderPreview();
+                  },
+                }),
+              ),
+              picker,
+            ),
+          );
+        }),
+      );
+      sections.forEach((u) => u());
+    };
+
+    const iconSection = section('icon', 'アイコン', [iconChips, iconInput], syncIcon);
+    const nameSection = section('name', '名前', nameInput, () => (nameInput.value = v.name));
+    const titleSection = section('title', '肩書き（グループでの立ち位置）', titleInput, () => (titleInput.value = v.title));
+    const colorSection = section('colors', '色', colorBox, syncColors);
+    syncIcon();
+    syncColors();
+    renderPreview();
+    sections.forEach((u) => u());
+
+    return [
+      h('div', { class: 'sheet-title' }, group ? `👤 「${group.name}」でのプロフィール` : '👤 プロフィール（全体の設定）'),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            if (!v.name) return nameInput.focus();
+            close({ values: { ...v, colors: { ...v.colors } }, custom: { ...custom } });
+          },
+        },
+        preview,
+        !group && h('p', { class: 'sch-hint' }, '全部のグループに反映されます（グループのメニューの「このグループでのプロフィール」で、グループごとに変えることもできます）'),
+        iconSection,
+        nameSection,
+        titleSection,
+        colorSection,
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, '保存'),
+        ),
+      ),
+    ];
+  }).then(async (res) => {
+    if (!res) return;
+    const { values, custom: c } = res;
+    try {
+      if (group) {
+        // 全体の設定を使う項目は、全体の値を書いておく（ほかの人はグループのデータだけで見る）
+        const final = {};
+        for (const f of store.PROFILE_FIELDS) final[f] = c[f] ? values[f] : f === 'colors' ? global.colors : global[f];
+        await store.saveGroupProfile(group.id, final, Object.fromEntries(store.PROFILE_FIELDS.map((f) => [f, !!c[f]])));
+      } else {
+        if (values.name !== auth.displayName()) await auth.setDisplayName(values.name);
+        const profile = { icon: values.icon, title: values.title, colors: values.colors };
+        await store.saveMyProfile(profile);
+        await store.applyProfileToGroups(profile);
+        store.touchPresence(null).catch(() => {});
+        route();
+      }
+      toast('プロフィールを保存しました');
+    } catch (e) {
+      showError(e);
+    }
+  });
+}
+
 // ---- 通知の設定 ----
 // 通知のコード（Firebase Messaging）は使うときだけ読み込む（対応していないブラウザで余計な読み込みをしない）
 const loadPush = () => import('./push.js');
@@ -933,25 +1202,6 @@ async function runAuth(fn) {
   }
 }
 
-async function renameAccount() {
-  const name = await askText({ title: 'あなたの名前', value: auth.displayName(), placeholder: '例：たろう', okLabel: '保存' });
-  if (!name) return;
-  try {
-    await auth.setDisplayName(name);
-  } catch (e) {
-    return showError(e);
-  }
-  store.touchPresence(null).catch(() => {});
-  route();
-  // グループごとに別の名前を付けている場合もあるので、全グループへの反映は選んでもらう
-  actionSheet(`参加中のグループでの名前も「${name}」にしますか？`, [
-    {
-      label: 'すべてのグループに反映する',
-      onClick: () => store.syncMyProfile({ name: true }).then(() => toast('すべてのグループに反映しました'), showError),
-    },
-  ]);
-}
-
 function accountMenu() {
   const guest = auth.isGuest();
   const unread = unreadNewsCount('app');
@@ -959,7 +1209,7 @@ function accountMenu() {
     { label: `📢 アプリからのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
     { label: '🔔 通知の設定', onClick: pushSettingsSheet },
     isAdmin && { label: '管理者ダッシュボード', onClick: () => (location.hash = '#/admin') },
-    { label: '名前を変更', onClick: renameAccount },
+    { label: '👤 プロフィール（アイコン・名前・色）', onClick: () => profileSheet() },
     guest && { label: '復旧IDを確認', onClick: myRecoverySheet },
     { label: guest ? '🔗 アカウントを連携（ゲストから引き継ぐ）' : '🔗 ログイン方法の連携', onClick: linkAccountsSheet },
     {
@@ -1223,6 +1473,7 @@ function joinView(root, { groupId, code }) {
     status.textContent = 'グループに参加しています…';
     store
       .joinGroup(groupId, code)
+      .then(() => store.applyProfileToGroups(myProfile, groupId).catch(() => {}))
       .then(() => location.replace(`#/g/${groupId}`))
       .catch((e) => {
         console.error(e);
@@ -1277,8 +1528,9 @@ function homeView(root) {
       body,
       h(
         'button',
-        { class: 'greeting', onClick: renameAccount, 'aria-label': '名前を変更' },
-        h('span', {}, `👋 ${auth.displayName()} さん`),
+        { class: 'greeting', onClick: () => profileSheet(), 'aria-label': 'プロフィールを変更' },
+        avatar({ uid: user.uid, name: auth.displayName(), icon: myProfile.icon, colors: myProfile.colors }, 32),
+        h('span', {}, `${auth.displayName()} さん`, myProfile.title && h('small', { class: 'profile-title' }, myProfile.title)),
         auth.isGuest() && h('span', { class: 'badge muted' }, 'ゲスト'),
         h('span', { class: 'edit-hint' }, '変更'),
       ),
@@ -1318,7 +1570,13 @@ function homeView(root) {
               class: 'add-card',
               onClick: async () => {
                 const name = await askText({ title: '新しいグループ', placeholder: '例：わが家、旅行メンバー', okLabel: '作成' });
-                if (name) store.createGroup(name).then((id) => (location.hash = `#/g/${id}`), showError);
+                if (name)
+                  store
+                    .createGroup(name)
+                    .then(async (id) => {
+                      await store.applyProfileToGroups(myProfile, id).catch(() => {});
+                      location.hash = `#/g/${id}`;
+                    }, showError);
               },
             },
             '＋ グループを作成',
@@ -2360,12 +2618,6 @@ function addListMenu(groupId, eventId = null) {
   ]);
 }
 
-async function renameInGroup(group) {
-  const current = group.members?.[user.uid]?.name ?? auth.displayName();
-  const name = await askText({ title: `「${group.name}」での名前`, value: current, placeholder: '例：パパ、たろう', okLabel: '保存' });
-  if (name && name !== current) store.renameMeInGroup(group.id, name).then(() => toast('名前を変更しました'), showError);
-}
-
 // オーナーがメンバーの行をタップしたときのメニュー
 function memberMenu(group, memberUid, m) {
   actionSheet(m.name, [
@@ -2431,15 +2683,15 @@ function membersSheet(group, recoveryCodes = {}) {
         h(
           'li',
           id === user.uid
-            ? { class: 'is-me', onClick: () => (close(null), renameInGroup(group)) }
+            ? { class: 'is-me', onClick: () => (close(null), profileSheet({ group })) }
             : isOwner && m.role !== 'owner'
               ? { class: 'is-tappable', onClick: () => (close(null), memberMenu(group, id, m)) }
               : {},
-          onlineDot(store.isOnline(m.lastSeen)),
+          h('span', { class: 'avatar-wrap' }, avatar({ uid: id, ...m }, 34), onlineDot(store.isOnline(m.lastSeen))),
           h(
             'span',
             { class: 'member-name' },
-            h('span', {}, m.name, id === user.uid && '（自分）'),
+            h('span', {}, m.name, id === user.uid && '（自分）', m.title && h('small', { class: 'profile-title' }, m.title)),
             h('span', { class: 'member-seen' }, store.isOnline(m.lastSeen) ? 'オンライン' : timeAgo(store.millis(m.lastSeen)), bonusBoxes.get(id)),
           ),
           m.role === 'owner' && h('span', { class: 'badge' }, 'オーナー'),
@@ -2475,7 +2727,7 @@ function membersSheet(group, recoveryCodes = {}) {
       ),
     ),
     h('button', { class: 'sheet-action', onClick: () => (close(null), inviteQrSheet(group)) }, '＋ メンバーを招待（QRコード）'),
-    h('button', { class: 'sheet-action', onClick: () => (close(null), renameInGroup(group)) }, 'このグループでの自分の名前を変更'),
+    h('button', { class: 'sheet-action', onClick: () => (close(null), profileSheet({ group })) }, '👤 このグループでのプロフィール'),
     h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
   ]);
 }
@@ -2496,7 +2748,7 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
     { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
     { label: '招待リンクを送る', onClick: () => shareInvite(group) },
     { label: 'メンバーを見る', onClick: () => membersSheet(group, recoveryCodes) },
-    { label: 'このグループでの自分の名前を変更', onClick: () => renameInGroup(group) },
+    { label: '👤 このグループでのプロフィール', onClick: () => profileSheet({ group }) },
     {
       label: 'グループ名を変更',
       onClick: async () => {
@@ -2628,6 +2880,8 @@ function groupView(root, { groupId }) {
     (g) => {
       group = g;
       groupMembers[groupId] = memberList(g);
+      groupThemes[groupId] = g.members?.[user.uid]?.colors ?? null;
+      applyTheme(themeForHash(location.hash));
       // その日はじめてこのグループを開いたら、ログインボーナス（2 回目からは何もしない）
       if (!authBusy && !auth.needsName()) checkBonus(g);
       const owner = g.members?.[user.uid]?.role === 'owner';
@@ -2839,7 +3093,7 @@ function groupView(root, { groupId }) {
 function memberList(group) {
   return Object.entries(group?.members ?? {})
     .sort((a, b) => (a[1].joinedAt ?? 0) - (b[1].joinedAt ?? 0))
-    .map(([uid, m]) => ({ uid, name: m.name }));
+    .map(([uid, m]) => ({ uid, name: m.name, icon: m.icon ?? '', title: m.title ?? '', colors: m.colors ?? {} }));
 }
 
 function participantsLabel(members, participants) {
@@ -2881,6 +3135,7 @@ function participantPicker(members, selected = []) {
                 render();
               },
             },
+            avatar(m, 18),
             m.uid === user.uid ? `${m.name}（自分）` : m.name,
           ),
         ),
@@ -3091,7 +3346,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     ...ps
       .filter((p) => p.date === d && !isSpan(p))
       .sort((a, b) => (a.start ?? '').localeCompare(b.start ?? '') || (a.createdAt ?? 0) - (b.createdAt ?? 0))
-      .map((p) => ({ title: p.title, kind: 'plan' })),
+      .map((p) => ({ title: p.title, kind: 'plan', color: p.participants?.length === 1 ? personColor(members.find((m) => m.uid === p.participants[0])) : null })),
     ...schedItems.filter((x) => x.item.date === d).sort((a, b) => bySeq(a.item, b.item)).map((x) => ({ title: x.item.title, kind: 'sched' })),
   ];
 
@@ -3208,7 +3463,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           h(
             'span',
             { class: 'cal-labels', style: `grid-column: ${i + 1}; grid-row: ${lanes + 2}` },
-            shown.map((x) => h('span', { class: `cal-label ${x.kind}` }, x.title)),
+            shown.map((x) => h('span', { class: `cal-label ${x.kind}`, style: x.color ? `--who: ${x.color}` : null }, x.title)),
             more > 0 && h('b', { class: 'cal-more' }, `+${more}`),
           )
         );
@@ -3482,6 +3737,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
               rerender();
             },
           },
+          m.uid !== 'all' && avatar(m, 18),
           m.uid === user.uid ? `${m.name}（自分）` : m.name,
         ),
       ),
@@ -5492,6 +5748,7 @@ function route() {
   unmount = null;
   app.replaceChildren();
   const hash = location.hash;
+  applyTheme(themeForHash(hash));
 
   if (user === undefined) return loadingView(app);
 
@@ -5542,6 +5799,7 @@ document.addEventListener('visibilitychange', () => heartbeat(true));
 auth.watchUser((u) => {
   user = u;
   startNewsWatchers(u);
+  startProfileWatcher(u);
   unwatchAdmin?.();
   unwatchAdmin = null;
   isAdmin = false;

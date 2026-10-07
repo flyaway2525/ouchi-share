@@ -3488,3 +3488,169 @@ select.text-input {
   border-radius: 3px;
   background: color-mix(in srgb, var(--muted) 45%, transparent);
 }
+
+/* ---- プロフィール ---- */
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--av) 28%, var(--surface));
+  box-shadow: inset 0 0 0 2px var(--av);
+  line-height: 1;
+  font-weight: 700;
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.chip .avatar {
+  margin-right: 4px;
+}
+
+.avatar-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.avatar-wrap .dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+}
+
+.profile-title {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.greeting .avatar {
+  margin-right: 8px;
+}
+
+.profile-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 4px 0 8px;
+  font-size: 18px;
+}
+
+.profile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-section.disabled > :not(.profile-head) {
+  opacity: 0.45;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.check-row.small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.icon-chips {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.icon-chip {
+  min-width: 0;
+  padding: 0;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 20px;
+}
+
+.icon-chip {
+  font-size: 18px;
+}
+
+.icon-chip.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.icon-input {
+  width: 100px;
+}
+
+.profile-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.color-label {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.color-label small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.swatch.on {
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+.swatch.none {
+  width: auto;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.color-picker {
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+/* カレンダーの予定の線：参加者が 1 人なら、その人の識別カラー */
+.cal-label.plan[style] {
+  border-left-color: var(--who);
+  background: color-mix(in srgb, var(--who) 14%, transparent);
+}
