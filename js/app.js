@@ -3643,7 +3643,7 @@ const FOOD_HOW = [['cook', '🍳 作る'], ['buy', '🛒 買う'], ['eatout', '�
 // 欲しい度（❤️。欲しいものリストだけ）：タップで +1、長押しで連続。最後にハートを足してから 1 週間ごとに半分（切り捨て）になり、
 // 0 になったら「💭 昔欲しかったもの」へ。items の hearts（足したときの数）と heartsAt（足した時刻）から、今の数を計算する
 const HEART_WEEK = 7 * 24 * 60 * 60 * 1000;
-const NEW_HEARTS = 3; // 新しく追加したもの（hearts がまだないもの）は ❤️3 から
+const NEW_HEARTS = 5; // 新しく追加したもの（hearts がまだないもの）は ❤️5 から（5 → 2 → 1 → 0 で、3 週間ほど残る）
 function heartsOf(w, now = Date.now()) {
   const since = w.heartsAt ?? w.createdAt ?? now;
   const weeks = Math.max(0, Math.floor((now - since) / HEART_WEEK));
