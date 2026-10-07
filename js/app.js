@@ -1220,7 +1220,7 @@ function joinView(root, { groupId, code }) {
 function homeView(root) {
   const body = h('main', { class: 'content' });
   root.append(header({ title: 'ouchi-share', onMenu: accountMenu }), body);
-  const appUrl = `${location.origin}${location.pathname}`;
+  const appUrl = store.WEB_URL;
   const qrCard = h(
     'div',
     { class: 'qr-card' },

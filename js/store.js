@@ -36,7 +36,9 @@ import {
   where,
   writeBatch,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
-import { db } from './firebase.js';
+import { db, WEB_URL } from './firebase.js';
+
+export { WEB_URL };
 import { currentUser, displayName, isGuest } from './auth.js';
 
 const groupRef = (groupId) => doc(db, 'groups', groupId);
@@ -153,7 +155,7 @@ export async function regenerateInvite(groupId) {
 }
 
 export function inviteUrl(group) {
-  return `${location.origin}${location.pathname}#/join/${group.id}/${group.inviteCode}`;
+  return `${WEB_URL}#/join/${group.id}/${group.inviteCode}`;
 }
 
 export async function deleteGroup(groupId) {
@@ -227,7 +229,7 @@ export function normalizeRecoveryCode(input) {
 }
 
 export function recoveryUrl(code) {
-  return `${location.origin}${location.pathname}#/recover/${code}`;
+  return `${WEB_URL}#/recover/${code}`;
 }
 
 // ゲストが参加中のグループに復旧ID がなければ作る

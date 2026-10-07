@@ -1,0 +1,18 @@
+{
+  "name": "ouchi-share",
+  "private": true,
+  "description": "家族や友人と共有できる、おうちの情報共有ツール（Web 版は GitHub Pages、iPhone アプリ版は Capacitor）",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-www.mjs",
+    "ios:sync": "npm run build && npx cap sync ios",
+    "ios:open": "npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2"
+  }
+}

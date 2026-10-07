@@ -24,8 +24,12 @@
 
 ## 6. iPhone アプリ版（Mac で作業）
 
+手順は [ios-setup.md](ios-setup.md)。Mac を用意した（2026-10-07）。
+
+- [ ] Apple Developer Program を前の Apple ID で復旧（更新）する
 - [ ] Mac に Xcode・Node.js を入れる。Mac にも Claude Code を入れてリポジトリを clone
-- [ ] リポジトリに Capacitor の設定を足す（Web 版の動きは変えない）
+- [x] リポジトリに Capacitor の設定を足す（Web 版の動きは変えない）：package.json・capacitor.config.json・scripts/build-www.mjs・icons/icon-1024.png（2026-10-07）
+- [ ] Mac で `npx cap add ios` → ios/ をコミット
 - [ ] シミュレーター・自分の iPhone で起動
 - [ ] ログインの作り直し：アプリ内ではポップアップの Google ログインが動かないので、iPhone の仕組みの Google ログイン＋「Apple でサインイン」に
 - [ ] アプリの通知（APNs キーを Firebase に登録）
@@ -37,7 +41,6 @@
 - [ ] 「📋 登録」の強化：アプリを開いたときにクリップボードの URL を確認して「このリンクを登録しますか？」と出す。
       共有メニュー（TikTok などの「共有」→ おうちでシェア）から直接登録できるようにする（Share Extension）
 - [ ] ウィジェット（WidgetKit / Swift。例：今日の予定、買い物リスト）
-- [ ] Apple Developer Program に登録（年 99 ドル）
 - [ ] TestFlight で家族に配る（ビルドは 90 日で期限切れ → それまでに Mac から再アップロード）
 
 ## 7. 新機能の候補

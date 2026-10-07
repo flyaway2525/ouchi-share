@@ -1,0 +1,9 @@
+{
+  "appId": "io.github.flyaway2525.ouchishare",
+  "appName": "おうちでシェア",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#fff8f0"
+  }
+}

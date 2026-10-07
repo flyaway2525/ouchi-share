@@ -3,7 +3,7 @@
 // データの保護は firestore.rules のセキュリティルールで行う。
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
-import { getAuth } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
+import { getAuth, initializeAuth, indexedDBLocalPersistence } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import {
   initializeFirestore,
   persistentLocalCache,
@@ -26,8 +26,14 @@ const firebaseConfig = {
 export const VAPID_KEY = 'BCwRG2xTpB5gK3gFr-LwrmWhSPfuW5X65XyYh3rK_8qAUnxlIXGQ4nPsS_rJDfqKKfkzF4iPFrlNu3Bfz531NJU';
 export const NOTIFY_URL = 'https://ouchi-share-notify.flyaway2525.workers.dev/';
 
+// iPhone アプリ版（Capacitor）の中で動いているか。アプリの中では window.Capacitor が用意される
+export const isNativeApp = !!window.Capacitor?.isNativePlatform?.();
+// 招待リンク・復旧用のリンク・QR に使う Web 版のアドレス（アプリの中の location は capacitor://localhost なので使えない）
+export const WEB_URL = isNativeApp ? 'https://flyaway2525.github.io/ouchi-share/' : `${location.origin}${location.pathname}`;
+
 export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+// アプリの中では getAuth が止まってしまうことがあるので、保存先（IndexedDB）を指定して初期化する
+export const auth = isNativeApp ? initializeAuth(app, { persistence: indexedDBLocalPersistence }) : getAuth(app);
 auth.languageCode = 'ja';
 
 // 端末にもキャッシュしておき、オフラインでも表示・編集できるようにする
