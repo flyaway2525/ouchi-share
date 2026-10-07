@@ -71,6 +71,7 @@ export function openSheet(build, { asWindow = false } = {}) {
     });
     // 条件付きで出す部品（false / null）は飛ばす
     sheet.append(...build(close).flat().filter((c) => c != null && c !== false));
+    enableSwipeDown(sheet, backdrop, close);
     backdrop.append(sheet);
     document.body.append(backdrop);
     requestAnimationFrame(() => {
@@ -78,6 +79,66 @@ export function openSheet(build, { asWindow = false } = {}) {
       sheet.querySelector('input')?.focus();
     });
   });
+}
+
+// 下にスワイプして閉じる（シート・ウィンドウ共通）。中身がいちばん上までスクロールされているときだけ。
+// 入力欄の上から始めたときは何もしない。90px 以上下げて離すと閉じ、少しなら元に戻る
+function enableSwipeDown(sheet, backdrop, close) {
+  let startX = 0;
+  let startY = null;
+  let dy = 0;
+  let dragging = false;
+  sheet.addEventListener(
+    'touchstart',
+    (e) => {
+      startY = null;
+      if (e.touches.length !== 1 || e.target.closest('input, textarea, select, [contenteditable]')) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      dy = 0;
+      dragging = false;
+    },
+    { passive: true },
+  );
+  sheet.addEventListener(
+    'touchmove',
+    (e) => {
+      if (startY === null) return;
+      const d = e.touches[0].clientY - startY;
+      const dx = e.touches[0].clientX - startX;
+      if (!dragging) {
+        if (Math.abs(d) < 8 && Math.abs(dx) < 8) return;
+        // 上向き・横向き・中身がスクロールしている途中なら、ふつうのスクロールに任せる
+        if (d < 0 || Math.abs(dx) > d || sheet.scrollTop > 0) {
+          startY = null;
+          return;
+        }
+        dragging = true;
+        sheet.style.transition = 'none';
+      }
+      e.preventDefault();
+      dy = Math.max(0, d);
+      sheet.style.transform = `translateY(${dy}px)`;
+      backdrop.style.background = `rgb(0 0 0 / ${Math.max(0, 0.35 * (1 - dy / 400))})`;
+    },
+    { passive: false },
+  );
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    startY = null;
+    sheet.style.transition = 'transform 0.2s ease';
+    backdrop.style.background = '';
+    if (dy > 90) {
+      sheet.style.transform = `translateY(${innerHeight}px)`;
+      close(null);
+    } else {
+      sheet.style.transform = '';
+      setTimeout(() => (sheet.style.transition = ''), 200);
+    }
+  };
+  sheet.addEventListener('touchend', end);
+  sheet.addEventListener('touchcancel', end);
 }
 
 export function actionSheet(title, actions, options = {}) {

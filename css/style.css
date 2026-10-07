@@ -3477,3 +3477,14 @@ select.text-input {
   transform: none;
   opacity: 1;
 }
+
+/* シート・ウィンドウの上の「つまみ」（下にスワイプして閉じられる目印） */
+.sheet::before {
+  content: '';
+  display: block;
+  width: 40px;
+  height: 5px;
+  margin: 2px auto 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+}
