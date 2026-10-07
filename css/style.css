@@ -2057,17 +2057,16 @@ select.text-input {
   pointer-events: none;
 }
 
-/* その日の予定の名前（マスの幅に合わせて「…」で省略） */
+/* その日の予定の名前（省略せずに、マスの幅で折り返して全部出す） */
 .cal-label {
-  padding: 0 3px;
+  padding: 1px 2px;
   border-left: 2px solid var(--accent);
   border-radius: 2px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-  font-size: 10px;
-  line-height: 14px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 8.5px;
+  line-height: 1.25;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .cal-label.sched {
@@ -2076,8 +2075,8 @@ select.text-input {
 }
 
 .cal-more {
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 9px;
+  line-height: 12px;
   color: var(--accent);
   text-align: center;
 }

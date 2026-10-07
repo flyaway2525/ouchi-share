@@ -2702,7 +2702,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   const isSpan = (p) => !!p.date && !!p.endDate && p.endDate > p.date;
   const spanPlans = ps.filter(isSpan);
   // その日のマスに名前を出す予定（普段の予定は時刻順、旅程の予定はあと）
-  const MAX_LABELS = 2;
+  const MAX_LABELS = 3;
   const labelsOn = (d) => [
     ...ps
       .filter((p) => p.date === d && !isSpan(p))
@@ -2784,11 +2784,11 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     }
     const lanes = Math.min(laneEnds.length, MAX_LANES);
     const labels = days.map(labelsOn);
-    // 名前の行の高さは、その週でいちばん多い日に合わせる（1 件 15px、なければ 14px）
-    const rows = Math.min(MAX_LABELS, Math.max(0, ...labels.map((l) => l.length + (hidden[labels.indexOf(l)] > 0 ? 1 : 0))));
+    // 名前の行は、名前が折り返して何行になっても全部見えるように高さを自動に（なければ 14px）
+    const any = labels.some((l) => l.length) || hidden.some((n) => n > 0);
     return h(
       'div',
-      { class: 'cal-week', style: `grid-template-rows: 26px repeat(${lanes}, 18px) ${rows ? rows * 15 + 4 : 14}px` },
+      { class: 'cal-week', style: `grid-template-rows: 26px repeat(${lanes}, 18px) ${any ? 'minmax(14px, auto)' : '14px'}` },
       days.map((d, i) =>
         h(
           'button',
@@ -2811,7 +2811,8 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
               class: `cal-bar${seg.e.kind === 'plan' ? ' plan' : ''}${seg.e.startDate >= ws ? ' head' : ''}${seg.e.endDate <= we ? ' tail' : ''}`,
               style: `grid-column: ${seg.s + 1} / ${seg.t + 2}; grid-row: ${seg.lane + 2}`,
             },
-            `${seg.e.emoji} ${seg.e.title}`,
+            // 前の週から続いている帯は、絵文字を省いて名前を見えやすくする
+            seg.e.startDate >= ws ? `${seg.e.emoji} ${seg.e.title}` : seg.e.title,
           ),
         ),
       days.map((d, i) => {
