@@ -72,11 +72,6 @@ function clearNewsSource(sourceId) {
 function checkNews() {
   // 読み込み前・ログイン処理中・名前の入力前は出さない
   if (!newsReads || !user || authBusy || auth.needsName()) return;
-  // その日はじめてなら、先にログインボーナス（出し終わったら、お知らせの続き）
-  if (bonusCheckedFor !== `${user.uid}:${todayStr()}`) {
-    checkBonus().then(checkNews);
-    return;
-  }
   const all = [...newsSources.values()].flat().sort((a, b) => newsTime(a) - newsTime(b));
   for (const n of all) {
     if (isNewsRead(n) || snoozedNews.has(snoozeKey(n)) || newsShowing === n.key || newsQueue.some((q) => q.key === n.key)) continue;
@@ -151,8 +146,9 @@ function newsSheet() {
   });
 }
 
-// ---- ログインボーナス（スタンプ集め） ----
-// その日はじめて開いたら、スタンプを 1 つもらえる（月ごとの季節のスタンプ。たまにレア）。連続・合計の日数で記念スタンプも。
+// ---- ログインボーナス（スタンプ集め。グループごと） ----
+// その日はじめてグループを開いたら、そのグループのスタンプを 1 つもらえる（月ごとの季節のスタンプ。たまにレア）。
+// 連続・合計の日数で記念スタンプも。そのグループではじめてもらうときは 🎉 ようこそスタンプも付く。
 // お知らせのポップアップと重ならないように、ボーナスを出している間はお知らせを待たせる（newsShowing を使う）。
 
 const SEASON_STAMPS = [
@@ -171,6 +167,7 @@ const SEASON_STAMPS = [
 ];
 const RARE_STAMPS = ['🌈', '🦄', '👑', '💎', '🍀', '🐉'];
 const MILESTONE_STAMPS = [
+  ['🎉', 'ようこそ', (b) => b.total === 1],
   ['🏅', '7日連続', (b) => b.streak === 7],
   ['🏆', '30日連続', (b) => b.streak === 30],
   ['🎖️', '合計50日', (b) => b.total === 50],
@@ -178,7 +175,7 @@ const MILESTONE_STAMPS = [
 ];
 const RARE_RATE = 0.05;
 
-let bonusCheckedFor = null; // 'uid:YYYY-MM-DD'（その日はもう確かめた）
+const bonusChecked = new Set(); // 'uid:グループ:YYYY-MM-DD'（その日はもう確かめた）
 
 // 今日もらうスタンプ：レア（5%）か、今月の季節のスタンプ（まだ持っていないものが出やすい）。記念の日はそれも
 function pickStamps(b) {
@@ -189,13 +186,15 @@ function pickStamps(b) {
   return [main, ...MILESTONE_STAMPS.filter(([, , test]) => test(b)).map(([s]) => s)];
 }
 
-async function checkBonus() {
-  const key = `${user.uid}:${todayStr()}`;
-  if (bonusCheckedFor === key) return false;
-  bonusCheckedFor = key;
+// グループを開いたときに呼ぶ。お知らせなどのポップアップを出している途中なら、それが終わるのを待ってから
+async function checkBonus(group) {
+  const key = `${user.uid}:${group.id}:${todayStr()}`;
+  if (bonusChecked.has(key)) return false;
+  bonusChecked.add(key);
+  while (newsShowing) await new Promise((r) => setTimeout(r, 400));
   let res;
   try {
-    res = await store.claimDailyBonus(todayStr(), addDays(todayStr(), -1), pickStamps);
+    res = await store.claimDailyBonus(group.id, todayStr(), addDays(todayStr(), -1), pickStamps);
   } catch (e) {
     // オフラインなどで書けなければ、この起動中はあきらめて次に開いたときにもう一度
     console.warn('ログインボーナスを記録できませんでした', e);
@@ -203,17 +202,18 @@ async function checkBonus() {
   }
   if (!res) return false;
   newsShowing = 'bonus';
-  await bonusPopup(res);
+  await bonusPopup(res, group);
   newsShowing = null;
+  checkNews();
   return true;
 }
 
-function bonusPopup(res) {
+function bonusPopup(res, group) {
   const [main, ...extra] = res.got;
   const isNew = (s) => !res.before[s];
   const rare = RARE_STAMPS.includes(main);
   return openSheet((close) => [
-    h('div', { class: 'sheet-title' }, '🎁 今日のログインボーナス'),
+    h('div', { class: 'sheet-title' }, `🎁 ${group.name}のログインボーナス`),
     h(
       'div',
       { class: 'bonus-card' },
@@ -223,22 +223,26 @@ function bonusPopup(res) {
       h('p', { class: 'bonus-streak' }, h('b', {}, `🔥 ${res.streak}日連続`), ` ・ 合計 ${res.total}日`),
       h('p', { class: 'bonus-count' }, `スタンプ ${Object.keys(res.stamps).length} / ${allStamps().length} 種類`),
     ),
-    h('button', { class: 'sheet-action', onClick: () => (close(null), (location.hash = '#/stamps')) }, '📖 スタンプ帳を見る'),
+    h('button', { class: 'sheet-action', onClick: () => (close(null), (location.hash = `#/g/${group.id}/stamps`)) }, '📖 スタンプ帳を見る'),
     h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'OK'),
   ]);
 }
 
 const allStamps = () => [...SEASON_STAMPS.flat(), ...RARE_STAMPS, ...MILESTONE_STAMPS.map(([s]) => s)];
 
-// ---- 画面：スタンプ帳 ----
-function stampsView(root) {
-  const top = h('div', { class: 'topbar-wrap' }, header({ title: '📖 スタンプ帳', back: '#/' }));
+// ---- 画面：スタンプ帳（グループごと） ----
+function stampsView(root, { groupId }) {
+  const top = h('div', { class: 'topbar-wrap' }, header({ title: '📖 スタンプ帳', back: `#/g/${groupId}` }));
   const body = h('main', { class: 'content' }, h('p', { class: 'empty small' }, '読み込み中…'));
   root.append(top, body);
   let alive = true;
-  store
-    .getBonus()
-    .then((b) => {
+  // グループ名（見出し用）は 1 回だけ読む
+  const groupOnce = new Promise((resolve) => {
+    const un = store.watchGroup(groupId, (g) => (resolve(g), setTimeout(() => un(), 0)), () => resolve(null));
+  });
+  Promise.all([store.getBonus(groupId), groupOnce])
+    .then(([b, group]) => {
+      if (group) setChildren(top, header({ title: `📖 ${group.name}のスタンプ帳`, back: `#/g/${groupId}` }));
       if (!alive) return;
       const stamps = b?.stamps ?? {};
       const cell = (s, hint) =>
@@ -268,7 +272,7 @@ function stampsView(root) {
         ),
         h('p', { class: 'section-label' }, '✨ レアスタンプ（いつでも、たまに出ます）'),
         h('div', { class: 'stamp-row' }, RARE_STAMPS.map((s) => cell(s, 'たまに出ます'))),
-        h('p', { class: 'section-label' }, '🏅 記念スタンプ'),
+        h('p', { class: 'section-label' }, '🏅 記念スタンプ（🎉 はこのグループではじめての日）'),
         h(
           'div',
           { class: 'stamp-row milestones' },
@@ -462,7 +466,6 @@ function accountMenu() {
   const unread = unreadNewsCount('app');
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
     { label: `📢 アプリからのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
-    { label: '📖 スタンプ帳（ログインボーナス）', onClick: () => (location.hash = '#/stamps') },
     { label: '🔔 通知の設定', onClick: pushSettingsSheet },
     isAdmin && { label: '管理者ダッシュボード', onClick: () => (location.hash = '#/admin') },
     { label: '名前を変更', onClick: renameAccount },
@@ -1740,17 +1743,18 @@ function membersSheet(group, recoveryCodes = {}) {
   );
   // ログインボーナスの記録（🔥 連続日数・スタンプの数）は、開いてから読み込んで入れる
   const bonusBoxes = new Map(members.map(([id]) => [id, h('span', { class: 'member-bonus' })]));
-  for (const [id, box] of bonusBoxes) {
-    store
-      .getBonus(id)
-      .then((b) => {
-        if (!b) return;
+  store
+    .getGroupBonus(group.id)
+    .then((all) => {
+      for (const [id, box] of bonusBoxes) {
+        const b = all[id];
+        if (!b) continue;
         const alive = b.lastDate === todayStr() || b.lastDate === addDays(todayStr(), -1);
         box.textContent = `${alive ? `🔥${b.streak}日` : ''}${alive ? ' ・ ' : ''}🎖${Object.keys(b.stamps ?? {}).length}`;
         box.title = `連続 ${alive ? b.streak : 0}日 ・ 合計 ${b.total}日 ・ スタンプ ${Object.keys(b.stamps ?? {}).length}種類`;
-      })
-      .catch(() => {});
-  }
+      }
+    })
+    .catch(() => {});
   openSheet((close) => [
     h('div', { class: 'sheet-title' }, `メンバー（${members.length} 人）`),
     h(
@@ -1875,6 +1879,8 @@ function groupView(root, { groupId }) {
     (g) => {
       group = g;
       groupMembers[groupId] = memberList(g);
+      // その日はじめてこのグループを開いたら、ログインボーナス（2 回目からは何もしない）
+      if (!authBusy && !auth.needsName()) checkBonus(g);
       const owner = g.members?.[user.uid]?.role === 'owner';
       if (owner && !unwatchRecovery) {
         unwatchRecovery = store.watchRecoveryCodes(groupId, (codes) => (recoveryCodes = codes), () => {});
@@ -1897,6 +1903,7 @@ function groupView(root, { groupId }) {
                 label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
                 onClick: () => (location.hash = `#/g/${groupId}/news`),
               },
+              { label: '📖 スタンプ帳（ログインボーナス）', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
               { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
               { label: '招待リンクを送る', onClick: () => shareInvite(group) },
               { label: 'メンバーを見る', onClick: () => membersSheet(group, recoveryCodes) },
@@ -4507,7 +4514,7 @@ const routes = [
   [/^#\/g\/([\w-]+)$/, (m) => [groupView, { groupId: m[1] }]],
   [/^#\/admin$/, () => [adminView, {}]],
   [/^#\/news$/, () => [newsListView, {}]],
-  [/^#\/stamps$/, () => [stampsView, {}]],
+  [/^#\/g\/([\w-]+)\/stamps$/, (m) => [stampsView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/news$/, (m) => [newsListView, { groupId: m[1] }]],
 ];
 

@@ -151,14 +151,15 @@ export function inviteUrl(group) {
 }
 
 export async function deleteGroup(groupId) {
-  const [lists, events, plans, news] = await Promise.all([
+  const [lists, events, plans, news, bonus] = await Promise.all([
     getDocs(listsCol(groupId)),
     getDocs(eventsCol(groupId)),
     getDocs(plansCol(groupId)),
     getDocs(groupNewsCol(groupId)),
+    getDocs(collection(db, 'groups', groupId, 'bonus')),
   ]);
   const batch = writeBatch(db);
-  for (const snap of [lists, events, plans, news]) snap.forEach((d) => batch.delete(d.ref));
+  for (const snap of [lists, events, plans, news, bonus]) snap.forEach((d) => batch.delete(d.ref));
   batch.delete(groupRef(groupId));
   await batch.commit();
 }
@@ -649,14 +650,16 @@ export async function deleteChecked(groupId, list) {
   if (Object.keys(patch).length) await updateDoc(listRef(groupId, list.id), patch);
 }
 
-// ---- ログインボーナス ----
-// bonus/{uid} = { lastDate: "YYYY-MM-DD", streak: 連続日数, total: 合計日数, stamps: { 絵文字: もらった回数 }, lastStamp, updatedAt }
-// 家族の記録（メンバー一覧の 🔥）を見られるように、ログインしている人なら 1 件ずつ読める
+// ---- ログインボーナス（グループごと） ----
+// groups/{id}/bonus/{uid} = { lastDate: "YYYY-MM-DD", streak: 連続日数, total: 合計日数, stamps: { 絵文字: もらった回数 }, lastStamp, updatedAt }
+// グループのメンバーなら、みんなの記録を読める（メンバー一覧の 🔥）
+
+const bonusRef = (groupId, userId) => doc(db, 'groups', groupId, 'bonus', userId);
 
 // 今日のぶんをもらう。今日もらい済みなら null。pick({ streak, total, stamps }) が今日もらうスタンプの配列を返す
 // （2 台の端末で同時に開いても二重にもらわないよう、トランザクションで確かめてから書く）
-export async function claimDailyBonus(today, yesterday, pick) {
-  const ref = doc(db, 'bonus', uid());
+export async function claimDailyBonus(groupId, today, yesterday, pick) {
+  const ref = bonusRef(groupId, uid());
   return runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     const cur = snap.exists() ? snap.data() : {};
@@ -672,7 +675,13 @@ export async function claimDailyBonus(today, yesterday, pick) {
   });
 }
 
-export async function getBonus(userId = uid()) {
-  const snap = await getDoc(doc(db, 'bonus', userId));
+export async function getBonus(groupId, userId = uid()) {
+  const snap = await getDoc(bonusRef(groupId, userId));
   return snap.exists() ? snap.data() : null;
+}
+
+// グループのみんなの記録 → { uid: 記録 }
+export async function getGroupBonus(groupId) {
+  const snap = await getDocs(collection(db, 'groups', groupId, 'bonus'));
+  return Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
 }
