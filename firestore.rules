@@ -35,7 +35,8 @@ service cloud.firestore {
 
     // ---- お知らせ ----
     function isValidNews(d) {
-      return d.keys().hasOnly(['title', 'body', 'createdAt', 'createdBy', 'createdByName'])
+      return d.keys().hasOnly(['title', 'body', 'createdAt', 'createdBy', 'createdByName', 'official'])
+        && (!('official' in d) || d.official is bool)
         && isNonEmptyString(d.title, 100)
         && d.body is string && d.body.size() <= 2000
         && d.createdBy == request.auth.uid
@@ -320,13 +321,23 @@ service cloud.firestore {
           return signedIn() && request.auth.uid in groupData().memberIds;
         }
 
+        function isManager() {
+          return groupData().members[request.auth.uid].role in ['owner', 'admin'];
+        }
+
+        // 管理者お知らせ（official: true）は、グループのオーナー・管理者だけが書ける・再通知できる・消せる
+        function isOfficial(d) {
+          return 'official' in d && d.official == true;
+        }
+
         allow read: if isGroupMember();
-        allow create: if isGroupMember() && isValidNews(request.resource.data);
-        // 再アナウンスと削除：書いた本人かオーナー
+        allow create: if isGroupMember() && isValidNews(request.resource.data)
+          && (!isOfficial(request.resource.data) || isManager());
+        // 再アナウンスと削除：ふつうのお知らせは書いた本人かオーナー・管理者、管理者お知らせはオーナー・管理者だけ
         allow update: if isGroupMember() && isReannounce()
-          && (resource.data.createdBy == request.auth.uid || groupData().members[request.auth.uid].role in ['owner', 'admin']);
+          && (isManager() || (!isOfficial(resource.data) && resource.data.createdBy == request.auth.uid));
         allow delete: if isGroupMember()
-          && (resource.data.createdBy == request.auth.uid || groupData().members[request.auth.uid].role in ['owner', 'admin']);
+          && (isManager() || (!isOfficial(resource.data) && resource.data.createdBy == request.auth.uid));
       }
 
       // ---- 写真（欲しいものリストなど）。縮小した JPEG を data URL の文字列で 1 枚 1 ドキュメント ----

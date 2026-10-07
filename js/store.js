@@ -423,8 +423,9 @@ export async function deleteEvent(groupId, eventId) {
 const appNewsCol = () => collection(db, 'announcements');
 const groupNewsCol = (groupId) => collection(db, 'groups', groupId, 'announcements');
 
-function newsFields({ title, body }) {
-  return { title, body, createdAt: Date.now(), createdBy: uid(), createdByName: displayName() };
+// official: グループの管理者お知らせ（オーナー・管理者だけが書ける）
+function newsFields({ title, body, official = false }) {
+  return { title, body, createdAt: Date.now(), createdBy: uid(), createdByName: displayName(), ...(official ? { official: true } : {}) };
 }
 
 export function watchAppNews(cb, onError) {

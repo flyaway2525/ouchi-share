@@ -3808,3 +3808,24 @@ select.text-input {
     gap: 4px;
   }
 }
+
+/* グループの管理者お知らせ */
+.badge.official {
+  margin-right: 6px;
+  background: #f5a623;
+  color: #fff;
+}
+
+.news-row.official {
+  border-left: 4px solid #f5a623;
+  background: color-mix(in srgb, #f5a623 8%, var(--surface));
+}
+
+.news-card.official {
+  border: 2px solid #f5a623;
+}
+
+.add-card.official {
+  border-color: #f5a623;
+  color: #c27d00;
+}

@@ -32,7 +32,7 @@ const prefs = {
 };
 
 // ---- お知らせ ----
-// 管理者からのお知らせ（key "app:ID"）とグループのお知らせ（key "g:GID:ID"）を、届いた順にポップアップで 1 件ずつ出す。
+// アプリからのお知らせ（key "app:ID"）とグループのお知らせ（key "g:GID:ID"）を、届いた順にポップアップで 1 件ずつ出す。
 // 「既読にする」で reads に記録（二度と出ない）。「あとで見る」はこの起動中だけ出さない（次に開いたときにまた出る）。
 // 自分が書いたお知らせは既読あつかい。
 
@@ -102,10 +102,11 @@ function fmtDateTime(ms) {
 function newsPopup(n, remaining = 0) {
   const read = isNewsRead(n);
   return openSheet((close) => [
-    h('div', { class: 'sheet-title' }, `📢 ${n.sourceName}からのお知らせ${remaining > 0 ? `（ほかに${remaining}件）` : ''}`),
+    h('div', { class: 'sheet-title' }, `📢 ${n.sourceName}${n.official ? 'の管理者' : ''}からのお知らせ${remaining > 0 ? `（ほかに${remaining}件）` : ''}`),
     h(
       'div',
-      { class: 'news-card' },
+      { class: `news-card${n.official ? ' official' : ''}` },
+      n.official && h('span', { class: 'badge official' }, '📢 管理者お知らせ'),
       h('h2', { class: 'news-title' }, n.title),
       h('p', { class: 'news-meta' }, `${n.createdByName ?? ''} ・ ${fmtDateTime(n.createdAt)}`),
       n.announcedAt && h('p', { class: 'news-meta' }, `🔁 再アナウンス ${n.announcedByName ?? ''} ・ ${fmtDateTime(n.announcedAt)}`),
@@ -116,12 +117,12 @@ function newsPopup(n, remaining = 0) {
   ]);
 }
 
-function newsSheet() {
+function newsSheet(sheetTitle = 'お知らせを書く') {
   return openSheet((close) => {
     const title = h('input', { class: 'text-input', placeholder: 'タイトル（例：今週末は大掃除します）', maxlength: 100, 'aria-label': 'タイトル' });
     const body = h('textarea', { class: 'text-input memo-input news-input', placeholder: '内容', maxlength: 2000, rows: 5, 'aria-label': '内容' });
     return [
-      h('div', { class: 'sheet-title' }, 'お知らせを書く'),
+      h('div', { class: 'sheet-title' }, sheetTitle),
       h(
         'form',
         {
@@ -1411,7 +1412,7 @@ function startNewsWatchers(u) {
     },
   );
   unwatchAppNews = store.watchAppNews(
-    (list) => setNewsSource('app', list.map((n) => ({ ...n, key: `app:${n.id}`, sourceId: 'app', sourceName: '管理者' }))),
+    (list) => setNewsSource('app', list.map((n) => ({ ...n, key: `app:${n.id}`, sourceId: 'app', sourceName: 'アプリ' }))),
     () => {},
   );
 }
@@ -1453,7 +1454,7 @@ function accountMenu() {
   const guest = auth.isGuest();
   const unread = unreadNewsCount('app');
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
-    { label: `📢 管理者からのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
+    { label: `📢 アプリからのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
     { label: '🔔 通知の設定', onClick: pushSettingsSheet },
     isAdmin && { label: '🛠 管理者ダッシュボード（お知らせ・ログボ・グループ作成）', onClick: () => (location.hash = '#/admin') },
     { label: '👤 プロフィール（アイコン・名前・色）', onClick: () => profileSheet() },
@@ -2981,16 +2982,51 @@ function membersSheet(group, recoveryCodes = {}) {
 
 // グループのメニュー（グループの画面の ⋯ と、ホームのグループのカードで共通）。
 // options.asWindow で、下から出るシートではなく画面の真ん中に浮かぶウィンドウとして出す（ホームのカードから）
+// グループの管理（オーナー・管理者だけの機能をまとめたメニュー）
+function groupAdminMenu(group, options = {}) {
+  const groupId = group.id;
+  const owner = group.members?.[user.uid]?.role === 'owner';
+  actionSheet(`🛠 ${group.name}の管理`, [
+    {
+      label: '📢 管理者お知らせを書く',
+      onClick: () => {
+        location.hash = `#/g/${groupId}/news`;
+        // お知らせの画面が開いてから、書くシートを出す
+        setTimeout(() => groupNewsWriter?.(true), 300);
+      },
+    },
+    { label: '🎟 ごほうび・チケットのレート', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
+    owner && { label: '👑 管理者を設定（オーナーだけ）', onClick: () => managersSheet(group) },
+    owner && {
+      label: '招待リンクを作り直す（オーナーだけ）',
+      onClick: async () => {
+        if (await confirmSheet('今までの招待リンクは使えなくなります（参加済みのメンバーはそのまま）。作り直しますか？', '作り直す')) {
+          store.regenerateInvite(groupId).then(() => toast('招待リンクを作り直しました'), showError);
+        }
+      },
+    },
+    owner && {
+      label: 'グループを削除（オーナーだけ）',
+      danger: true,
+      onClick: async () => {
+        if (await confirmSheet(`「${group.name}」と中のリストをすべて削除します。メンバー全員が見られなくなります。削除しますか？`)) {
+          store.deleteGroup(groupId).then(() => (location.hash = '#/'), showError);
+        }
+      },
+    },
+  ].filter(Boolean), options);
+}
+
 function groupMenu(group, recoveryCodes = {}, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
   actionSheet(group.name, [
+    isManager(group) && { label: '🛠 グループの管理（オーナー・管理者だけ）', onClick: () => groupAdminMenu(group, options) },
     {
       label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
       onClick: () => (location.hash = `#/g/${groupId}/news`),
     },
     { label: '🎟 チケット・ごほうび', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
-    owner && { label: '👑 管理者を設定', onClick: () => managersSheet(group) },
     { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
     { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
     { label: '招待リンクを送る', onClick: () => shareInvite(group) },
@@ -3003,33 +3039,19 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
         if (name) store.renameGroup(groupId, name).catch(showError);
       },
     },
-    owner && {
-      label: '招待リンクを作り直す',
-      onClick: async () => {
-        if (await confirmSheet('今までの招待リンクは使えなくなります（参加済みのメンバーはそのまま）。作り直しますか？', '作り直す')) {
-          store.regenerateInvite(groupId).then(() => toast('招待リンクを作り直しました'), showError);
-        }
-      },
-    },
     !owner && { label: 'グループから退出', danger: true, onClick: () => leaveGroup(group) },
-    owner && {
-      label: 'グループを削除',
-      danger: true,
-      onClick: async () => {
-        if (await confirmSheet(`「${group.name}」と中のリストをすべて削除します。メンバー全員が見られなくなります。削除しますか？`)) {
-          store.deleteGroup(groupId).then(() => (location.hash = '#/'), showError);
-        }
-      },
-    },
   ].filter(Boolean), options);
 }
+
+// グループのお知らせの画面を開いているときの「書く」（グループの管理メニューから管理者お知らせを書くのに使う）
+let groupNewsWriter = null;
 
 // オーナーが、メンバーを管理者にする／外す（チップをタップで切り替え）
 function managersSheet(group) {
   const members = Object.entries(group.members ?? {}).filter(([, m]) => m.role !== 'owner');
   openSheet((close) => [
     h('div', { class: 'sheet-title' }, '👑 管理者を設定'),
-    h('p', { class: 'sch-hint' }, '管理者は、ごほうびの登録・交換の「済み」・お知らせの削除や再アナウンス・チケットのレート設定ができます（メンバーを外す・グループの削除はオーナーだけ）'),
+    h('p', { class: 'sch-hint' }, '管理者は、管理者お知らせ・ごほうびの登録・交換の「済み」・お知らせの削除や再アナウンス・チケットのレート設定ができます（メンバーを外す・グループの削除はオーナーだけ）'),
     members.length === 0 && h('p', { class: 'empty small' }, 'まだほかのメンバーがいません'),
     h(
       'ul',
@@ -4333,7 +4355,7 @@ function eventView(root, { groupId, eventId, date = null }) {
 // ---- 画面：管理者ダッシュボード ----
 
 // 管理者だけの機能は、ここにまとめる（タブ：利用状況 / お知らせ / ログボ / グループ）
-// - 管理者からのお知らせ（announcements）を書く・再通知する・消すのは、ここからだけ（ルールでも管理者だけ）
+// - アプリからのお知らせ（announcements。アプリを使う全員に届く）を書く・再通知する・消すのは、ここからだけ（ルールでも管理者だけ）
 function adminView(root) {
   const top = h('div', { class: 'topbar-wrap' }, header({ title: '管理者ダッシュボード', back: '#/' }));
   const body = h('main', { class: 'content' });
@@ -4342,14 +4364,14 @@ function adminView(root) {
   let news = null;
   const TABS = [
     ['usage', '📊 利用状況'],
-    ['news', '📢 お知らせ'],
+    ['news', '📢 アプリのお知らせ'],
     ['bonus', '🎟 ログボ'],
     ['groups', '🏠 グループ'],
   ];
   let tab = TABS.some(([id]) => id === prefs.get('adminTab')) ? prefs.get('adminTab') : 'usage';
 
   const notifyAdminNews = (title, again = false) =>
-    requestNotify({ kind: 'appnews', title: `📢 管理者からのお知らせ${again ? '（再通知）' : ''}`, body: title, url: '#/news' });
+    requestNotify({ kind: 'appnews', title: `📢 ouchi-share からのお知らせ${again ? '（再通知）' : ''}`, body: title, url: '#/news' });
   const writeNews = async () => {
     const res = await newsSheet();
     if (!res) return;
@@ -4419,7 +4441,7 @@ function adminView(root) {
 
   const newsPanel = () => [
     h('p', { class: 'sch-hint' }, 'アプリを使っている全員に届くお知らせです（通知も届きます）。送る・再通知・削除は管理者だけができます'),
-    h('button', { class: 'add-card news-add', onClick: writeNews }, '＋ 管理者からのお知らせを書く'),
+    h('button', { class: 'add-card news-add', onClick: writeNews }, '＋ アプリからのお知らせを書く'),
     !news
       ? h('p', { class: 'empty small' }, '読み込み中…')
       : news.length === 0
@@ -4435,7 +4457,7 @@ function adminView(root) {
                   { class: 'news-row' },
                   h(
                     'button',
-                    { class: 'news-row-main', onClick: () => newsPopup({ ...n, key: `app:${n.id}`, sourceName: '管理者' }) },
+                    { class: 'news-row-main', onClick: () => newsPopup({ ...n, key: `app:${n.id}`, sourceName: 'アプリ' }) },
                     h('span', { class: 'news-row-title' }, n.title),
                     h('span', { class: 'news-row-meta' }, `${n.createdByName ?? ''} ・ ${fmtDateTime(n.createdAt)}${n.announcedAt ? ` ・ 🔁 ${fmtDateTime(n.announcedAt)}` : ''}`),
                   ),
@@ -5973,8 +5995,9 @@ function checklistView(root, { groupId, listId }) {
   });
 }
 
-// ---- 画面：お知らせ一覧（groupId があればグループのお知らせ、なければ管理者からのお知らせ） ----
-// 管理者からのお知らせは、ここでは読むだけ（書く・再通知・削除は管理者ダッシュボードから）
+// ---- 画面：お知らせ一覧（groupId があればグループのお知らせ、なければアプリからのお知らせ） ----
+// アプリからのお知らせは、ここでは読むだけ（書く・再通知・削除は管理者ダッシュボードから）。
+// グループのお知らせは、メンバーなら誰でも書ける「ふつうのお知らせ」と、オーナー・管理者だけが書ける「管理者お知らせ」（official）がある
 
 function newsListView(root, { groupId = null }) {
   const top = h('div', { class: 'topbar-wrap' });
@@ -5984,40 +6007,49 @@ function newsListView(root, { groupId = null }) {
   let items = null;
 
   const canWrite = () => !!groupId;
-  const canDelete = (n) => !!groupId && (n.createdBy === user.uid || isManager(group));
+  // 管理者お知らせはオーナー・管理者だけ。ふつうのお知らせは書いた本人かオーナー・管理者
+  const canDelete = (n) => !!groupId && (isManager(group) || (!n.official && n.createdBy === user.uid));
 
-  const notifyNews = (title, again = false) =>
+  const notifyNews = (title, again = false, official = false) =>
     requestNotify(
       groupId
-        ? { groupId, kind: 'news', title: `📢 ${group.name}${again ? '（再アナウンス）' : ''}`, body: `${title}（${auth.displayName()}さん）`, url: `#/g/${groupId}/news` }
-        : { kind: 'appnews', title: `📢 管理者からのお知らせ${again ? '（再通知）' : ''}`, body: title, url: '#/news' },
+        ? {
+            groupId,
+            kind: 'news',
+            title: `📢 ${group.name}${official ? 'の管理者からのお知らせ' : ''}${again ? '（再アナウンス）' : ''}`,
+            body: `${title}（${auth.displayName()}さん）`,
+            url: `#/g/${groupId}/news`,
+          }
+        : { kind: 'appnews', title: `📢 ouchi-share からのお知らせ${again ? '（再通知）' : ''}`, body: title, url: '#/news' },
     );
 
-  const write = async () => {
-    const res = await newsSheet();
+  const write = async (official = false) => {
+    const res = await newsSheet(official ? '📢 管理者お知らせを書く' : undefined);
     if (!res) return;
-    (groupId ? store.createGroupNews(groupId, res) : store.createAppNews(res)).then(() => {
-      toast('お知らせを送りました');
-      notifyNews(res.title);
+    (groupId ? store.createGroupNews(groupId, { ...res, official }) : store.createAppNews(res)).then(() => {
+      toast(official ? '管理者お知らせを送りました' : 'お知らせを送りました');
+      notifyNews(res.title, false, official);
     }, showError);
   };
+  groupNewsWriter = groupId ? write : null;
 
   // 再アナウンス：みんなの未読に戻して、通知もあらためて送る
   const reannounce = async (n) => {
     if (!(await confirmSheet(`「${n.title}」をもう一度みんなに知らせますか？（みんなの未読に戻り、通知も届きます）`, '再アナウンスする'))) return;
     store.reannounceNews(groupId, n.id).then(() => {
       toast('もう一度お知らせしました');
-      notifyNews(n.title, true);
+      notifyNews(n.title, true, !!n.official);
     }, showError);
   };
 
   function render() {
     if (!items || (groupId && !group)) return;
-    setChildren(top, header({ title: groupId ? `${group.name}のお知らせ` : '管理者からのお知らせ', back: groupId ? `#/g/${groupId}` : '#/' }));
+    setChildren(top, header({ title: groupId ? `${group.name}のお知らせ` : 'アプリからのお知らせ', back: groupId ? `#/g/${groupId}` : '#/' }));
     const sorted = [...items].sort((a, b) => newsTime(b) - newsTime(a));
     setChildren(
       body,
-      canWrite() && h('button', { class: 'add-card news-add', onClick: write }, '＋ お知らせを書く'),
+      canWrite() && h('button', { class: 'add-card news-add', onClick: () => write() }, '＋ お知らせを書く'),
+      canWrite() && isManager(group) && h('button', { class: 'add-card news-add official', onClick: () => write(true) }, '📢 管理者お知らせを書く（オーナー・管理者だけ）'),
       !groupId && isAdmin && h('a', { class: 'add-card news-add', href: '#/admin' }, '🛠 管理者ダッシュボードで書く・再通知・削除'),
       sorted.length === 0 && h('p', { class: 'empty' }, 'お知らせはまだありません'),
       h(
@@ -6026,7 +6058,7 @@ function newsListView(root, { groupId = null }) {
         sorted.map((n) =>
           h(
             'div',
-            { class: `news-row${isNewsRead(n) ? '' : ' unread'}` },
+            { class: `news-row${isNewsRead(n) ? '' : ' unread'}${n.official ? ' official' : ''}` },
             h(
               'button',
               {
@@ -6035,7 +6067,7 @@ function newsListView(root, { groupId = null }) {
                   if ((await newsPopup(n)) === 'read') store.markRead(n.key).catch(showError);
                 },
               },
-              h('span', { class: 'news-row-title' }, !isNewsRead(n) && h('i', { class: 'news-dot', 'aria-label': '未読' }), n.title),
+              h('span', { class: 'news-row-title' }, !isNewsRead(n) && h('i', { class: 'news-dot', 'aria-label': '未読' }), n.official && h('span', { class: 'badge official' }, '管理者'), n.title),
               h('span', { class: 'news-row-meta' }, `${n.createdByName ?? ''} ・ ${fmtDateTime(n.createdAt)}${n.announcedAt ? ` ・ 🔁 ${fmtDateTime(n.announcedAt)}` : ''}`),
             ),
             canDelete(n) &&
@@ -6058,7 +6090,7 @@ function newsListView(root, { groupId = null }) {
     );
   }
 
-  const sourceName = () => (groupId ? group?.name ?? 'グループ' : '管理者');
+  const sourceName = () => (groupId ? group?.name ?? 'グループ' : 'アプリ');
   const toItems = (list) => list.map((n) => ({ ...n, key: groupId ? `g:${groupId}:${n.id}` : `app:${n.id}`, sourceId: groupId ? `g:${groupId}` : 'app', sourceName: sourceName() }));
   const onError = (e) => {
     showError(e);
@@ -6070,6 +6102,7 @@ function newsListView(root, { groupId = null }) {
   const unwatchGroup = groupId ? store.watchGroup(groupId, (g) => ((group = g), items && (items = items.map((n) => ({ ...n, sourceName: g.name }))), render()), onError) : null;
   newsListeners.add(render);
   return () => {
+    if (groupNewsWriter === write) groupNewsWriter = null;
     unwatchItems();
     unwatchGroup?.();
     newsListeners.delete(render);
