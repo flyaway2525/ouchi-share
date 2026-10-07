@@ -816,24 +816,116 @@ function hslToHex(hue, sat, light) {
   return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-// アイコンの写真：真ん中を正方形に切り抜いて、160px の JPEG（data URL）にする
+// アイコンの写真を切り抜く画面。四角い枠の中の丸い点線がアイコンになる範囲。
+// ドラッグで位置、2 本指（またはスライダー）で大きさを変えて「決定」→ 160px の JPEG（data URL）。やめたら null
 async function cropAvatar(file) {
   const url = URL.createObjectURL(file);
+  let img;
   try {
-    const img = await new Promise((resolve, reject) => {
+    img = await new Promise((resolve, reject) => {
       const el = new Image();
       el.onload = () => resolve(el);
       el.onerror = () => reject(new Error('画像を読み込めませんでした'));
       el.src = url;
     });
-    const side = Math.min(img.naturalWidth, img.naturalHeight);
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 160;
-    canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 160, 160);
-    return canvas.toDataURL('image/jpeg', 0.82);
-  } finally {
+  } catch (e) {
     URL.revokeObjectURL(url);
+    throw e;
   }
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  const S = Math.min(300, innerWidth - 64); // 枠の大きさ
+  const base = S / Math.min(W, H); // 枠をちょうど埋める倍率
+  let zoom = 1;
+  let x = (S - W * base) / 2;
+  let y = (S - H * base) / 2;
+  const pic = h('img', { class: 'crop-img', src: url, alt: '', draggable: 'false' });
+  const box = h('div', { class: 'crop-box', 'data-noswipe': '', style: `width: ${S}px; height: ${S}px` }, pic, h('div', { class: 'crop-ring' }));
+  const slider = h('input', { type: 'range', class: 'crop-zoom', min: 1, max: 4, step: 0.01, value: 1, 'aria-label': '大きさ' });
+  // 拡大の中心（枠の中の点）を保ったまま倍率を変え、枠からはみ出さない位置に収める
+  const place = (newZoom = zoom, cx = S / 2, cy = S / 2) => {
+    const k0 = base * zoom;
+    const k1 = base * newZoom;
+    x = cx - ((cx - x) / k0) * k1;
+    y = cy - ((cy - y) / k0) * k1;
+    zoom = newZoom;
+    x = Math.min(0, Math.max(S - W * k1, x));
+    y = Math.min(0, Math.max(S - H * k1, y));
+    pic.style.width = `${W * k1}px`;
+    pic.style.height = `${H * k1}px`;
+    pic.style.transform = `translate(${x}px, ${y}px)`;
+    slider.value = String(zoom);
+  };
+  slider.addEventListener('input', () => place(Number(slider.value)));
+  // 指の動き：1 本ならドラッグ、2 本ならつまんで拡大・縮小
+  const pointers = new Map();
+  let last = null;
+  const snapshot = () => {
+    const ps = [...pointers.values()];
+    if (ps.length >= 2) return { cx: (ps[0].x + ps[1].x) / 2, cy: (ps[0].y + ps[1].y) / 2, d: Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) };
+    return ps.length ? { cx: ps[0].x, cy: ps[0].y, d: 0 } : null;
+  };
+  box.addEventListener('pointerdown', (e) => {
+    box.setPointerCapture?.(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    last = snapshot();
+  });
+  box.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const now = snapshot();
+    if (!last || !now) return;
+    x += now.cx - last.cx;
+    y += now.cy - last.cy;
+    if (now.d && last.d) {
+      const r = box.getBoundingClientRect();
+      place(Math.min(4, Math.max(1, zoom * (now.d / last.d))), now.cx - r.left, now.cy - r.top);
+    } else {
+      place();
+    }
+    last = now;
+  });
+  const lift = (e) => {
+    pointers.delete(e.pointerId);
+    last = snapshot();
+  };
+  box.addEventListener('pointerup', lift);
+  box.addEventListener('pointercancel', lift);
+  box.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const r = box.getBoundingClientRect();
+    place(Math.min(4, Math.max(1, zoom * (e.deltaY < 0 ? 1.1 : 0.9))), e.clientX - r.left, e.clientY - r.top);
+  });
+  place();
+
+  const result = await openSheet((close) => [
+    h('div', { class: 'sheet-title' }, '写真を切り抜く'),
+    h('p', { class: 'sch-hint crop-hint' }, '点線の丸の中がアイコンになります。ドラッグで位置、2 本指かスライダーで大きさを変えられます'),
+    h('div', { class: 'crop-wrap' }, box),
+    h('label', { class: 'crop-zoom-row' }, h('span', {}, '🔍'), slider),
+    h(
+      'div',
+      { class: 'sheet-buttons' },
+      h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn primary',
+          onClick: () => {
+            const k = base * zoom;
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 160;
+            canvas.getContext('2d').drawImage(img, -x / k, -y / k, S / k, S / k, 0, 0, 160, 160);
+            close(canvas.toDataURL('image/jpeg', 0.82));
+          },
+        },
+        '決定',
+      ),
+    ),
+  ]);
+  URL.revokeObjectURL(url);
+  return result;
 }
 
 let myProfile = {}; // 全体の設定（profiles/{uid}）
@@ -990,11 +1082,14 @@ function profileSheet({ group = null } = {}) {
             onClick: async () => {
               const file = await pickImageFile();
               if (!file) return;
+              let photo;
               try {
-                v.photo = await cropAvatar(file);
+                photo = await cropAvatar(file);
               } catch (e) {
                 return toast(e.message);
               }
+              if (!photo) return;
+              v.photo = photo;
               syncPhoto();
               renderPreview();
             },

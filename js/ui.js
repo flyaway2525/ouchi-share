@@ -92,7 +92,8 @@ function enableSwipeDown(sheet, backdrop, close) {
     'touchstart',
     (e) => {
       startY = null;
-      if (e.touches.length !== 1 || e.target.closest('input, textarea, select, [contenteditable]')) return;
+      // 入力欄や、自分で指の動きを使う部品（data-noswipe。写真の切り抜きなど）の上から始めたときは何もしない
+      if (e.touches.length !== 1 || e.target.closest('input, textarea, select, [contenteditable], [data-noswipe]')) return;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       dy = 0;
