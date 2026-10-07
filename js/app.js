@@ -1288,15 +1288,25 @@ function homeView(root) {
         'div',
         { class: 'card-list' },
         groups.map((g) =>
-          h(
-            'a',
-            { class: 'card', href: `#/g/${g.id}` },
-            h('span', { class: 'card-icon' }, '🏠'),
-            h('span', { class: 'card-main' }, h('span', { class: 'card-title' }, g.name), h('span', { class: 'card-sub' }, `メンバー ${g.memberIds.length} 人`)),
-            h('span', { class: 'chevron' }, '›'),
+          enableCardGestures(
+            h(
+              'div',
+              { class: 'swipe-wrap' },
+              h('span', { class: 'swipe-hint left' }, '⚙️ 設定'),
+              h('span', { class: 'swipe-hint right' }, '設定 ⚙️'),
+              h(
+                'a',
+                { class: 'card', href: `#/g/${g.id}` },
+                h('span', { class: 'card-icon' }, '🏠'),
+                h('span', { class: 'card-main' }, h('span', { class: 'card-title' }, g.name), h('span', { class: 'card-sub' }, `メンバー ${g.memberIds.length} 人`)),
+                h('span', { class: 'chevron' }, '›'),
+              ),
+            ),
+            () => groupMenu(g),
           ),
         ),
       ),
+      groups.length > 0 && h('p', { class: 'sch-hint' }, 'グループを長押しするか、左右にフリックすると設定を開けます'),
       isAdmin
         ? h(
             'button',
@@ -1319,6 +1329,76 @@ function homeView(root) {
       qrCard,
     );
   }, showError);
+}
+
+// カードを長押し、または左右にフリックすると onMenu（そのあとのタップでは画面を移らない）。
+// フリック中はカードが指に付いて動き、うしろの「⚙️ 設定」が見える。縦のスクロールはブラウザに任せる
+function enableCardGestures(wrap, onMenu) {
+  const card = wrap.querySelector('.card');
+  const swallowNextClick = () => {
+    const swallow = (c) => {
+      c.stopPropagation();
+      c.preventDefault();
+    };
+    document.addEventListener('click', swallow, { capture: true, once: true });
+    setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 450);
+  };
+  card.addEventListener('contextmenu', (e) => e.preventDefault());
+  card.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const id = e.pointerId;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let swiping = false;
+    let done = false;
+    let dx = 0;
+    const timer = setTimeout(() => {
+      done = true;
+      cleanup();
+      navigator.vibrate?.(15);
+      swallowNextClick();
+      onMenu();
+    }, 480);
+    const move = (ev) => {
+      if (ev.pointerId !== id) return;
+      dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      if (!swiping) {
+        if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) return cleanup();
+        if (Math.abs(dx) < 10) return;
+        swiping = true;
+        clearTimeout(timer);
+        card.classList.remove('snap');
+      }
+      // 端まで引っぱるほど重くなる
+      const pull = Math.sign(dx) * Math.min(Math.abs(dx), 120 + Math.max(0, Math.abs(dx) - 120) * 0.3);
+      card.style.transform = `translateX(${pull}px)`;
+      wrap.classList.toggle('show-left', dx > 0);
+      wrap.classList.toggle('show-right', dx < 0);
+      wrap.classList.toggle('armed', Math.abs(dx) > 70);
+    };
+    const up = (ev) => {
+      if (ev.pointerId !== id) return;
+      const was = swiping;
+      cleanup();
+      if (!was || done) return;
+      swallowNextClick();
+      card.classList.add('snap');
+      card.style.transform = '';
+      wrap.classList.remove('armed');
+      if (Math.abs(dx) > 70) onMenu();
+    };
+    function cleanup() {
+      clearTimeout(timer);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  });
+  return wrap;
 }
 
 // ---- 画面：グループ内のリスト一覧 ----
@@ -2355,6 +2435,50 @@ function membersSheet(group, recoveryCodes = {}) {
   ]);
 }
 
+// グループのメニュー（グループの画面の ⋯ と、ホームのグループのカードの長押し・左右のフリックで共通）
+function groupMenu(group, recoveryCodes = {}) {
+  const groupId = group.id;
+  const owner = group.members?.[user.uid]?.role === 'owner';
+  actionSheet(group.name, [
+    {
+      label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
+      onClick: () => (location.hash = `#/g/${groupId}/news`),
+    },
+    { label: '🎟 チケット・ごほうび', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
+    owner && { label: '👑 管理者を設定', onClick: () => managersSheet(group) },
+    { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
+    { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
+    { label: '招待リンクを送る', onClick: () => shareInvite(group) },
+    { label: 'メンバーを見る', onClick: () => membersSheet(group, recoveryCodes) },
+    { label: 'このグループでの自分の名前を変更', onClick: () => renameInGroup(group) },
+    {
+      label: 'グループ名を変更',
+      onClick: async () => {
+        const name = await askText({ title: 'グループ名を変更', value: group.name, okLabel: '保存' });
+        if (name) store.renameGroup(groupId, name).catch(showError);
+      },
+    },
+    owner && {
+      label: '招待リンクを作り直す',
+      onClick: async () => {
+        if (await confirmSheet('今までの招待リンクは使えなくなります（参加済みのメンバーはそのまま）。作り直しますか？', '作り直す')) {
+          store.regenerateInvite(groupId).then(() => toast('招待リンクを作り直しました'), showError);
+        }
+      },
+    },
+    !owner && { label: 'グループから退出', danger: true, onClick: () => leaveGroup(group) },
+    owner && {
+      label: 'グループを削除',
+      danger: true,
+      onClick: async () => {
+        if (await confirmSheet(`「${group.name}」と中のリストをすべて削除します。メンバー全員が見られなくなります。削除しますか？`)) {
+          store.deleteGroup(groupId).then(() => (location.hash = '#/'), showError);
+        }
+      },
+    },
+  ].filter(Boolean));
+}
+
 // オーナーが、メンバーを管理者にする／外す（チップをタップで切り替え）
 function managersSheet(group) {
   const members = Object.entries(group.members ?? {}).filter(([, m]) => m.role !== 'owner');
@@ -2477,44 +2601,7 @@ function groupView(root, { groupId }) {
             '📋 登録',
           ),
           onMenu: () =>
-            actionSheet(g.name, [
-              {
-                label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
-                onClick: () => (location.hash = `#/g/${groupId}/news`),
-              },
-              { label: '🎟 チケット・ごほうび', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
-              g.members?.[user.uid]?.role === 'owner' && { label: '👑 管理者を設定', onClick: () => managersSheet(g) },
-              { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
-              { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
-              { label: '招待リンクを送る', onClick: () => shareInvite(group) },
-              { label: 'メンバーを見る', onClick: () => membersSheet(group, recoveryCodes) },
-              { label: 'このグループでの自分の名前を変更', onClick: () => renameInGroup(group) },
-              {
-                label: 'グループ名を変更',
-                onClick: async () => {
-                  const name = await askText({ title: 'グループ名を変更', value: group.name, okLabel: '保存' });
-                  if (name) store.renameGroup(groupId, name).catch(showError);
-                },
-              },
-              owner && {
-                label: '招待リンクを作り直す',
-                onClick: async () => {
-                  if (await confirmSheet('今までの招待リンクは使えなくなります（参加済みのメンバーはそのまま）。作り直しますか？', '作り直す')) {
-                    store.regenerateInvite(groupId).then(() => toast('招待リンクを作り直しました'), showError);
-                  }
-                },
-              },
-              !owner && { label: 'グループから退出', danger: true, onClick: () => leaveGroup(group) },
-              owner && {
-                label: 'グループを削除',
-                danger: true,
-                onClick: async () => {
-                  if (await confirmSheet(`「${group.name}」と中のリストをすべて削除します。メンバー全員が見られなくなります。削除しますか？`)) {
-                    store.deleteGroup(groupId).then(() => (location.hash = '#/'), showError);
-                  }
-                },
-              },
-            ].filter(Boolean)),
+            groupMenu(g, recoveryCodes),
         }),
       );
       renderMembers();

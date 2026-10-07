@@ -3399,3 +3399,56 @@ select.text-input {
   background: #000;
   color: #fff;
 }
+
+/* ホームのグループのカード：長押し・左右のフリックで設定 */
+.swipe-wrap {
+  position: relative;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+
+.swipe-wrap > .card {
+  position: relative;
+  z-index: 1;
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.swipe-wrap > .card.snap {
+  transition: transform 0.25s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.swipe-hint {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.swipe-hint.left {
+  left: 16px;
+}
+
+.swipe-hint.right {
+  right: 16px;
+}
+
+.swipe-wrap.show-left .swipe-hint.left,
+.swipe-wrap.show-right .swipe-hint.right {
+  opacity: 0.6;
+}
+
+.swipe-wrap.armed .swipe-hint {
+  transform: translateY(-50%) scale(1.15);
+}
+
+.swipe-wrap.armed.show-left .swipe-hint.left,
+.swipe-wrap.armed.show-right .swipe-hint.right {
+  opacity: 1;
+}
