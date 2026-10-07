@@ -38,27 +38,25 @@ Web 版（GitHub Pages）のファイルを、そのまま **Capacitor** で iPh
 
 ## 2. iOS のプロジェクトを作って、シミュレーターで動かす
 
+`ios/`（Xcode のプロジェクト）は Windows で作ってコミット済み（2026-10-07。アイコン・起動画面・暗号化の申告も入れてある）。Mac では：
+
 ```bash
 cd ouchi-share
 npm install
-npm run build
-npx cap add ios
 npm run ios:sync
 npm run ios:open
 ```
 
-- `npx cap add ios` で `ios/` フォルダ（Xcode のプロジェクト）ができる。**これはリポジトリにコミットする**
+- 部品（Capacitor）は Swift Package Manager で GitHub から取ってくるので、CocoaPods は要らない。最初に Xcode が部品を読み込むまで少し待つ
 - Xcode が開いたら、左の「App」→ Signing & Capabilities → **Team** に自分のチームを選ぶ
 - 上のメニューでシミュレーター（iPhone 16 など）を選んで ▶ で起動
 - Web のファイルを直したら、毎回 `npm run ios:sync` でアプリにも反映する
 
-### アイコン
+### アイコン・起動画面・暗号化の申告（済み）
 
-- `icons/icon-1024.png`（角なし・全面塗り）を、Xcode の App → Assets → **AppIcon** に入れる（1024×1024 を 1 枚入れれば、ほかのサイズは自動）
-
-### 暗号化の申告（毎回聞かれないように）
-
-- `ios/App/App/Info.plist` に `ITSAppUsesNonExemptEncryption` = `NO` を追加（HTTPS しか使っていないため）
+- アイコン：`icons/icon-1024.png`（`scripts/make-icon-1024.mjs` で作成）を AppIcon に入れてある
+- 起動画面：クリーム色の背景に角丸のアイコン（`scripts/make-splash.mjs` で作成）
+- `Info.plist` に `ITSAppUsesNonExemptEncryption` = `NO`（HTTPS しか使っていないので、アップロードのたびに聞かれないように）
 
 ## 3. アプリの中だけ動かないところを直す（Mac の Claude Code で）
 

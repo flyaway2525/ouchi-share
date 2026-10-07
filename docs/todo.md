@@ -29,7 +29,7 @@
 - [ ] Apple Developer Program を前の Apple ID で復旧（更新）する
 - [ ] Mac に Xcode・Node.js を入れる。Mac にも Claude Code を入れてリポジトリを clone
 - [x] リポジトリに Capacitor の設定を足す（Web 版の動きは変えない）：package.json・capacitor.config.json・scripts/build-www.mjs・icons/icon-1024.png（2026-10-07）
-- [ ] Mac で `npx cap add ios` → ios/ をコミット
+- [x] `npx cap add ios` → ios/ をコミット（Windows で作成。アイコン・起動画面・暗号化の申告も入れた。2026-10-07）
 - [ ] シミュレーター・自分の iPhone で起動
 - [ ] ログインの作り直し：アプリ内ではポップアップの Google ログインが動かないので、iPhone の仕組みの Google ログイン＋「Apple でサインイン」に
 - [ ] アプリの通知（APNs キーを Firebase に登録）
