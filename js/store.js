@@ -66,6 +66,11 @@ function byCreatedAt(a, b) {
   return (a.createdAt ?? 0) - (b.createdAt ?? 0);
 }
 
+// 並べ替えた順（order）。並べ替えていないもの（order なし）は作った順で、並べ替えたものより後ろ
+function byOrder(a, b) {
+  return (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0);
+}
+
 // 書き込み直後でサーバー時刻が未確定のときは、手元の推定時刻を使う
 function withId(snap) {
   return { id: snap.id, ...snap.data({ serverTimestamps: 'estimate' }) };
@@ -86,7 +91,7 @@ function toList(snap) {
   const data = withId(snap);
   const items = Object.entries(data.items ?? {})
     .map(([id, it]) => ({ id, ...it }))
-    .sort(byCreatedAt);
+    .sort(byOrder);
   return { ...data, items, total: items.length, done: items.filter((i) => i.checked).length };
 }
 
@@ -498,7 +503,7 @@ export async function deleteScheduleItem(groupId, eventId, itemId) {
 
 export function watchLists(groupId, cb, onError) {
   const q = query(listsCol(groupId), orderBy('createdAt'));
-  return onSnapshot(q, (snap) => cb(snap.docs.map(toList)), onError);
+  return onSnapshot(q, (snap) => cb(snap.docs.map(toList).sort(byOrder)), onError);
 }
 
 export function watchList(groupId, listId, cb, onError) {
@@ -537,6 +542,19 @@ export async function addItems(groupId, listId, texts) {
   if (!texts.length) return;
   const patch = {};
   for (const [id, item] of Object.entries(freshItems(texts))) patch[`items.${id}`] = item;
+  await updateDoc(listRef(groupId, listId), patch);
+}
+
+// 並べ替え：ids の順に order を 0, 1, 2… と付け直す
+export async function reorderLists(groupId, ids) {
+  const batch = writeBatch(db);
+  ids.forEach((id, i) => batch.update(listRef(groupId, id), { order: i }));
+  await batch.commit();
+}
+
+export async function reorderItems(groupId, listId, ids) {
+  const patch = {};
+  ids.forEach((id, i) => (patch[`items.${id}.order`] = i));
   await updateDoc(listRef(groupId, listId), patch);
 }
 

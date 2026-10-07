@@ -1529,7 +1529,7 @@ const calPick = { active: false, ignoreTapUntil: 0 };
 
 // ドラッグ中は画面の指スクロールを止める（自動スクロールは scrollBy で動かすので影響しない）
 function blockTouchScroll(e) {
-  if (scheduleDrag.active || moneyDrag.active || calPick.active) e.preventDefault();
+  if (scheduleDrag.active || moneyDrag.active || calPick.active || sortDrag.active) e.preventDefault();
 }
 document.addEventListener('touchmove', blockTouchScroll, { passive: false });
 
@@ -2281,6 +2281,7 @@ function groupView(root, { groupId }) {
 
   function renderBody() {
     if (!group || !lists || !events || !plans) return;
+    if (deferWhileSorting(renderBody)) return;
     const checklists = lists.filter((l) => isShownList(l));
     const daily = checklists.filter((l) => !l.eventId);
     const { active, past } = sortEvents(events);
@@ -2341,7 +2342,8 @@ function groupView(root, { groupId }) {
         body,
         tabs,
         daily.length === 0 && h('p', { class: 'empty small' }, '日用品の在庫や、やることリストなど、イベントに関係ないリストを置けます。'),
-        h('div', { class: 'card-list' }, daily.map((l) => listCard(groupId, l))),
+        daily.length > 1 && h('p', { class: 'sch-hint' }, 'カードを長押しすると、上下に動かして並べ替えられます'),
+        enableLongPressSort(h('div', { class: 'card-list' }, daily.map((l) => listCard(groupId, l))), '.card-wrap', (ids) => store.reorderLists(groupId, ids).catch(showError)),
         h('button', { class: 'add-card', onClick: () => addListMenu(groupId) }, '＋ リストを追加'),
       );
       return;
@@ -3180,7 +3182,7 @@ function listCard(groupId, l) {
   const yen = open.filter((i) => i.kind !== 'item').reduce((n, i) => n + (i.amount ?? 0), 0);
   const key = `${groupId}/${l.id}`;
   const href = `#/g/${groupId}/l/${l.id}`;
-  const wrap = h('div', { class: 'card-wrap' });
+  const wrap = h('div', { class: 'card-wrap', 'data-id': l.id });
   const head = h(
     'button',
     { type: 'button', class: 'card', 'aria-expanded': 'false', onClick: () => toggle() },
@@ -3311,6 +3313,7 @@ function eventView(root, { groupId, eventId, date = null }) {
 
   function render() {
     if (!ev || !lists) return;
+    if (deferWhileSorting(render)) return;
     // ドラッグ中は描き直さない（ドロップ後に描き直す）
     if (scheduleDrag.active) {
       scheduleDrag.pendingRender = render;
@@ -3408,7 +3411,7 @@ function eventView(root, { groupId, eventId, date = null }) {
         ? scheduleSection(groupId, ev, schedule)
         : [
             mine.length === 0 && h('p', { class: 'empty small' }, '持ち物リストなどを追加しましょう。日常のリストや過去のイベントから取り込むこともできます。'),
-            h('div', { class: 'card-list' }, mine.map((l) => listCard(groupId, l))),
+            enableLongPressSort(h('div', { class: 'card-list' }, mine.map((l) => listCard(groupId, l))), '.card-wrap', (ids) => store.reorderLists(groupId, ids).catch(showError)),
             h('button', { class: 'add-card', onClick: () => addListMenu(groupId, eventId) }, '＋ リストを追加'),
           ],
     );
@@ -3508,6 +3511,119 @@ function adminView(root) {
     clearInterval(ticker);
     unwatch();
   };
+}
+
+// ---- 長押しで並べ替え（リストのカード・チェックリストのアイテム） ----
+// 長押しすると持ち上がり、上下に動かすと、となりと入れ替わる。離したら onDrop(並んだ順の id の配列)。
+// 長押しの前に指が動いたら、ふつうのスクロールとして何もしない。長押しのあとのタップ（click）は無視する（チェックが変わったり、カードが開いたりしないように）。
+// 並べ替え中に画面が描き直されると掴んでいる要素が消えるので、描き直しは離すまで待つ（sortDrag.pending）。
+
+const sortDrag = { active: false, pending: null };
+
+// 並べ替え中なら、描き直しをあとに回す（true を返したら描き直さない）
+function deferWhileSorting(render) {
+  if (!sortDrag.active) return false;
+  sortDrag.pending = render;
+  return true;
+}
+
+function enableLongPressSort(container, selector, onDrop) {
+  container.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const item = e.target.closest?.(selector);
+    if (!item || !container.contains(item) || e.target.closest('[data-nodrag]')) return;
+    const id = e.pointerId;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let dragging = false;
+    let lastY = sy;
+    let baseTop = 0;
+    let scrollTimer = null;
+    const before = () => [...container.querySelectorAll(selector)].map((el) => el.dataset.id);
+    const startOrder = before();
+
+    const start = () => {
+      dragging = true;
+      sortDrag.active = true;
+      baseTop = item.getBoundingClientRect().top;
+      item.classList.add('sorting');
+      container.classList.add('is-sorting');
+      navigator.vibrate?.(15);
+      place();
+    };
+    // 指の位置に要素を合わせ、となりの真ん中を越えたら入れ替える
+    const place = () => {
+      const siblings = [...container.querySelectorAll(selector)];
+      const i = siblings.indexOf(item);
+      const prev = siblings[i - 1];
+      const next = siblings[i + 1];
+      item.style.transform = '';
+      if (prev && lastY < prev.getBoundingClientRect().top + prev.offsetHeight / 2) prev.before(item);
+      else if (next && lastY > next.getBoundingClientRect().top + next.offsetHeight / 2) next.after(item);
+      const r2 = item.getBoundingClientRect();
+      // 持ったときの指と要素の位置関係を保つ（自動スクロールで画面が動いても指の下にいる）
+      item.style.transform = `translateY(${lastY - sy - (r2.top - baseTop)}px)`;
+    };
+    // 画面の端に近づいたら、ゆっくりスクロール
+    const autoScroll = () => {
+      const edge = 70;
+      const v = lastY < edge ? -8 : lastY > innerHeight - edge ? 8 : 0;
+      if (v) {
+        scrollBy(0, v);
+        place();
+      }
+      scrollTimer = requestAnimationFrame(autoScroll);
+    };
+    const timer = setTimeout(() => {
+      start();
+      scrollTimer = requestAnimationFrame(autoScroll);
+    }, 420);
+
+    const move = (ev) => {
+      if (ev.pointerId !== id) return;
+      lastY = ev.clientY;
+      if (!dragging) {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 8) cleanup();
+        return;
+      }
+      place();
+    };
+    const up = (ev) => {
+      if (ev.pointerId !== id) return;
+      const was = dragging;
+      cleanup();
+      if (!was) return;
+      // 長押しのあとに来るタップを 1 回だけ無視する
+      const swallow = (c) => {
+        c.stopPropagation();
+        c.preventDefault();
+      };
+      // （保存するとすぐ描き直されて container ごと入れ替わるので、ページ全体で受ける）
+      document.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 450);
+      const order = before();
+      if (order.join() !== startOrder.join()) onDrop(order);
+      const pending = sortDrag.pending;
+      sortDrag.pending = null;
+      pending?.();
+    };
+    function cleanup() {
+      clearTimeout(timer);
+      cancelAnimationFrame(scrollTimer);
+      sortDrag.active = false;
+      item.classList.remove('sorting');
+      item.style.transform = '';
+      container.classList.remove('is-sorting');
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  });
+  container.addEventListener('contextmenu', (e) => e.target.closest?.(selector) && e.preventDefault());
+  return container;
 }
 
 // ---- 画面：チェックリスト ----
@@ -4772,10 +4888,8 @@ function checklistView(root, { groupId, listId }) {
   );
   root.append(top, body, footer);
 
-  return store.watchList(
-    groupId,
-    listId,
-    (list) => {
+  const onList = (list) => {
+      if (deferWhileSorting(() => onList(list))) return;
       const { items, done } = list;
       const sorted = [...items.filter((i) => !i.checked), ...items.filter((i) => i.checked)];
 
@@ -4833,13 +4947,15 @@ function checklistView(root, { groupId, listId }) {
           items.length > 0 && done === items.length && h('span', { class: 'summary-done' }, '🎉 ぜんぶ完了！'),
         ),
         items.length > 0 && progressBar(done, items.length),
-        h(
+        items.length > 1 && h('p', { class: 'sch-hint' }, 'アイテムを長押しすると、上下に動かして並べ替えられます'),
+        enableLongPressSort(
+          h(
           'ul',
           { class: 'items' },
           sorted.map((item) =>
             h(
               'li',
-              { class: `item${item.checked ? ' checked' : ''}` },
+              { class: `item${item.checked ? ' checked' : ''}`, 'data-id': item.id },
               h(
                 'label',
                 { class: 'item-label' },
@@ -4853,20 +4969,23 @@ function checklistView(root, { groupId, listId }) {
               ),
               h(
                 'button',
-                { class: 'item-delete', 'aria-label': `${item.text} を削除`, onClick: () => store.deleteItem(groupId, listId, item.id).catch(showError) },
+                { class: 'item-delete', 'data-nodrag': '', 'aria-label': `${item.text} を削除`, onClick: () => store.deleteItem(groupId, listId, item.id).catch(showError) },
                 '×',
               ),
             ),
           ),
+          ),
+          // チェック済みは下にまとまるので、並べ替えるのは未チェックのものだけ
+          '.item:not(.checked)',
+          (ids) => store.reorderItems(groupId, listId, ids).catch(showError),
         ),
       );
-    },
-    (e) => {
-      if (e?.code !== 'permission-denied' && e?.message !== 'not-found') return showError(e);
-      toast('リストが見つかりません');
-      location.hash = `#/g/${groupId}`;
-    },
-  );
+  };
+  return store.watchList(groupId, listId, onList, (e) => {
+    if (e?.code !== 'permission-denied' && e?.message !== 'not-found') return showError(e);
+    toast('リストが見つかりません');
+    location.hash = `#/g/${groupId}`;
+  });
 }
 
 // ---- 画面：お知らせ一覧（groupId があればグループのお知らせ、なければアプリからのお知らせ） ----

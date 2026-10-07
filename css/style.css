@@ -3300,3 +3300,32 @@ select.text-input {
 .wish-row.old {
   opacity: 0.6;
 }
+
+/* ---- 長押しで並べ替え ---- */
+.card-wrap,
+.items .item {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sorting {
+  position: relative;
+  z-index: 30;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.22);
+  scale: 1.02;
+  transition: scale 0.15s;
+}
+
+.items .item.sorting {
+  background: var(--surface);
+}
+
+.is-sorting .card-wrap:not(.sorting),
+.is-sorting .item:not(.sorting) {
+  transition: transform 0.15s;
+}
+
+.items.is-sorting {
+  overflow: visible;
+}
