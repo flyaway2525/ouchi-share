@@ -69,6 +69,12 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == userId;
     }
 
+    // ---- アプリ共通の設定（ログインボーナスのチケットの配布表など）：読むのはログインしている人、書くのは管理者 ----
+    match /config/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
     // ---- 最終アクセス時刻（オンライン表示用） ----
     match /presence/{userId} {
       allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
@@ -305,11 +311,54 @@ service cloud.firestore {
         // ログインボーナス（スタンプ集め）：メンバーはみんなの記録を読める。書けるのは本人だけ。消すのは本人かオーナー（グループの削除）
         allow read: if isGroupMember();
         allow create, update: if isGroupMember() && request.auth.uid == userId
-          && request.resource.data.keys().hasOnly(['lastDate', 'streak', 'total', 'stamps', 'lastStamp', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['lastDate', 'streak', 'total', 'stamps', 'lastStamp', 'month', 'monthDays', 'tickets', 'updatedAt'])
           && request.resource.data.lastDate is string && request.resource.data.lastDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
           && request.resource.data.streak is int && request.resource.data.total is int
-          && request.resource.data.stamps is map && request.resource.data.stamps.size() <= 300;
+          && request.resource.data.stamps is map && request.resource.data.stamps.size() <= 300
+          && (!('tickets' in request.resource.data) || request.resource.data.tickets is map);
         allow delete: if isGroupMember() && (request.auth.uid == userId || groupData().members[request.auth.uid].role == 'owner');
+      }
+
+      // ---- ごほうび（チケットで交換）：メンバーは見られる。登録・変更・削除はオーナー ----
+      match /rewards/{rewardId} {
+        function groupData() {
+          return get(/databases/$(database)/documents/groups/$(groupId)).data;
+        }
+
+        function isOwner() {
+          return signedIn() && request.auth.uid in groupData().memberIds && groupData().members[request.auth.uid].role == 'owner';
+        }
+
+        allow read: if signedIn() && request.auth.uid in groupData().memberIds;
+        allow create, update: if isOwner()
+          && request.resource.data.keys().hasOnly(['title', 'emoji', 'ticket', 'count', 'createdAt'])
+          && isNonEmptyString(request.resource.data.title, 40)
+          && request.resource.data.emoji is string && request.resource.data.emoji.size() <= 16
+          && request.resource.data.ticket in ['bronze', 'silver', 'gold']
+          && request.resource.data.count is int && request.resource.data.count >= 1 && request.resource.data.count <= 99;
+        allow delete: if isOwner();
+      }
+
+      // ---- 交換の記録：メンバーは見られる。交換した本人が作る。「済み」にする・消すのはオーナー ----
+      match /redemptions/{logId} {
+        function groupData() {
+          return get(/databases/$(database)/documents/groups/$(groupId)).data;
+        }
+
+        function isGroupMember() {
+          return signedIn() && request.auth.uid in groupData().memberIds;
+        }
+
+        function isOwner() {
+          return isGroupMember() && groupData().members[request.auth.uid].role == 'owner';
+        }
+
+        allow read: if isGroupMember();
+        allow create: if isGroupMember() && request.resource.data.uid == request.auth.uid
+          && request.resource.data.keys().hasOnly(['uid', 'name', 'title', 'emoji', 'ticket', 'count', 'at', 'done'])
+          && request.resource.data.done == false;
+        allow update: if isOwner() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done']);
+        allow delete: if isOwner();
       }
 
       match /photos/{photoId} {

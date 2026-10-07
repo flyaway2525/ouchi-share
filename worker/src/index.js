@@ -2,7 +2,7 @@
 //
 // POST /  … アプリから「このグループに通知して」と頼まれる
 //   Authorization: Bearer <Firebase のログイン トークン（ID トークン）>
-//   body: { groupId, kind: 'news' | 'plan' | 'appnews', title, body, url, participants }
+//   body: { groupId, kind: 'news' | 'plan' | 'reward'（ごほうびの交換） | 'appnews', title, body, url, participants }
 //   - 頼んだ人がそのグループのメンバーか（appnews は管理者か）を確かめてから送る
 //   - 送り先はグループのメンバー（participants があればその人たち）から、頼んだ本人を除いた人
 //   - 各自の push/{uid}.prefs で、受け取らない種類にしている人には送らない
@@ -20,7 +20,7 @@
 const PROJECT_ID = 'ouchi-share';
 const FIRESTORE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const ALLOWED_ORIGINS = ['https://flyaway2525.github.io', 'http://localhost:5173', 'capacitor://localhost', 'ionic://localhost'];
-const PREF_FOR_KIND = { news: 'news', appnews: 'news', plan: 'plans', reminder: 'reminders', test: null };
+const PREF_FOR_KIND = { news: 'news', appnews: 'news', plan: 'plans', reward: 'news', reminder: 'reminders', test: null };
 
 export default {
   async fetch(request, env) {

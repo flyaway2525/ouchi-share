@@ -25,6 +25,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -651,14 +652,16 @@ export async function deleteChecked(groupId, list) {
 }
 
 // ---- ログインボーナス（グループごと） ----
-// groups/{id}/bonus/{uid} = { lastDate: "YYYY-MM-DD", streak: 連続日数, total: 合計日数, stamps: { 絵文字: もらった回数 }, lastStamp, updatedAt }
+// groups/{id}/bonus/{uid} = { lastDate: "YYYY-MM-DD", streak: 連続日数, total: 合計日数, stamps: { 絵文字: もらった回数 }, lastStamp,
+//   month: "YYYY-MM", monthDays: その月に受け取った回数, tickets: { bronze, silver, gold }（持っている枚数）, updatedAt }
 // グループのメンバーなら、みんなの記録を読める（メンバー一覧の 🔥）
 
 const bonusRef = (groupId, userId) => doc(db, 'groups', groupId, 'bonus', userId);
 
-// 今日のぶんをもらう。今日もらい済みなら null。pick({ streak, total, stamps }) が今日もらうスタンプの配列を返す
+// 今日のぶんをもらう。今日もらい済みなら null。pick({ streak, total, stamps }) が今日もらうスタンプの配列を返す。
+// schedule（配布表）{ "N": { bronze, silver, gold } } の、その月の受け取り回数ぶんのチケットも足す
 // （2 台の端末で同時に開いても二重にもらわないよう、トランザクションで確かめてから書く）
-export async function claimDailyBonus(groupId, today, yesterday, pick) {
+export async function claimDailyBonus(groupId, today, yesterday, pick, schedule = {}) {
   const ref = bonusRef(groupId, uid());
   return runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
@@ -670,9 +673,72 @@ export async function claimDailyBonus(groupId, today, yesterday, pick) {
     const got = pick({ streak, total, stamps: before });
     const stamps = { ...before };
     for (const s of got) stamps[s] = (stamps[s] ?? 0) + 1;
-    tx.set(ref, { lastDate: today, streak, total, stamps, lastStamp: got[0], updatedAt: Date.now() });
-    return { streak, total, got, stamps, before };
+    const month = today.slice(0, 7);
+    const monthDays = cur.month === month ? (cur.monthDays ?? 0) + 1 : 1;
+    const reward = schedule[monthDays] ?? {};
+    const tickets = { ...(cur.tickets ?? {}) };
+    for (const [t, n] of Object.entries(reward)) if (n > 0) tickets[t] = (tickets[t] ?? 0) + n;
+    tx.set(ref, { lastDate: today, streak, total, stamps, lastStamp: got[0], month, monthDays, tickets, updatedAt: Date.now() });
+    return { streak, total, got, stamps, before, monthDays, reward, tickets };
   });
+}
+
+export function watchBonus(groupId, cb, onError) {
+  return onSnapshot(bonusRef(groupId, uid()), (snap) => cb(snap.exists() ? snap.data() : null), onError);
+}
+
+// ---- チケットの配布表（アプリ共通。管理者だけ書ける） ----
+// config/bonus = { days: { "1": { bronze: 1 }, "7": { silver: 1 }, ... }, updatedAt }
+
+export async function getBonusSchedule() {
+  const snap = await getDoc(doc(db, 'config', 'bonus'));
+  return snap.exists() ? snap.data().days ?? null : null;
+}
+
+export async function setBonusSchedule(days) {
+  await setDoc(doc(db, 'config', 'bonus'), { days, updatedAt: Date.now() });
+}
+
+// ---- ごほうび（グループごと。オーナーが登録し、メンバーがチケットで交換する） ----
+// groups/{id}/rewards/{rid} = { title, emoji, ticket: 'bronze' | 'silver' | 'gold', count, createdAt }
+// groups/{id}/redemptions/{xid} = { uid, name, title, emoji, ticket, count, at, done }（交換の記録）
+
+const rewardsCol = (groupId) => collection(db, 'groups', groupId, 'rewards');
+const redemptionsCol = (groupId) => collection(db, 'groups', groupId, 'redemptions');
+
+export function watchRewards(groupId, cb, onError) {
+  return onSnapshot(rewardsCol(groupId), (snap) => cb(snap.docs.map(withId)), onError);
+}
+
+export async function saveReward(groupId, rewardId, { title, emoji, ticket, count }) {
+  const ref = rewardId ? doc(rewardsCol(groupId), rewardId) : doc(rewardsCol(groupId));
+  await setDoc(ref, { title, emoji, ticket, count, createdAt: Date.now() }, { merge: true });
+}
+
+export async function deleteReward(groupId, rewardId) {
+  await deleteDoc(doc(rewardsCol(groupId), rewardId));
+}
+
+export function watchRedemptions(groupId, cb, onError) {
+  return onSnapshot(query(redemptionsCol(groupId), orderBy('at', 'desc'), limit(30)), (snap) => cb(snap.docs.map(withId)), onError);
+}
+
+// チケットでごほうびと交換する（足りなければ Error('not-enough')）。チケットを減らして、交換の記録を残す
+export async function redeemReward(groupId, reward, name) {
+  const ref = bonusRef(groupId, uid());
+  const log = doc(redemptionsCol(groupId));
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const tickets = { ...(snap.exists() ? snap.data().tickets ?? {} : {}) };
+    if ((tickets[reward.ticket] ?? 0) < reward.count) throw new Error('not-enough');
+    tickets[reward.ticket] -= reward.count;
+    tx.update(ref, { tickets, updatedAt: Date.now() });
+    tx.set(log, { uid: uid(), name, title: reward.title, emoji: reward.emoji, ticket: reward.ticket, count: reward.count, at: Date.now(), done: false });
+  });
+}
+
+export async function setRedemptionDone(groupId, id, done) {
+  await updateDoc(doc(redemptionsCol(groupId), id), { done });
 }
 
 export async function getBonus(groupId, userId = uid()) {

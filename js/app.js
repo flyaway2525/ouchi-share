@@ -146,8 +146,9 @@ function newsSheet() {
   });
 }
 
-// ---- ログインボーナス（スタンプ集め。グループごと） ----
-// その日はじめてグループを開いたら、そのグループのスタンプを 1 つもらえる（月ごとの季節のスタンプ。たまにレア）。
+// ---- ログインボーナス（グループごと） ----
+// その日はじめてグループを開いたら、配布表どおりのチケット（下の「チケット」）と、おまけのスタンプを 1 つもらえる
+// （月ごとの季節のスタンプ。たまにレア）。
 // 連続・合計の日数で記念スタンプも。そのグループではじめてもらうときは 🎉 ようこそスタンプも付く。
 // お知らせのポップアップと重ならないように、ボーナスを出している間はお知らせを待たせる（newsShowing を使う）。
 
@@ -194,7 +195,7 @@ async function checkBonus(group) {
   while (newsShowing) await new Promise((r) => setTimeout(r, 400));
   let res;
   try {
-    res = await store.claimDailyBonus(group.id, todayStr(), addDays(todayStr(), -1), pickStamps);
+    res = await store.claimDailyBonus(group.id, todayStr(), addDays(todayStr(), -1), pickStamps, await bonusSchedule());
   } catch (e) {
     // オフラインなどで書けなければ、この起動中はあきらめて次に開いたときにもう一度
     console.warn('ログインボーナスを記録できませんでした', e);
@@ -202,28 +203,42 @@ async function checkBonus(group) {
   }
   if (!res) return false;
   newsShowing = 'bonus';
-  await bonusPopup(res, group);
+  await bonusPopup(res, group, await bonusSchedule());
   newsShowing = null;
   checkNews();
   return true;
 }
 
-function bonusPopup(res, group) {
+// 主役はチケット（その月の何回目か・もらったチケット・次のシルバー／ゴールドまで）。スタンプはおまけで小さく
+function bonusPopup(res, group, schedule) {
   const [main, ...extra] = res.got;
   const isNew = (s) => !res.before[s];
   const rare = RARE_STAMPS.includes(main);
+  const got = TICKETS.filter(([t]) => res.reward?.[t] > 0);
+  const best = got.at(-1)?.[0];
+  const next = nextSpecial(schedule, res.monthDays);
   return openSheet((close) => [
     h('div', { class: 'sheet-title' }, `🎁 ${group.name}のログインボーナス`),
     h(
       'div',
       { class: 'bonus-card' },
-      h('div', { class: `bonus-stamp${rare ? ' rare' : ''}` }, main),
-      h('div', { class: 'bonus-labels' }, rare && h('span', { class: 'bonus-tag rare' }, '✨ レア！'), isNew(main) && h('span', { class: 'bonus-tag' }, 'NEW')),
-      extra.map((s) => h('p', { class: 'bonus-extra' }, `${s} 記念スタンプ「${MILESTONE_STAMPS.find(([m]) => m === s)?.[1] ?? ''}」もゲット！`)),
+      h('p', { class: 'bonus-day-label' }, `今月 ${res.monthDays}回目のログイン`),
+      got.length
+        ? h('div', { class: `bonus-tickets${best ? ` best-${best}` : ''}` }, got.map(([t]) => ticketChip(t, res.reward[t], ' big')))
+        : h('p', { class: 'bonus-count' }, '今日はチケットなし'),
+      next && h('p', { class: 'bonus-next' }, `あと ${next.n - res.monthDays}回で ${ticketInfo(next.t)[2]} ${ticketInfo(next.t)[1]}チケット！`),
       h('p', { class: 'bonus-streak' }, h('b', {}, `🔥 ${res.streak}日連続`), ` ・ 合計 ${res.total}日`),
-      h('p', { class: 'bonus-count' }, `スタンプ ${Object.keys(res.stamps).length} / ${allStamps().length} 種類`),
+      h(
+        'p',
+        { class: 'bonus-omake' },
+        'おまけスタンプ ',
+        h('span', { class: `bonus-stamp-mini${rare ? ' rare' : ''}` }, main),
+        rare && h('span', { class: 'bonus-tag rare' }, '✨ レア'),
+        isNew(main) && h('span', { class: 'bonus-tag' }, 'NEW'),
+      ),
+      extra.map((s) => h('p', { class: 'bonus-extra' }, `${s} 記念スタンプ「${MILESTONE_STAMPS.find(([m]) => m === s)?.[1] ?? ''}」もゲット！`)),
     ),
-    h('button', { class: 'sheet-action', onClick: () => (close(null), (location.hash = `#/g/${group.id}/stamps`)) }, '📖 スタンプ帳を見る'),
+    h('button', { class: 'sheet-action', onClick: () => (close(null), (location.hash = `#/g/${group.id}/tickets`)) }, '🎟 チケット・ごほうびを見る'),
     h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'OK'),
   ]);
 }
@@ -284,6 +299,322 @@ function stampsView(root, { groupId }) {
   return () => {
     alive = false;
   };
+}
+
+// ---- チケット（ログインボーナスでもらい、ごほうびと交換する） ----
+// 配布表（その月の何回目のログインで、どのチケットを何枚）はアプリの管理者が決める（config/bonus。全グループ共通）。
+// まだ決めていなければ DEFAULT_SCHEDULE。チケットはグループごとに貯まる。
+
+const TICKETS = [
+  ['bronze', 'ブロンズ', '🥉'],
+  ['silver', 'シルバー', '🥈'],
+  ['gold', 'ゴールド', '🥇'],
+];
+const ticketInfo = (id) => TICKETS.find(([t]) => t === id) ?? TICKETS[0];
+// 毎回ブロンズ 1 枚、7・14・21 回目はシルバー 1 枚、28 回目はゴールド 1 枚
+const DEFAULT_SCHEDULE = Object.fromEntries(
+  Array.from({ length: 31 }, (_, i) => {
+    const n = i + 1;
+    return [n, n === 28 ? { gold: 1 } : n % 7 === 0 ? { silver: 1 } : { bronze: 1 }];
+  }),
+);
+// { bronze: 1, silver: 0 } → "🥉×1"
+const ticketText = (r) =>
+  TICKETS.filter(([t]) => r?.[t] > 0)
+    .map(([t, , icon]) => `${icon}×${r[t]}`)
+    .join(' ');
+const ticketChip = (t, n, extra = '') => {
+  const [, label, icon] = ticketInfo(t);
+  return h('span', { class: `ticket ticket-${t}${extra}` }, h('span', { class: 'ticket-icon' }, icon), h('span', { class: 'ticket-name' }, `${label}チケット`), h('b', {}, `×${n}`));
+};
+
+let scheduleCache = null;
+async function bonusSchedule() {
+  if (!scheduleCache) scheduleCache = store.getBonusSchedule().then((d) => d ?? DEFAULT_SCHEDULE, () => DEFAULT_SCHEDULE);
+  return scheduleCache;
+}
+
+// 次のシルバー・ゴールドまで（その月の受け取り回数で数える）
+function nextSpecial(schedule, monthDays) {
+  for (let n = monthDays + 1; n <= 31; n++) {
+    const r = schedule[n] ?? {};
+    if (r.gold > 0) return { n, t: 'gold' };
+    if (r.silver > 0) return { n, t: 'silver' };
+  }
+  return null;
+}
+
+// ごほうびの登録・編集（オーナー）
+function rewardSheet(initial = {}) {
+  return openSheet((close) => {
+    const emoji = h('input', { class: 'text-input reward-emoji', value: initial.emoji ?? '🎁', maxlength: 4, 'aria-label': '絵文字' });
+    const title = h('input', { class: 'text-input', value: initial.title ?? '', placeholder: '例：ゲーム30分、好きなおやつ', maxlength: 40, 'aria-label': 'ごほうび' });
+    let ticket = initial.ticket ?? 'bronze';
+    const count = h('input', { class: 'text-input', type: 'number', min: 1, max: 99, value: initial.count ?? 3, inputmode: 'numeric', 'aria-label': '枚数' });
+    const chips = h('div', { class: 'people-chips' });
+    const sync = () =>
+      setChildren(
+        chips,
+        TICKETS.map(([t, label, icon]) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              class: `chip${ticket === t ? ' on' : ''}`,
+              onClick: () => {
+                ticket = t;
+                sync();
+              },
+            },
+            `${icon} ${label}`,
+          ),
+        ),
+      );
+    sync();
+    return [
+      h('div', { class: 'sheet-title' }, initial.id ? 'ごほうびを編集' : 'ごほうびを追加'),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            const t = title.value.trim();
+            if (!t) return title.focus();
+            const n = Math.round(Number(count.value));
+            if (!(n >= 1 && n <= 99)) return toast('枚数は 1〜99 で入れてください');
+            close({ title: t, emoji: emoji.value.trim() || '🎁', ticket, count: n });
+          },
+        },
+        h('div', { class: 'reward-title-row' }, emoji, title),
+        h('span', { class: 'links-label' }, '交換に使うチケット'),
+        chips,
+        h('label', { class: 'end-date-row' }, h('span', {}, '枚数'), count),
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, initial.id ? '保存' : '追加'),
+        ),
+      ),
+    ];
+  });
+}
+
+// ---- 画面：チケット・ごほうび（グループごと） ----
+function ticketsView(root, { groupId }) {
+  const top = h('div', { class: 'topbar-wrap' }, header({ title: '🎟 チケット・ごほうび', back: `#/g/${groupId}` }));
+  const body = h('main', { class: 'content' }, h('p', { class: 'empty small' }, '読み込み中…'));
+  root.append(top, body);
+  let group = null;
+  let bonus;
+  let rewards = null;
+  let logs = [];
+  let schedule = null;
+  bonusSchedule().then((s) => ((schedule = s), render()));
+
+  const isOwner = () => group?.members?.[user.uid]?.role === 'owner';
+  const myName = () => group?.members?.[user.uid]?.name ?? auth.displayName();
+
+  const redeem = async (r) => {
+    const [, label, icon] = ticketInfo(r.ticket);
+    if (!(await confirmSheet(`${icon} ${label}チケット ${r.count}枚で「${r.emoji} ${r.title}」と交換しますか？`, '交換する'))) return;
+    try {
+      await store.redeemReward(groupId, r, myName());
+    } catch (e) {
+      return e.message === 'not-enough' ? toast('チケットが足りません') : showError(e);
+    }
+    toast(`「${r.title}」と交換しました！`);
+    requestNotify({ groupId, kind: 'reward', title: `🎟 ${group.name}`, body: `${myName()}さんが「${r.emoji} ${r.title}」と交換しました（${icon}×${r.count}）`, url: `#/g/${groupId}/tickets` });
+  };
+
+  const editReward = async (r = {}) => {
+    const res = await rewardSheet(r);
+    if (res) store.saveReward(groupId, r.id ?? null, res).catch(showError);
+  };
+
+  function render() {
+    if (!group || bonus === undefined || !rewards || !schedule) return;
+    setChildren(top, header({ title: `🎟 ${group.name}のチケット`, back: `#/g/${groupId}` }));
+    const tickets = bonus?.tickets ?? {};
+    const month = todayStr().slice(0, 7);
+    const done = bonus?.month === month ? bonus.monthDays ?? 0 : 0;
+    const days = new Date(Number(month.slice(0, 4)), Number(month.slice(5)), 0).getDate();
+    const next = nextSpecial(schedule, done);
+    setChildren(
+      body,
+      h('p', { class: 'section-label' }, '持っているチケット'),
+      h('div', { class: 'ticket-wallet' }, TICKETS.map(([t]) => ticketChip(t, tickets[t] ?? 0))),
+      h('p', { class: 'section-label' }, `今月のログインボーナス（${done}回 受け取り済み）`),
+      h(
+        'div',
+        { class: 'bonus-calendar' },
+        Array.from({ length: days }, (_, i) => {
+          const n = i + 1;
+          const r = schedule[n] ?? {};
+          const big = r.gold > 0 ? 'gold' : r.silver > 0 ? 'silver' : r.bronze > 0 ? 'bronze' : '';
+          return h(
+            'span',
+            { class: `bonus-day${n <= done ? ' got' : ''}${n === done + 1 ? ' next' : ''}${big ? ` ${big}` : ''}` },
+            h('small', {}, `${n}回目`),
+            h('span', { class: 'bonus-day-reward' }, ticketText(r) || '—'),
+            n <= done && h('i', { class: 'bonus-day-check' }, '✓'),
+          );
+        }),
+      ),
+      next && h('p', { class: 'bonus-next' }, `あと ${next.n - done}回で ${ticketInfo(next.t)[2]} ${ticketInfo(next.t)[1]}チケット！（毎月 1 日に 1 回目から）`),
+      h('p', { class: 'section-label' }, 'ごほうび'),
+      rewards.length === 0 && h('p', { class: 'empty small' }, isOwner() ? 'チケットと交換できるごほうびを追加しましょう（例：ゲーム30分 ＝ ブロンズ3枚）' : 'まだごほうびがありません（オーナーが追加できます）'),
+      h(
+        'ul',
+        { class: 'reward-list' },
+        [...rewards]
+          .sort((a, b) => TICKETS.findIndex(([t]) => t === a.ticket) - TICKETS.findIndex(([t]) => t === b.ticket) || a.count - b.count)
+          .map((r) => {
+            const enough = (tickets[r.ticket] ?? 0) >= r.count;
+            return h(
+              'li',
+              { class: 'reward-row' },
+              h('span', { class: 'reward-emoji-big' }, r.emoji),
+              h('span', { class: 'reward-main' }, h('span', { class: 'reward-title' }, r.title), h('span', { class: `reward-cost ticket-${r.ticket}` }, `${ticketInfo(r.ticket)[2]} ${ticketInfo(r.ticket)[1]} ×${r.count}`)),
+              h('button', { class: 'btn primary reward-btn', disabled: !enough, onClick: () => redeem(r) }, enough ? '交換' : '足りない'),
+              isOwner() &&
+                h(
+                  'button',
+                  {
+                    class: 'sch-more',
+                    'aria-label': 'メニュー',
+                    onClick: () =>
+                      actionSheet(r.title, [
+                        { label: '編集', onClick: () => editReward(r) },
+                        {
+                          label: '削除',
+                          danger: true,
+                          onClick: async () => {
+                            if (await confirmSheet(`「${r.title}」を削除しますか？`)) store.deleteReward(groupId, r.id).catch(showError);
+                          },
+                        },
+                      ]),
+                  },
+                  '⋮',
+                ),
+            );
+          }),
+      ),
+      isOwner() && h('button', { class: 'add-card', onClick: () => editReward() }, '＋ ごほうびを追加'),
+      logs.length > 0 && h('p', { class: 'section-label' }, `交換の記録${isOwner() ? '（タップで「済み」にできます）' : ''}`),
+      logs.length > 0 &&
+        h(
+          'ul',
+          { class: 'reward-log' },
+          logs.map((x) =>
+            h(
+              'li',
+              isOwner() ? { class: `is-tappable${x.done ? ' done' : ''}`, onClick: () => store.setRedemptionDone(groupId, x.id, !x.done).catch(showError) } : { class: x.done ? 'done' : '' },
+              h('span', { class: 'reward-log-main' }, `${x.name}：${x.emoji} ${x.title}`, h('small', {}, `${ticketInfo(x.ticket)[2]}×${x.count} ・ ${fmtDateTime(x.at)}`)),
+              h('span', { class: `badge${x.done ? '' : ' muted'}` }, x.done ? '済み' : 'まだ'),
+            ),
+          ),
+        ),
+    );
+  }
+
+  const onError = (e) => {
+    showError(e);
+    location.hash = `#/g/${groupId}`;
+  };
+  const unwatchGroup = store.watchGroup(groupId, (g) => ((group = g), render()), onError);
+  const unwatchBonus = store.watchBonus(groupId, (b) => ((bonus = b), render()), () => ((bonus = null), render()));
+  const unwatchRewards = store.watchRewards(groupId, (list) => ((rewards = list), render()), onError);
+  const unwatchLogs = store.watchRedemptions(groupId, (list) => ((logs = list), render()), () => {});
+  return () => {
+    unwatchGroup();
+    unwatchBonus();
+    unwatchRewards();
+    unwatchLogs();
+  };
+}
+
+// ---- 管理者：チケットの配布表（その月の何回目のログインで、どのチケットを何枚） ----
+const SCHEDULE_CHOICES = [{}, { bronze: 1 }, { bronze: 2 }, { bronze: 3 }, { silver: 1 }, { silver: 2 }, { gold: 1 }, { gold: 2 }];
+
+async function bonusScheduleSheet() {
+  let days;
+  try {
+    days = { ...((await store.getBonusSchedule()) ?? DEFAULT_SCHEDULE) };
+  } catch (e) {
+    return showError(e);
+  }
+  openSheet((close) => {
+    const grid = h('div', { class: 'bonus-calendar edit' });
+    const render = () =>
+      setChildren(
+        grid,
+        Array.from({ length: 31 }, (_, i) => {
+          const n = i + 1;
+          const r = days[n] ?? {};
+          const big = r.gold > 0 ? 'gold' : r.silver > 0 ? 'silver' : r.bronze > 0 ? 'bronze' : '';
+          return h(
+            'button',
+            {
+              type: 'button',
+              class: `bonus-day${big ? ` ${big}` : ''}`,
+              onClick: () =>
+                actionSheet(
+                  `${n}回目のログイン`,
+                  SCHEDULE_CHOICES.map((c) => ({
+                    label: ticketText(c) || 'なし',
+                    onClick: () => {
+                      days[n] = c;
+                      render();
+                    },
+                  })),
+                ),
+            },
+            h('small', {}, `${n}回目`),
+            h('span', { class: 'bonus-day-reward' }, ticketText(r) || '—'),
+          );
+        }),
+      );
+    render();
+    return [
+      h('div', { class: 'sheet-title' }, '🎟 チケットの配布表'),
+      h('p', { class: 'sch-hint' }, 'その月の何回目のログインで、どのチケットを何枚もらえるか（全グループ共通。毎月 1 日に 1 回目から）。マスをタップで変更'),
+      grid,
+      h(
+        'div',
+        { class: 'sheet-buttons' },
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn',
+            onClick: () => {
+              days = { ...DEFAULT_SCHEDULE };
+              render();
+            },
+          },
+          '初期値に戻す',
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn primary',
+            onClick: () => {
+              const clean = Object.fromEntries(Object.entries(days).map(([n, r]) => [n, Object.fromEntries(Object.entries(r).filter(([, v]) => v > 0))]));
+              store.setBonusSchedule(clean).then(() => {
+                scheduleCache = null;
+                toast('配布表を保存しました');
+                close(null);
+              }, showError);
+            },
+          },
+          '保存',
+        ),
+      ),
+    ];
+  });
 }
 
 // ---- 通知の設定 ----
@@ -1903,7 +2234,8 @@ function groupView(root, { groupId }) {
                 label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
                 onClick: () => (location.hash = `#/g/${groupId}/news`),
               },
-              { label: '📖 スタンプ帳（ログインボーナス）', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
+              { label: '🎟 チケット・ごほうび', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
+              { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
               { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
               { label: '招待リンクを送る', onClick: () => shareInvite(group) },
               { label: 'メンバーを見る', onClick: () => membersSheet(group, recoveryCodes) },
@@ -3138,6 +3470,8 @@ function adminView(root) {
         ),
       ),
       h('p', { class: 'welcome-note' }, 'この機能を追加した後にアプリを開いた人が対象です。'),
+      h('p', { class: 'section-label' }, 'ログインボーナス'),
+      h('button', { class: 'add-card', onClick: bonusScheduleSheet }, '🎟 チケットの配布表を編集'),
     );
   }
 
@@ -4515,6 +4849,7 @@ const routes = [
   [/^#\/admin$/, () => [adminView, {}]],
   [/^#\/news$/, () => [newsListView, {}]],
   [/^#\/g\/([\w-]+)\/stamps$/, (m) => [stampsView, { groupId: m[1] }]],
+  [/^#\/g\/([\w-]+)\/tickets$/, (m) => [ticketsView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/news$/, (m) => [newsListView, { groupId: m[1] }]],
 ];
 

@@ -2950,3 +2950,252 @@ select.text-input {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* ---- チケット ---- */
+
+.ticket {
+  --ticket: #c27a43;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 2px dashed color-mix(in srgb, var(--ticket) 70%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ticket) 14%, var(--surface));
+  font-size: 13px;
+}
+
+.ticket-silver {
+  --ticket: #8a96a3;
+}
+
+.ticket-gold {
+  --ticket: #d9a400;
+}
+
+.ticket-icon {
+  font-size: 20px;
+}
+
+.ticket b {
+  margin-left: auto;
+  font-size: 16px;
+}
+
+.ticket.big {
+  padding: 12px 18px;
+  font-size: 15px;
+  animation: bonus-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both;
+}
+
+.ticket.big .ticket-icon {
+  font-size: 34px;
+}
+
+.ticket.big b {
+  font-size: 22px;
+}
+
+.bonus-tickets {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.bonus-tickets.best-gold .ticket-gold {
+  box-shadow: 0 0 22px rgb(217 164 0 / 0.55);
+}
+
+.bonus-day-label {
+  margin: 0;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.bonus-next {
+  margin: 4px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.bonus-omake {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bonus-stamp-mini {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 2px dashed var(--accent);
+  border-radius: 50%;
+  font-size: 20px;
+}
+
+.bonus-stamp-mini.rare {
+  border-color: #f5a623;
+  background: #fff1c2;
+}
+
+.ticket-wallet {
+  display: grid;
+  gap: 8px;
+}
+
+.ticket-wallet .ticket {
+  padding: 12px 14px;
+  font-size: 15px;
+}
+
+.bonus-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.bonus-day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font: inherit;
+  color: inherit;
+}
+
+.bonus-day small {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.bonus-day-reward {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bonus-day.silver {
+  border-color: #8a96a3;
+  background: color-mix(in srgb, #8a96a3 14%, var(--surface));
+}
+
+.bonus-day.gold {
+  border-color: #d9a400;
+  background: color-mix(in srgb, #d9a400 16%, var(--surface));
+}
+
+.bonus-day.got {
+  opacity: 0.55;
+}
+
+.bonus-day.next {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.bonus-day-check {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-style: normal;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.reward-list,
+.reward-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reward-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 6px 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.reward-emoji-big {
+  font-size: 28px;
+}
+
+.reward-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.reward-title {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.reward-cost {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.reward-btn {
+  flex-shrink: 0;
+  padding: 6px 14px;
+}
+
+.reward-btn:disabled {
+  opacity: 0.45;
+}
+
+.reward-log li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.reward-log li.done {
+  opacity: 0.6;
+}
+
+.reward-log-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.reward-log-main small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.reward-title-row {
+  display: flex;
+  gap: 8px;
+}
+
+.reward-emoji {
+  width: 56px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 20px;
+}
