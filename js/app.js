@@ -1292,8 +1292,12 @@ function homeView(root) {
             h(
               'div',
               { class: 'swipe-wrap' },
-              h('span', { class: 'swipe-hint left' }, '⚙️ 設定'),
-              h('span', { class: 'swipe-hint right' }, '設定 ⚙️'),
+              h(
+                'div',
+                { class: 'swipe-actions' },
+                h('button', { class: 'swipe-action invite', onClick: () => inviteQrSheet(g) }, h('span', {}, '📋'), '招待'),
+                h('button', { class: 'swipe-action settings', onClick: () => groupMenu(g, {}, { asWindow: true }) }, h('span', {}, '⚙️'), '設定'),
+              ),
               h(
                 'a',
                 { class: 'card', href: `#/g/${g.id}` },
@@ -1302,11 +1306,11 @@ function homeView(root) {
                 h('span', { class: 'chevron' }, '›'),
               ),
             ),
-            () => groupMenu(g),
+            () => groupMenu(g, {}, { asWindow: true }),
           ),
         ),
       ),
-      groups.length > 0 && h('p', { class: 'sch-hint' }, 'グループを長押しするか、左右にフリックすると設定を開けます'),
+      groups.length > 0 && h('p', { class: 'sch-hint' }, 'グループを左にフリックすると「招待」「設定」が出ます（長押しでも設定を開けます）'),
       isAdmin
         ? h(
             'button',
@@ -1331,10 +1335,40 @@ function homeView(root) {
   }, showError);
 }
 
-// カードを長押し、または左右にフリックすると onMenu（そのあとのタップでは画面を移らない）。
-// フリック中はカードが指に付いて動き、うしろの「⚙️ 設定」が見える。縦のスクロールはブラウザに任せる
-function enableCardGestures(wrap, onMenu) {
+// iPhone のメールのように、カードを左にフリックすると、右側のボタン（.swipe-actions）が出てきて止まる。
+// ボタンをタップして初めて実行する。開いているカードをタップするか右に戻すと閉じる（そのタップでは画面を移らない）。
+// 開けるのは 1 枚だけ（ほかのカードを触ると閉じる）。長押しでは onLongPress（設定のウィンドウ）。縦のスクロールはブラウザに任せる
+let openSwipe = null; // 開いている .swipe-wrap
+// 開いているカードの外を触ったら閉じる
+document.addEventListener(
+  'pointerdown',
+  (e) => {
+    if (openSwipe && !openSwipe.contains(e.target)) openSwipe.closeSwipe();
+  },
+  true,
+);
+
+function enableCardGestures(wrap, onLongPress) {
   const card = wrap.querySelector('.card');
+  const actions = wrap.querySelector('.swipe-actions');
+  const width = () => actions.offsetWidth;
+  const setX = (x, animate) => {
+    card.classList.toggle('snap', !!animate);
+    card.style.transform = x ? `translateX(${x}px)` : '';
+    actions.style.setProperty('--reveal', String(Math.min(1, -x / width())));
+  };
+  const open = () => {
+    if (openSwipe && openSwipe !== wrap) openSwipe.closeSwipe();
+    openSwipe = wrap;
+    wrap.classList.add('open');
+    setX(-width(), true);
+  };
+  const close = () => {
+    if (openSwipe === wrap) openSwipe = null;
+    wrap.classList.remove('open');
+    setX(0, true);
+  };
+  wrap.closeSwipe = close;
   const swallowNextClick = () => {
     const swallow = (c) => {
       c.stopPropagation();
@@ -1343,22 +1377,30 @@ function enableCardGestures(wrap, onMenu) {
     document.addEventListener('click', swallow, { capture: true, once: true });
     setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 450);
   };
+  // ボタンを押したら閉じてから実行する
+  actions.addEventListener('click', () => close());
   card.addEventListener('contextmenu', (e) => e.preventDefault());
   card.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // ほかのカードが開いていたら閉じる
+    if (openSwipe && openSwipe !== wrap) openSwipe.closeSwipe();
+    const wasOpen = wrap.classList.contains('open');
+    const base = wasOpen ? -width() : 0;
     const id = e.pointerId;
     const sx = e.clientX;
     const sy = e.clientY;
     let swiping = false;
-    let done = false;
+    let pressed = false;
     let dx = 0;
-    const timer = setTimeout(() => {
-      done = true;
-      cleanup();
-      navigator.vibrate?.(15);
-      swallowNextClick();
-      onMenu();
-    }, 480);
+    const timer = wasOpen
+      ? null
+      : setTimeout(() => {
+          pressed = true;
+          cleanup();
+          navigator.vibrate?.(15);
+          swallowNextClick();
+          onLongPress();
+        }, 480);
     const move = (ev) => {
       if (ev.pointerId !== id) return;
       dx = ev.clientX - sx;
@@ -1368,25 +1410,28 @@ function enableCardGestures(wrap, onMenu) {
         if (Math.abs(dx) < 10) return;
         swiping = true;
         clearTimeout(timer);
-        card.classList.remove('snap');
       }
-      // 端まで引っぱるほど重くなる
-      const pull = Math.sign(dx) * Math.min(Math.abs(dx), 120 + Math.max(0, Math.abs(dx) - 120) * 0.3);
-      card.style.transform = `translateX(${pull}px)`;
-      wrap.classList.toggle('show-left', dx > 0);
-      wrap.classList.toggle('show-right', dx < 0);
-      wrap.classList.toggle('armed', Math.abs(dx) > 70);
+      // 左だけ。ボタンの幅より先は重くなる。右へは閉じた位置まで
+      let x = Math.min(0, base + dx);
+      const w = width();
+      if (x < -w) x = -w - (-w - x) * 0.3;
+      setX(x, false);
     };
     const up = (ev) => {
       if (ev.pointerId !== id) return;
-      const was = swiping;
       cleanup();
-      if (!was || done) return;
+      if (pressed) return;
+      if (!swiping) {
+        // 開いているカードをタップしたら閉じるだけ（画面は移らない）
+        if (wasOpen) {
+          swallowNextClick();
+          close();
+        }
+        return;
+      }
       swallowNextClick();
-      card.classList.add('snap');
-      card.style.transform = '';
-      wrap.classList.remove('armed');
-      if (Math.abs(dx) > 70) onMenu();
+      if (base + dx < -width() / 2) open();
+      else close();
     };
     function cleanup() {
       clearTimeout(timer);
@@ -2435,8 +2480,9 @@ function membersSheet(group, recoveryCodes = {}) {
   ]);
 }
 
-// グループのメニュー（グループの画面の ⋯ と、ホームのグループのカードの長押し・左右のフリックで共通）
-function groupMenu(group, recoveryCodes = {}) {
+// グループのメニュー（グループの画面の ⋯ と、ホームのグループのカードで共通）。
+// options.asWindow で、下から出るシートではなく画面の真ん中に浮かぶウィンドウとして出す（ホームのカードから）
+function groupMenu(group, recoveryCodes = {}, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
   actionSheet(group.name, [
@@ -2476,7 +2522,7 @@ function groupMenu(group, recoveryCodes = {}) {
         }
       },
     },
-  ].filter(Boolean));
+  ].filter(Boolean), options);
 }
 
 // オーナーが、メンバーを管理者にする／外す（チップをタップで切り替え）

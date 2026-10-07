@@ -3400,11 +3400,11 @@ select.text-input {
   color: #fff;
 }
 
-/* ホームのグループのカード：長押し・左右のフリックで設定 */
+/* ホームのグループのカード：左にフリックすると右側のボタンが出てくる（iPhone のメールと同じ） */
 .swipe-wrap {
   position: relative;
+  overflow: hidden;
   border-radius: var(--radius);
-  background: var(--accent-soft);
 }
 
 .swipe-wrap > .card {
@@ -3417,38 +3417,63 @@ select.text-input {
 }
 
 .swipe-wrap > .card.snap {
-  transition: transform 0.25s cubic-bezier(0.34, 1.4, 0.64, 1);
+  transition: transform 0.28s cubic-bezier(0.25, 0.9, 0.3, 1.05);
 }
 
-.swipe-hint {
+.swipe-actions {
+  --reveal: 0;
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 13px;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+}
+
+.swipe-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 78px;
+  border: 0;
+  font: inherit;
+  font-size: 12px;
   font-weight: 700;
-  color: var(--accent);
+  color: #fff;
+  opacity: calc(0.4 + var(--reveal) * 0.6);
+}
+
+.swipe-action span {
+  font-size: 20px;
+}
+
+.swipe-action.invite {
+  background: #8a96a3;
+}
+
+.swipe-action.settings {
+  background: var(--accent);
+}
+
+/* 画面の真ん中に浮かぶウィンドウ（openSheet の asWindow） */
+.sheet-backdrop.as-window {
+  align-items: center;
+  padding: 16px;
+}
+
+.sheet-backdrop.as-window .sheet {
+  width: min(360px, 100%);
+  max-height: 80dvh;
+  padding: 8px 14px 14px;
+  border-radius: 20px;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.28);
+  transform: scale(0.92);
   opacity: 0;
-  transition: opacity 0.15s, transform 0.15s;
+  transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.15s;
 }
 
-.swipe-hint.left {
-  left: 16px;
-}
-
-.swipe-hint.right {
-  right: 16px;
-}
-
-.swipe-wrap.show-left .swipe-hint.left,
-.swipe-wrap.show-right .swipe-hint.right {
-  opacity: 0.6;
-}
-
-.swipe-wrap.armed .swipe-hint {
-  transform: translateY(-50%) scale(1.15);
-}
-
-.swipe-wrap.armed.show-left .swipe-hint.left,
-.swipe-wrap.armed.show-right .swipe-hint.right {
+.sheet-backdrop.as-window.open .sheet {
+  transform: none;
   opacity: 1;
 }

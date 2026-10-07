@@ -51,9 +51,10 @@ export function progressBar(done, total) {
 
 // ---- ボトムシート（iOS の prompt/confirm の代わり） ----
 
-export function openSheet(build) {
+// asWindow: 下から出るシートではなく、画面の真ん中に浮かぶウィンドウとして出す
+export function openSheet(build, { asWindow = false } = {}) {
   return new Promise((resolve) => {
-    const backdrop = h('div', { class: 'sheet-backdrop' });
+    const backdrop = h('div', { class: `sheet-backdrop${asWindow ? ' as-window' : ''}` });
     const sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' });
     const close = (value) => {
       backdrop.classList.remove('open');
@@ -79,7 +80,7 @@ export function openSheet(build) {
   });
 }
 
-export function actionSheet(title, actions) {
+export function actionSheet(title, actions, options = {}) {
   return openSheet((close) => [
     h('div', { class: 'sheet-title' }, title),
     // 条件付きの項目（false / null）は出さない
@@ -97,7 +98,7 @@ export function actionSheet(title, actions) {
       ),
     ),
     h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'キャンセル'),
-  ]);
+  ], options);
 }
 
 export function confirmSheet(message, okLabel = '削除') {
