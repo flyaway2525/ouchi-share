@@ -32,7 +32,7 @@ const prefs = {
 };
 
 // ---- お知らせ ----
-// アプリからのお知らせ（key "app:ID"）とグループのお知らせ（key "g:GID:ID"）を、届いた順にポップアップで 1 件ずつ出す。
+// 管理者からのお知らせ（key "app:ID"）とグループのお知らせ（key "g:GID:ID"）を、届いた順にポップアップで 1 件ずつ出す。
 // 「既読にする」で reads に記録（二度と出ない）。「あとで見る」はこの起動中だけ出さない（次に開いたときにまた出る）。
 // 自分が書いたお知らせは既読あつかい。
 
@@ -1411,7 +1411,7 @@ function startNewsWatchers(u) {
     },
   );
   unwatchAppNews = store.watchAppNews(
-    (list) => setNewsSource('app', list.map((n) => ({ ...n, key: `app:${n.id}`, sourceId: 'app', sourceName: 'アプリ' }))),
+    (list) => setNewsSource('app', list.map((n) => ({ ...n, key: `app:${n.id}`, sourceId: 'app', sourceName: '管理者' }))),
     () => {},
   );
 }
@@ -1453,9 +1453,9 @@ function accountMenu() {
   const guest = auth.isGuest();
   const unread = unreadNewsCount('app');
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
-    { label: `📢 アプリからのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
+    { label: `📢 管理者からのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
     { label: '🔔 通知の設定', onClick: pushSettingsSheet },
-    isAdmin && { label: '管理者ダッシュボード', onClick: () => (location.hash = '#/admin') },
+    isAdmin && { label: '🛠 管理者ダッシュボード（お知らせ・ログボ・グループ作成）', onClick: () => (location.hash = '#/admin') },
     { label: '👤 プロフィール（アイコン・名前・色）', onClick: () => profileSheet() },
     guest && { label: '復旧IDを確認', onClick: myRecoverySheet },
     { label: guest ? '🔗 アカウントを連携（ゲストから引き継ぐ）' : '🔗 ログイン方法の連携', onClick: linkAccountsSheet },
@@ -4332,13 +4332,53 @@ function eventView(root, { groupId, eventId, date = null }) {
 
 // ---- 画面：管理者ダッシュボード ----
 
+// 管理者だけの機能は、ここにまとめる（タブ：利用状況 / お知らせ / ログボ / グループ）
+// - 管理者からのお知らせ（announcements）を書く・再通知する・消すのは、ここからだけ（ルールでも管理者だけ）
 function adminView(root) {
+  const top = h('div', { class: 'topbar-wrap' }, header({ title: '管理者ダッシュボード', back: '#/' }));
   const body = h('main', { class: 'content' });
-  root.append(header({ title: '管理者ダッシュボード', back: '#/' }), body);
+  root.append(top, body);
   let users = null;
+  let news = null;
+  const TABS = [
+    ['usage', '📊 利用状況'],
+    ['news', '📢 お知らせ'],
+    ['bonus', '🎟 ログボ'],
+    ['groups', '🏠 グループ'],
+  ];
+  let tab = TABS.some(([id]) => id === prefs.get('adminTab')) ? prefs.get('adminTab') : 'usage';
 
-  function render() {
-    if (!users) return;
+  const notifyAdminNews = (title, again = false) =>
+    requestNotify({ kind: 'appnews', title: `📢 管理者からのお知らせ${again ? '（再通知）' : ''}`, body: title, url: '#/news' });
+  const writeNews = async () => {
+    const res = await newsSheet();
+    if (!res) return;
+    store.createAppNews(res).then(() => {
+      toast('お知らせを送りました');
+      notifyAdminNews(res.title);
+    }, showError);
+  };
+  const reannounceNews = async (n) => {
+    if (!(await confirmSheet(`「${n.title}」をもう一度みんなに知らせますか？（みんなの未読に戻り、通知も届きます）`, '再通知する'))) return;
+    store.reannounceNews(null, n.id).then(() => {
+      toast('もう一度お知らせしました');
+      notifyAdminNews(n.title, true);
+    }, showError);
+  };
+  const deleteNews = async (n) => {
+    if (await confirmSheet(`「${n.title}」を削除しますか？`)) store.deleteAppNews(n.id).catch(showError);
+  };
+  const createGroup = async () => {
+    const name = await askText({ title: '新しいグループ', placeholder: '例：わが家、旅行メンバー', okLabel: '作成' });
+    if (!name) return;
+    store.createGroup(name).then(async (id) => {
+      await store.applyProfileToGroups(myProfile, id).catch(() => {});
+      location.hash = `#/g/${id}`;
+    }, showError);
+  };
+
+  const usagePanel = () => {
+    if (!users) return h('p', { class: 'empty small' }, '読み込み中…');
     const now = Date.now();
     const online = users.filter((u) => store.isOnline(u.lastSeen, now));
     const today = users.filter((u) => now - store.millis(u.lastSeen) < 24 * 60 * 60 * 1000);
@@ -4346,9 +4386,7 @@ function adminView(root) {
     const sorted = [...users].sort((a, b) => store.millis(b.lastSeen) - store.millis(a.lastSeen));
     const stat = (label, value, sub) =>
       h('div', { class: 'stat' }, h('span', { class: 'stat-label' }, label), h('span', { class: 'stat-value' }, value), sub && h('span', { class: 'stat-sub' }, sub));
-
-    setChildren(
-      body,
+    return [
       h(
         'div',
         { class: 'stats' },
@@ -4376,25 +4414,87 @@ function adminView(root) {
         ),
       ),
       h('p', { class: 'welcome-note' }, 'この機能を追加した後にアプリを開いた人が対象です。'),
-      h('p', { class: 'section-label' }, 'ログインボーナス'),
-      h('button', { class: 'add-card', onClick: bonusScheduleSheet }, '🎟 チケットの配布表を編集'),
+    ];
+  };
+
+  const newsPanel = () => [
+    h('p', { class: 'sch-hint' }, 'アプリを使っている全員に届くお知らせです（通知も届きます）。送る・再通知・削除は管理者だけができます'),
+    h('button', { class: 'add-card news-add', onClick: writeNews }, '＋ 管理者からのお知らせを書く'),
+    !news
+      ? h('p', { class: 'empty small' }, '読み込み中…')
+      : news.length === 0
+        ? h('p', { class: 'empty small' }, 'まだ送ったお知らせはありません')
+        : h(
+            'div',
+            { class: 'news-list' },
+            [...news]
+              .sort((a, b) => newsTime(b) - newsTime(a))
+              .map((n) =>
+                h(
+                  'div',
+                  { class: 'news-row' },
+                  h(
+                    'button',
+                    { class: 'news-row-main', onClick: () => newsPopup({ ...n, key: `app:${n.id}`, sourceName: '管理者' }) },
+                    h('span', { class: 'news-row-title' }, n.title),
+                    h('span', { class: 'news-row-meta' }, `${n.createdByName ?? ''} ・ ${fmtDateTime(n.createdAt)}${n.announcedAt ? ` ・ 🔁 ${fmtDateTime(n.announcedAt)}` : ''}`),
+                  ),
+                  h('button', { class: 'news-delete', 'aria-label': `${n.title} を再通知`, title: 'もう一度みんなに知らせる', onClick: () => reannounceNews(n) }, '🔁'),
+                  h('button', { class: 'news-delete', 'aria-label': `${n.title} を削除`, onClick: () => deleteNews(n) }, '🗑'),
+                ),
+              ),
+          ),
+  ];
+
+  const bonusPanel = () => [
+    h('p', { class: 'sch-hint' }, 'ログインボーナスで、その月の何回目のログインにどのチケットを何枚配るか（全グループ共通）'),
+    h('button', { class: 'add-card', onClick: bonusScheduleSheet }, '🎟 チケットの配布表を編集'),
+  ];
+
+  const groupsPanel = () => [
+    h('p', { class: 'sch-hint' }, 'グループを作れるのは管理者だけです。作ったグループには、招待リンクやQRコードで家族・友人を招待します'),
+    h('button', { class: 'add-card', onClick: createGroup }, '＋ グループを作成'),
+  ];
+
+  function render() {
+    setChildren(
+      body,
+      h(
+        'div',
+        { class: 'tabs admin-tabs', role: 'tablist' },
+        TABS.map(([id, label]) =>
+          h(
+            'button',
+            {
+              class: `tab${tab === id ? ' active' : ''}`,
+              role: 'tab',
+              'aria-selected': String(tab === id),
+              onClick: () => {
+                tab = id;
+                prefs.set('adminTab', id);
+                render();
+              },
+            },
+            label,
+          ),
+        ),
+      ),
+      { usage: usagePanel, news: newsPanel, bonus: bonusPanel, groups: groupsPanel }[tab](),
     );
   }
 
-  const ticker = setInterval(render, 15 * 1000);
-  const unwatch = store.watchPresence(
-    (list) => {
-      users = list;
-      render();
-    },
-    (e) => {
-      showError(e);
-      location.hash = '#/';
-    },
-  );
+  render();
+  const ticker = setInterval(() => tab === 'usage' && render(), 15 * 1000);
+  const onError = (e) => {
+    showError(e);
+    location.hash = '#/';
+  };
+  const unwatch = store.watchPresence((list) => ((users = list), render()), onError);
+  const unwatchNews = store.watchAppNews((list) => ((news = list), render()), () => {});
   return () => {
     clearInterval(ticker);
     unwatch();
+    unwatchNews();
   };
 }
 
@@ -5873,7 +5973,8 @@ function checklistView(root, { groupId, listId }) {
   });
 }
 
-// ---- 画面：お知らせ一覧（groupId があればグループのお知らせ、なければアプリからのお知らせ） ----
+// ---- 画面：お知らせ一覧（groupId があればグループのお知らせ、なければ管理者からのお知らせ） ----
+// 管理者からのお知らせは、ここでは読むだけ（書く・再通知・削除は管理者ダッシュボードから）
 
 function newsListView(root, { groupId = null }) {
   const top = h('div', { class: 'topbar-wrap' });
@@ -5882,14 +5983,14 @@ function newsListView(root, { groupId = null }) {
   let group = null;
   let items = null;
 
-  const canWrite = () => (groupId ? true : isAdmin);
-  const canDelete = (n) => (groupId ? n.createdBy === user.uid || isManager(group) : isAdmin);
+  const canWrite = () => !!groupId;
+  const canDelete = (n) => !!groupId && (n.createdBy === user.uid || isManager(group));
 
   const notifyNews = (title, again = false) =>
     requestNotify(
       groupId
         ? { groupId, kind: 'news', title: `📢 ${group.name}${again ? '（再アナウンス）' : ''}`, body: `${title}（${auth.displayName()}さん）`, url: `#/g/${groupId}/news` }
-        : { kind: 'appnews', title: `📢 ouchi-share からのお知らせ${again ? '（再アナウンス）' : ''}`, body: title, url: '#/news' },
+        : { kind: 'appnews', title: `📢 管理者からのお知らせ${again ? '（再通知）' : ''}`, body: title, url: '#/news' },
     );
 
   const write = async () => {
@@ -5912,11 +6013,12 @@ function newsListView(root, { groupId = null }) {
 
   function render() {
     if (!items || (groupId && !group)) return;
-    setChildren(top, header({ title: groupId ? `${group.name}のお知らせ` : 'アプリからのお知らせ', back: groupId ? `#/g/${groupId}` : '#/' }));
+    setChildren(top, header({ title: groupId ? `${group.name}のお知らせ` : '管理者からのお知らせ', back: groupId ? `#/g/${groupId}` : '#/' }));
     const sorted = [...items].sort((a, b) => newsTime(b) - newsTime(a));
     setChildren(
       body,
       canWrite() && h('button', { class: 'add-card news-add', onClick: write }, '＋ お知らせを書く'),
+      !groupId && isAdmin && h('a', { class: 'add-card news-add', href: '#/admin' }, '🛠 管理者ダッシュボードで書く・再通知・削除'),
       sorted.length === 0 && h('p', { class: 'empty' }, 'お知らせはまだありません'),
       h(
         'div',
@@ -5956,7 +6058,7 @@ function newsListView(root, { groupId = null }) {
     );
   }
 
-  const sourceName = () => (groupId ? group?.name ?? 'グループ' : 'アプリ');
+  const sourceName = () => (groupId ? group?.name ?? 'グループ' : '管理者');
   const toItems = (list) => list.map((n) => ({ ...n, key: groupId ? `g:${groupId}:${n.id}` : `app:${n.id}`, sourceId: groupId ? `g:${groupId}` : 'app', sourceName: sourceName() }));
   const onError = (e) => {
     showError(e);

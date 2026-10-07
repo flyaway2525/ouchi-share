@@ -3787,3 +3787,24 @@ select.text-input {
 .crop-hint {
   text-align: center;
 }
+
+/* 管理者ダッシュボードのタブ（4 つ。狭い画面では 2 段） */
+.admin-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.admin-tabs .tab {
+  min-width: 0;
+  padding-left: 2px;
+  padding-right: 2px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@media (max-width: 400px) {
+  .admin-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+  }
+}
