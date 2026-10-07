@@ -305,18 +305,19 @@ export async function deleteMyRecoveryCodes() {
 // 参加中の全グループの自分の情報を更新する
 // （Google アカウントへ引き継いだとき = ゲスト表示、名前を全グループに反映したいとき = 名前も）
 // ---- プロフィール ----
-// 全体の設定 profiles/{uid} = { icon, title, colors: { main, sub, third }, updatedAt }（名前はログインの表示名）。
-// グループごとの設定は groups/{id}.members.{uid} の name / icon / title / colors と、
-// custom = { name, icon, title, colors }（true の項目は「このグループだけ変える」）。
+// 全体の設定 profiles/{uid} = { icon, photo, title, colors: { main, sub, third }, updatedAt }（名前はログインの表示名）。
+// photo はアイコンの写真（160px の JPEG の data URL。あれば絵文字より優先）。
+// グループごとの設定は groups/{id}.members.{uid} の name / icon / photo / title / colors と、
+// custom = { name, icon, photo, title, colors }（true の項目は「このグループだけ変える」。photo は icon と同じ）。
 // 全体の設定を変えると、custom でない項目を参加中の全グループに書き写す（ほかの人はグループのデータだけで見られる）
-export const PROFILE_FIELDS = ['name', 'icon', 'title', 'colors'];
+export const PROFILE_FIELDS = ['name', 'icon', 'photo', 'title', 'colors'];
 
 export function watchMyProfile(cb, onError) {
   return onSnapshot(doc(db, 'profiles', uid()), (snap) => cb(snap.exists() ? snap.data() : {}), onError);
 }
 
-export async function saveMyProfile({ icon, title, colors }) {
-  await setDoc(doc(db, 'profiles', uid()), { icon, title, colors, updatedAt: Date.now() });
+export async function saveMyProfile({ icon, photo = '', title, colors }) {
+  await setDoc(doc(db, 'profiles', uid()), { icon, photo, title, colors, updatedAt: Date.now() });
 }
 
 // 全体の設定（profile）を、参加中のグループに書き写す（custom の項目はそのまま）。groupId を渡すとそのグループだけ
@@ -325,7 +326,7 @@ export async function applyProfileToGroups(profile, groupId = null) {
   const docs = groupId
     ? [await getDoc(groupRef(groupId))].filter((d) => d.exists())
     : (await getDocs(query(collection(db, 'groups'), where('memberIds', 'array-contains', me)))).docs;
-  const global = { name: displayName(), icon: profile.icon ?? '', title: profile.title ?? '', colors: profile.colors ?? {} };
+  const global = { name: displayName(), icon: profile.icon ?? '', photo: profile.photo ?? '', title: profile.title ?? '', colors: profile.colors ?? {} };
   await Promise.all(
     docs.map((d) => {
       const custom = d.data().members?.[me]?.custom ?? {};

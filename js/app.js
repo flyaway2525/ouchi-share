@@ -785,6 +785,56 @@ async function bonusScheduleSheet() {
 
 const PROFILE_ICONS = ['😀', '😎', '🥰', '🤓', '😺', '👨', '👩', '👦', '👧', '👴', '👵', '👶', '🐶', '🐱', '🐻', '🐼', '🦊', '🐰', '🐸', '🐧', '🌸', '⭐', '⚽', '🎮'];
 const PROFILE_COLORS = ['#f08a4b', '#e5484d', '#e57fa3', '#9b6bd6', '#3b7ddd', '#1e96d2', '#2f9e8f', '#43a047', '#d4a800', '#8a7f76'];
+// 色のセット（メイン・サブ・サードが同系色でそろった組み合わせ）
+const COLOR_SETS = [
+  ['🍊 みかん', '#f08a4b', '#fbc49c', '#e8603c'],
+  ['🌸 さくら', '#e57fa3', '#f6c6d6', '#d4547e'],
+  ['🍒 さくらんぼ', '#e5484d', '#f6b3b5', '#b52b31'],
+  ['🍇 ぶどう', '#9b6bd6', '#d6c4f0', '#6b3fb0'],
+  ['🌙 よぞら', '#3d4a8f', '#b3bbe6', '#24306b'],
+  ['🌊 うみ', '#1e96d2', '#a8d8f0', '#2563b8'],
+  ['🧊 ミント', '#2f9e8f', '#b6e3dc', '#1d6f65'],
+  ['🌿 わかば', '#43a047', '#b9e0b5', '#2e7d32'],
+  ['🍋 レモン', '#d4a800', '#f3e39a', '#b58900'],
+  ['🍫 ショコラ', '#8d5b3c', '#d9bfa8', '#6b4226'],
+  ['🌺 トロピカル', '#ff7a59', '#ffd36e', '#12a4a0'],
+  ['🪨 モノトーン', '#5f6368', '#d0d3d6', '#2b2f33'],
+];
+// カラーパレット（12 の色相 × 5 段階の濃さ）
+const PALETTE = [92, 80, 66, 52, 38].flatMap((l) => Array.from({ length: 12 }, (_, i) => hslToHex(i * 30, l > 85 ? 60 : 68, l)));
+
+function hslToHex(hue, sat, light) {
+  const s = sat / 100;
+  const l = light / 100;
+  const f = (n) => {
+    const k = (n + hue / 30) % 12;
+    const c = l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255)
+      .toString(16)
+      .padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+// アイコンの写真：真ん中を正方形に切り抜いて、160px の JPEG（data URL）にする
+async function cropAvatar(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('画像を読み込めませんでした'));
+      el.src = url;
+    });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 160;
+    canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 160, 160);
+    return canvas.toDataURL('image/jpeg', 0.82);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 let myProfile = {}; // 全体の設定（profiles/{uid}）
 let unwatchProfile = null;
@@ -814,6 +864,9 @@ function personColor(m) {
 
 // アイコンの丸（識別カラーの丸に、絵文字か名前の 1 文字目）
 function avatar(m, size = 28) {
+  if (m?.photo) {
+    return h('img', { class: 'avatar photo', src: m.photo, alt: '', style: `--av: ${personColor(m)}; width: ${size}px; height: ${size}px`, 'aria-hidden': 'true' });
+  }
   return h(
     'span',
     { class: 'avatar', style: `--av: ${personColor(m)}; width: ${size}px; height: ${size}px; font-size: ${Math.round(size * 0.55)}px`, 'aria-hidden': 'true' },
@@ -852,11 +905,12 @@ function themeForHash(hash) {
 function profileSheet({ group = null } = {}) {
   const me = group?.members?.[user.uid] ?? {};
   const custom = { ...(me.custom ?? {}) };
-  const global = { name: auth.displayName(), icon: myProfile.icon ?? '', title: myProfile.title ?? '', colors: { ...(myProfile.colors ?? {}) } };
+  const global = { name: auth.displayName(), icon: myProfile.icon ?? '', photo: myProfile.photo ?? '', title: myProfile.title ?? '', colors: { ...(myProfile.colors ?? {}) } };
   const v = group
     ? {
         name: custom.name ? me.name ?? global.name : global.name,
         icon: custom.icon ? me.icon ?? '' : global.icon,
+        photo: custom.icon ? me.photo ?? '' : global.photo,
         title: custom.title ? me.title ?? '' : global.title,
         colors: { ...(custom.colors ? me.colors ?? {} : global.colors) },
       }
@@ -881,6 +935,7 @@ function profileSheet({ group = null } = {}) {
         custom[field] = !useGlobal.checked;
         if (useGlobal.checked) {
           v[field] = field === 'colors' ? { ...global.colors } : global[field];
+          if (field === 'icon') v.photo = global.photo; // 写真もアイコンと一緒に
           sync();
           renderPreview();
         }
@@ -921,6 +976,48 @@ function profileSheet({ group = null } = {}) {
       syncIcon();
       renderPreview();
     });
+    // 写真（あれば絵文字より優先）
+    const photoRow = h('div', { class: 'profile-photo-row' });
+    const syncPhoto = () => {
+      setChildren(
+        photoRow,
+        v.photo && h('img', { class: 'avatar photo', src: v.photo, alt: '写真', style: 'width: 40px; height: 40px' }),
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn',
+            onClick: async () => {
+              const file = await pickImageFile();
+              if (!file) return;
+              try {
+                v.photo = await cropAvatar(file);
+              } catch (e) {
+                return toast(e.message);
+              }
+              syncPhoto();
+              renderPreview();
+            },
+          },
+          v.photo ? '📷 写真を変える' : '📷 写真を使う',
+        ),
+        v.photo &&
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn',
+              onClick: () => {
+                v.photo = '';
+                syncPhoto();
+                renderPreview();
+              },
+            },
+            '写真を外す（絵文字にする）',
+          ),
+      );
+      sections.forEach((u) => u());
+    };
 
     // 名前・肩書き
     const nameInput = h('input', { class: 'text-input', value: v.name, maxlength: 40, placeholder: '例：たろう', 'aria-label': '名前' });
@@ -935,9 +1032,31 @@ function profileSheet({ group = null } = {}) {
       ['sub', 'サブカラー', '背景などの薄い色。自分の画面だけ'],
       ['third', 'サードカラー（識別カラー）', 'みんなの画面での、あなたの色'],
     ];
+    let paletteFor = null; // パレットを開いている色（'main' など）
     const syncColors = () => {
       setChildren(
         colorBox,
+        h('span', { class: 'color-label' }, '色のセット', h('small', {}, 'メイン・サブ・サードを同じ系統の色でまとめて選べます（あとから 1 色ずつ変えられます）')),
+        h(
+          'div',
+          { class: 'color-sets' },
+          COLOR_SETS.map(([name, main, sub, third]) =>
+            h(
+              'button',
+              {
+                type: 'button',
+                class: `color-set${v.colors.main === main && v.colors.sub === sub && v.colors.third === third ? ' on' : ''}`,
+                onClick: () => {
+                  v.colors = { main, sub, third };
+                  syncColors();
+                  renderPreview();
+                },
+              },
+              h('span', { class: 'color-set-dots' }, [main, sub, third].map((c) => h('i', { style: `background: ${c}` }))),
+              name,
+            ),
+          ),
+        ),
         COLOR_ROWS.map(([key, label, hint]) => {
           const picker = h('input', { type: 'color', class: 'color-picker', value: v.colors[key] || '#f08a4b', 'aria-label': `${label}を自由に選ぶ` });
           picker.addEventListener('input', () => {
@@ -979,19 +1098,51 @@ function profileSheet({ group = null } = {}) {
                   },
                 }),
               ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: `swatch palette-btn${paletteFor === key ? ' on' : ''}`,
+                  title: 'カラーパレットから選ぶ',
+                  onClick: () => {
+                    paletteFor = paletteFor === key ? null : key;
+                    syncColors();
+                  },
+                },
+                '🎨',
+              ),
               picker,
             ),
+            paletteFor === key &&
+              h(
+                'div',
+                { class: 'palette' },
+                PALETTE.map((c) =>
+                  h('button', {
+                    type: 'button',
+                    class: `palette-cell${v.colors[key] === c ? ' on' : ''}`,
+                    style: `background: ${c}`,
+                    'aria-label': c,
+                    onClick: () => {
+                      v.colors[key] = c;
+                      syncColors();
+                      renderPreview();
+                    },
+                  }),
+                ),
+              ),
           );
         }),
       );
       sections.forEach((u) => u());
     };
 
-    const iconSection = section('icon', 'アイコン', [iconChips, iconInput], syncIcon);
+    const iconSection = section('icon', 'アイコン（絵文字か写真）', [photoRow, iconChips, iconInput], () => (syncIcon(), syncPhoto()));
     const nameSection = section('name', '名前', nameInput, () => (nameInput.value = v.name));
     const titleSection = section('title', '肩書き（グループでの立ち位置）', titleInput, () => (titleInput.value = v.title));
     const colorSection = section('colors', '色', colorBox, syncColors);
     syncIcon();
+    syncPhoto();
     syncColors();
     renderPreview();
     sections.forEach((u) => u());
@@ -1029,11 +1180,12 @@ function profileSheet({ group = null } = {}) {
       if (group) {
         // 全体の設定を使う項目は、全体の値を書いておく（ほかの人はグループのデータだけで見る）
         const final = {};
+        c.photo = c.icon; // 写真はアイコンと一緒に「このグループだけ」
         for (const f of store.PROFILE_FIELDS) final[f] = c[f] ? values[f] : f === 'colors' ? global.colors : global[f];
         await store.saveGroupProfile(group.id, final, Object.fromEntries(store.PROFILE_FIELDS.map((f) => [f, !!c[f]])));
       } else {
         if (values.name !== auth.displayName()) await auth.setDisplayName(values.name);
-        const profile = { icon: values.icon, title: values.title, colors: values.colors };
+        const profile = { icon: values.icon, photo: values.photo ?? '', title: values.title, colors: values.colors };
         await store.saveMyProfile(profile);
         await store.applyProfileToGroups(profile);
         store.touchPresence(null).catch(() => {});
@@ -1529,7 +1681,7 @@ function homeView(root) {
       h(
         'button',
         { class: 'greeting', onClick: () => profileSheet(), 'aria-label': 'プロフィールを変更' },
-        avatar({ uid: user.uid, name: auth.displayName(), icon: myProfile.icon, colors: myProfile.colors }, 32),
+        avatar({ uid: user.uid, name: auth.displayName(), icon: myProfile.icon, photo: myProfile.photo, colors: myProfile.colors }, 32),
         h('span', {}, `${auth.displayName()} さん`, myProfile.title && h('small', { class: 'profile-title' }, myProfile.title)),
         auth.isGuest() && h('span', { class: 'badge muted' }, 'ゲスト'),
         h('span', { class: 'edit-hint' }, '変更'),
@@ -3093,7 +3245,7 @@ function groupView(root, { groupId }) {
 function memberList(group) {
   return Object.entries(group?.members ?? {})
     .sort((a, b) => (a[1].joinedAt ?? 0) - (b[1].joinedAt ?? 0))
-    .map(([uid, m]) => ({ uid, name: m.name, icon: m.icon ?? '', title: m.title ?? '', colors: m.colors ?? {} }));
+    .map(([uid, m]) => ({ uid, name: m.name, icon: m.icon ?? '', photo: m.photo ?? '', title: m.title ?? '', colors: m.colors ?? {} }));
 }
 
 function participantsLabel(members, participants) {

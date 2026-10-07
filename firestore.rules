@@ -79,8 +79,9 @@ service cloud.firestore {
     match /profiles/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
       allow write: if signedIn() && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly(['icon', 'title', 'colors', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['icon', 'photo', 'title', 'colors', 'updatedAt'])
         && request.resource.data.icon is string && request.resource.data.icon.size() <= 16
+        && (!('photo' in request.resource.data) || (request.resource.data.photo is string && request.resource.data.photo.size() <= 60000))
         && request.resource.data.title is string && request.resource.data.title.size() <= 20
         && request.resource.data.colors is map && request.resource.data.colors.size() <= 3;
     }
@@ -149,10 +150,11 @@ service cloud.firestore {
         let keys = after.diff(before).affectedKeys();
         return changed().hasOnly(['members'])
           && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([me])
-          && keys.hasOnly(['name', 'guest', 'lastSeen', 'icon', 'title', 'colors', 'custom'])
+          && keys.hasOnly(['name', 'guest', 'lastSeen', 'icon', 'photo', 'title', 'colors', 'custom'])
           && (!keys.hasAny(['name']) || isNonEmptyString(after.name, 40))
           // プロフィール（アイコン・肩書き・色・グループだけの設定）
           && (!keys.hasAny(['icon']) || (after.icon is string && after.icon.size() <= 16))
+          && (!keys.hasAny(['photo']) || (after.photo is string && after.photo.size() <= 60000))
           && (!keys.hasAny(['title']) || (after.title is string && after.title.size() <= 20))
           && (!keys.hasAny(['colors']) || (after.colors is map && after.colors.size() <= 3))
           && (!keys.hasAny(['custom']) || after.custom is map)
