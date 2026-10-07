@@ -8,3 +8,6 @@ ios/DerivedData/
 xcuserdata/
 *.xcuserstate
 .DS_Store
+
+# Capacitor の SPM 用シンボリックリンク（Mac の npm run ios:sync で作られる）
+ios/App/CapApp-SPM/symlinks/

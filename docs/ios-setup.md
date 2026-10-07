@@ -62,17 +62,25 @@ npm run ios:open
 
 Web 版のままだと、アプリの中では次が動かない。ここは Mac で実機・シミュレーターを見ながら直す。
 
-1. **Google ログイン**：ポップアップのログインはアプリの中では開けない
-   - `@capacitor-firebase/authentication` を入れて、iPhone の仕組みの Google ログインにする（`js/auth.js` で `isNativeApp` のときだけ切り替え）
-   - Firebase コンソール → プロジェクトの設定 → **iOS アプリを追加**（Bundle ID は上と同じ）→ `GoogleService-Info.plist` を Xcode の App フォルダに入れる
-   - Google でのログインがあるアプリは「**Apple でサインイン**」も付けるのが Apple のルール → Firebase の Authentication で Apple を有効にし、Xcode の Signing & Capabilities に「Sign in with Apple」を追加
-   - ゲスト（匿名ログイン）と招待リンクからの参加は、今のままで動く見込み
-2. **通知**：Web の通知（Service Worker）はアプリの中では使えない
+1. **Google ログイン**（2026-10-07 にコードは対応済み。Mac で `npm install && npm run ios:sync` してからビルド）
+   - ポップアップのログインはアプリの中では開けない（`auth/argument-error`）ので、`@capacitor-firebase/authentication` の
+     iPhone の仕組みのログイン画面で Google にログインし、結果（ID トークン）で Firebase の JavaScript SDK にログインする
+     （`capacitor.config.json` の `skipNativeAuth: true`。`js/auth.js` の `isNativeApp` のときだけ）
+   - Firebase に iOS アプリ（`ouchi-share-ios`）を登録し、`ios/App/App/GoogleService-Info.plist` を Xcode のプロジェクトに追加済み。
+     Google から戻ってくるための URL スキーム（REVERSED_CLIENT_ID）も `Info.plist` に追加済み
+   - プラグインの部品（Firebase・GoogleSignIn）は Swift Package Manager。Facebook の部品は使わないので外してある（packageTraits）
+   - `npm run ios:sync` は Mac で実行する（Windows ではシンボリックリンクを作れず、CapApp-SPM/Package.swift を書き換えられない）
+2. **Apple でサインイン**（コードとボタンは対応済み。アプリの中だけ表示）
+   - Google でのログインがあるアプリは「Apple でサインイン」も付けるのが Apple のルール
+   - 残りの作業：Apple Developer Program が有効になってから、Xcode の Signing & Capabilities に「**Sign in with Apple**」を追加。
+     Firebase コンソール → Authentication → ログイン方法 で **Apple** を有効にする（iPhone アプリだけならサービス ID などは不要）
+   - ゲスト（匿名ログイン）と招待リンクからの参加は、今のままで動く
+3. **通知**：Web の通知（Service Worker）はアプリの中では使えない
    - `@capacitor-firebase/messaging` を入れて、アプリの通知（APNs）にする
    - Apple Developer → Keys で **APNs キー（.p8）** を作り、Firebase コンソール → Cloud Messaging → Apple アプリの構成 に登録
    - Xcode の Signing & Capabilities に「Push Notifications」と「Background Modes → Remote notifications」を追加
    - 通知を送る Workers は、アプリ向け（apns）の書き方も入れてあるので、端末のトークンを `push/{uid}` に保存すれば届く
-3. 済んでいること（Windows 側で対応済み）
+4. 済んでいること（Windows 側で対応済み）
    - アプリの中では Firebase のログイン情報の保存先を IndexedDB にして初期化（`js/firebase.js` の `isNativeApp`）
    - 招待リンク・復旧リンク・QR は、アプリの中でも Web 版のアドレス（`WEB_URL`）で作る
 

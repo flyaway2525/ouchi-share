@@ -1163,6 +1163,7 @@ function welcomeView(root) {
       h('h1', { class: 'welcome-title' }, 'ouchi-share'),
       h('p', { class: 'welcome-text' }, '家族や友人と、予定・持ち物・日用品の在庫を共有できます。'),
       h('button', { class: 'btn primary wide', onClick: () => runAuth(auth.signInWithGoogle) }, 'Google でログイン'),
+      auth.isNativeApp && h('button', { class: 'btn wide apple-signin', onClick: () => runAuth(auth.signInWithApple) }, ' Apple でサインイン'),
       h('p', { class: 'welcome-note' }, '招待リンクを受け取った方は、そのリンクから開いてください。'),
       h('a', { class: 'btn wide', href: '#/recover' }, 'スマホを替えた方（復旧IDで戻る）'),
     ),
@@ -1212,6 +1213,7 @@ function joinView(root, { groupId, code }) {
     ),
     h('div', { class: 'divider' }, 'または'),
     h('button', { class: 'btn wide', onClick: () => runAuth(auth.signInWithGoogle) }, 'Google でログインして参加'),
+    auth.isNativeApp && h('button', { class: 'btn wide apple-signin', onClick: () => runAuth(auth.signInWithApple) }, ' Apple でサインインして参加'),
   );
 }
 

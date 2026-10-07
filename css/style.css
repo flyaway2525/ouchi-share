@@ -3371,3 +3371,11 @@ select.text-input {
 .badge.admin {
   background: #f5a623;
 }
+
+/* 「Apple でサインイン」（iPhone アプリ版だけ）。Apple の決まりに合わせて黒地に白 */
+.apple-signin {
+  margin-top: 10px;
+  border-color: #000;
+  background: #000;
+  color: #fff;
+}

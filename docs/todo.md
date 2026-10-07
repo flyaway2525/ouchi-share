@@ -30,8 +30,8 @@
 - [ ] Mac に Xcode・Node.js を入れる。Mac にも Claude Code を入れてリポジトリを clone
 - [x] リポジトリに Capacitor の設定を足す（Web 版の動きは変えない）：package.json・capacitor.config.json・scripts/build-www.mjs・icons/icon-1024.png（2026-10-07）
 - [x] `npx cap add ios` → ios/ をコミット（Windows で作成。アイコン・起動画面・暗号化の申告も入れた。2026-10-07）
-- [ ] シミュレーター・自分の iPhone で起動
-- [ ] ログインの作り直し：アプリ内ではポップアップの Google ログインが動かないので、iPhone の仕組みの Google ログイン＋「Apple でサインイン」に
+- [x] 自分の iPhone で起動（2026-10-07。シミュレーターは日本語が「?」になる不具合があり、実機で確認）
+- [ ] ログインの作り直し：iPhone の仕組みの Google ログイン＋「Apple でサインイン」（コードは対応済み。実機での確認と、Apple のサインインの有効化が残り）
 - [ ] アプリの通知（APNs キーを Firebase に登録）
 - [ ] 通知の左のアイコンを送った人のアイコンにする（「コミュニケーション通知」。iOS 15 以降）
   - Notification Service Extension で、届いた通知を送った人の情報（INSendMessageIntent）付きに書き換える
