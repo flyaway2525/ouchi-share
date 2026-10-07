@@ -961,17 +961,7 @@ function accountMenu() {
     isAdmin && { label: '管理者ダッシュボード', onClick: () => (location.hash = '#/admin') },
     { label: '名前を変更', onClick: renameAccount },
     guest && { label: '復旧IDを確認', onClick: myRecoverySheet },
-    guest && {
-      label: 'Google アカウントに引き継ぐ',
-      onClick: () =>
-        runAuth(async () => {
-          await auth.upgradeGuestToGoogle();
-          await store.syncMyProfile().catch(() => {});
-          await store.deleteMyRecoveryCodes().catch(() => {});
-          store.touchPresence(null).catch(() => {});
-          toast('Google アカウントに引き継ぎました');
-        }),
-    },
+    { label: guest ? '🔗 アカウントを連携（ゲストから引き継ぐ）' : '🔗 ログイン方法の連携', onClick: linkAccountsSheet },
     {
       label: 'ユーザーIDをコピー',
       onClick: async () => {
@@ -989,6 +979,58 @@ function accountMenu() {
       },
     },
   ].filter(Boolean));
+}
+
+// ログイン方法の連携（Google・Apple）。ゲストは連携すると、そのデータのまま正式なアカウントになる
+function linkAccountsSheet() {
+  const guest = auth.isGuest();
+  const linked = auth.linkedProviders();
+  const link = (p) =>
+    runAuth(async () => {
+      await auth.linkAccount(p.id);
+      if (guest) {
+        // ゲストでなくなったので、グループのメンバー情報のゲスト表示を外し、復旧ID も片付ける
+        await store.syncMyProfile().catch(() => {});
+        await store.deleteMyRecoveryCodes().catch(() => {});
+        store.touchPresence(null).catch(() => {});
+      }
+      toast(guest ? `${p.label} アカウントに引き継ぎました` : `${p.label} を連携しました`);
+    });
+  const unlinkOne = async (p) => {
+    if (!(await confirmSheet(`${p.label} との連携を外しますか？（外すと、${p.label} ではログインできなくなります）`, '外す'))) return;
+    runAuth(async () => {
+      await auth.unlinkAccount(p.id);
+      toast(`${p.label} との連携を外しました`);
+    });
+  };
+  openSheet((close) => [
+    h('div', { class: 'sheet-title' }, '🔗 ログイン方法の連携'),
+    h(
+      'p',
+      { class: 'sch-hint' },
+      guest
+        ? 'いまはゲストです。Google（アプリでは Apple も）と連携すると、参加中のグループ・名前はそのままで、ほかの端末からもログインできるようになります。'
+        : '連携したどの方法でログインしても、同じデータを使えます（Apple との連携は iPhone アプリから）。',
+    ),
+    h(
+      'ul',
+      { class: 'member-list link-list' },
+      auth.LINK_PROVIDERS.map((p) => {
+        const mine = linked.find((l) => l.id === p.id);
+        const canUse = !p.appOnly || auth.isNativeApp;
+        return h(
+          'li',
+          {},
+          h('span', { class: `link-icon ${p.id.replace('.com', '')}` }, p.icon),
+          h('span', { class: 'member-name' }, h('span', {}, p.label), h('span', { class: 'member-seen' }, mine ? `連携済み${mine.email ? `（${mine.email}）` : ''}` : canUse ? 'まだ連携していません' : 'iPhone アプリから連携できます')),
+          mine
+            ? linked.length > 1 && h('button', { class: 'chip', onClick: () => (close(null), unlinkOne(p)) }, '外す')
+            : canUse && h('button', { class: 'chip on', onClick: () => (close(null), link(p)) }, '連携する'),
+        );
+      }),
+    ),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
+  ]);
 }
 
 // ---- 画面：読み込み中 ----

@@ -3379,3 +3379,23 @@ select.text-input {
   background: #000;
   color: #fff;
 }
+
+/* ログイン方法の連携 */
+.link-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-weight: 700;
+  color: #4285f4;
+}
+
+.link-icon.apple {
+  border-color: #000;
+  background: #000;
+  color: #fff;
+}

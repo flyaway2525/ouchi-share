@@ -12,6 +12,7 @@ import {
   signInWithPopup,
   linkWithPopup,
   linkWithCredential,
+  unlink,
   signInWithCredential,
   OAuthProvider,
   signOut as fbSignOut,
@@ -78,11 +79,33 @@ export async function signInAsGuest(name) {
   return user;
 }
 
-// ゲストのまま使っていたデータ（参加中のグループ）を Google アカウントに引き継ぐ
-// 名前はゲストのときに入力したものをそのまま使う
-export async function upgradeGuestToGoogle() {
-  const { user } = isNativeApp ? await linkWithCredential(auth.currentUser, await nativeCredential('google.com')) : await linkWithPopup(auth.currentUser, provider);
-  // ログイン方法が変わったことをセキュリティルール側にも反映させる
+// ---- ログイン方法の連携 ----
+// 1 つのアカウントに Google・Apple をまとめられる（どれでログインしても同じデータ）。
+// ゲストが連携すると、そのデータ（参加中のグループ・名前）のまま正式なアカウントになる（ゲストからの昇格）。
+// Apple との連携は iPhone アプリの中だけ（Web で Apple を使うには、Apple 側のサービス設定が別に要るため）。
+export const LINK_PROVIDERS = [
+  { id: 'google.com', label: 'Google', icon: 'G' },
+  { id: 'apple.com', label: 'Apple', icon: '', appOnly: true },
+];
+
+// 連携しているログイン方法 → [{ id: 'google.com', email }]
+export function linkedProviders(user = auth.currentUser) {
+  return (user?.providerData ?? []).map((p) => ({ id: p.providerId, email: p.email ?? '' }));
+}
+
+export async function linkAccount(providerId) {
+  const me = auth.currentUser;
+  let result;
+  if (isNativeApp) result = await linkWithCredential(me, await nativeCredential(providerId));
+  else if (providerId === 'google.com') result = await linkWithPopup(me, provider);
+  else throw Object.assign(new Error('app-only'), { code: 'app-only' });
+  // ログイン方法が変わったこと（ゲストでなくなったことなど）をセキュリティルール側にも反映させる
+  await result.user.getIdToken(true);
+  return result.user;
+}
+
+export async function unlinkAccount(providerId) {
+  const user = await unlink(auth.currentUser, providerId);
   await user.getIdToken(true);
   return user;
 }
@@ -104,7 +127,13 @@ export function authErrorMessage(e) {
     case 'auth/popup-blocked':
       return 'ポップアップがブロックされました。ブラウザの設定を確認してください。';
     case 'auth/credential-already-in-use':
-      return 'この Google アカウントはすでに別のデータで使われています。';
+    case 'auth/email-already-in-use':
+    case 'auth/account-exists-with-different-credential':
+      return 'このアカウントは、すでに別のデータ（別のログイン）で使われています。';
+    case 'auth/provider-already-linked':
+      return 'このログイン方法は、もう連携してあります。';
+    case 'app-only':
+      return 'Apple との連携は、iPhone アプリから行えます。';
     case 'auth/unauthorized-domain':
       return 'このドメインはログインが許可されていません（Firebase の承認済みドメインを確認してください）。';
     case 'auth/admin-restricted-operation':
