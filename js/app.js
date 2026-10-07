@@ -582,6 +582,12 @@ function ticketsView(root, { groupId }) {
 
   function render() {
     if (!group || bonus === undefined || !rewards || !schedule) return;
+    // 「報酬の管理」から開いたとき：ごほうびの追加・レートのシートをそのまま出す（オーナー・管理者だけ）
+    if (pendingTicketAction && isOwner()) {
+      const action = pendingTicketAction;
+      setTimeout(() => (action === 'reward' ? editReward() : editRates()), 0);
+    }
+    pendingTicketAction = null;
     setChildren(top, header({ title: `🎟 ${group.name}のチケット`, back: `#/g/${groupId}` }));
     const tickets = bonus?.tickets ?? {};
     const month = todayStr().slice(0, 7);
@@ -2982,7 +2988,7 @@ function membersSheet(group, recoveryCodes = {}) {
 
 // グループのメニュー（グループの画面の ⋯ と、ホームのグループのカードで共通）。
 // options.asWindow で、下から出るシートではなく画面の真ん中に浮かぶウィンドウとして出す（ホームのカードから）
-// グループの管理（オーナー・管理者だけの機能をまとめたメニュー）
+// グループの管理（オーナー・管理者だけの機能をまとめたメニュー）。メンバー系・報酬系はもう 1 段下のメニューにまとめる
 function groupAdminMenu(group, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
@@ -2995,16 +3001,8 @@ function groupAdminMenu(group, options = {}) {
         setTimeout(() => groupNewsWriter?.(true), 300);
       },
     },
-    { label: '🎟 ごほうび・チケットのレート', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
-    owner && { label: '👑 管理者を設定（オーナーだけ）', onClick: () => managersSheet(group) },
-    owner && {
-      label: '招待リンクを作り直す（オーナーだけ）',
-      onClick: async () => {
-        if (await confirmSheet('今までの招待リンクは使えなくなります（参加済みのメンバーはそのまま）。作り直しますか？', '作り直す')) {
-          store.regenerateInvite(groupId).then(() => toast('招待リンクを作り直しました'), showError);
-        }
-      },
-    },
+    { label: '👥 メンバーの管理 ＞', onClick: () => groupMembersAdminMenu(group, options) },
+    { label: '🎁 報酬の管理 ＞', onClick: () => groupRewardsAdminMenu(group, options) },
     owner && {
       label: 'グループを削除（オーナーだけ）',
       danger: true,
@@ -3015,6 +3013,41 @@ function groupAdminMenu(group, options = {}) {
       },
     },
   ].filter(Boolean), options);
+}
+
+// グループの管理 ＞ メンバーの管理
+function groupMembersAdminMenu(group, options = {}) {
+  const owner = group.members?.[user.uid]?.role === 'owner';
+  actionSheet(`👥 ${group.name}のメンバーの管理`, [
+    { label: 'メンバーを見る（外す・復旧ID）', onClick: () => membersSheet(group) },
+    owner && { label: '👑 管理者を設定（オーナーだけ）', onClick: () => managersSheet(group) },
+    { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
+    { label: '招待リンクを送る', onClick: () => shareInvite(group) },
+    owner && {
+      label: '招待リンクを作り直す（オーナーだけ）',
+      onClick: async () => {
+        if (await confirmSheet('今までの招待リンクは使えなくなります（参加済みのメンバーはそのまま）。作り直しますか？', '作り直す')) {
+          store.regenerateInvite(group.id).then(() => toast('招待リンクを作り直しました'), showError);
+        }
+      },
+    },
+    { label: '‹ グループの管理に戻る', onClick: () => groupAdminMenu(group, options) },
+  ].filter(Boolean), options);
+}
+
+// グループの管理 ＞ 報酬の管理（チケットの画面を開いて、そのまま入力シートを出す）
+let pendingTicketAction = null; // 'reward'（ごほうびを追加）/ 'rates'（レート）
+function groupRewardsAdminMenu(group, options = {}) {
+  const open = (action) => {
+    pendingTicketAction = action;
+    location.hash = `#/g/${group.id}/tickets`;
+  };
+  actionSheet(`🎁 ${group.name}の報酬の管理`, [
+    { label: '＋ ごほうびを追加', onClick: () => open('reward') },
+    { label: '⚙️ チケットのレート（両替・換金）', onClick: () => open('rates') },
+    { label: '🎟 ごほうび・交換の記録を見る', onClick: () => open(null) },
+    { label: '‹ グループの管理に戻る', onClick: () => groupAdminMenu(group, options) },
+  ], options);
 }
 
 function groupMenu(group, recoveryCodes = {}, options = {}) {
