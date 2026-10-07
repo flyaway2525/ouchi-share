@@ -142,6 +142,7 @@ function enableSwipeDown(sheet, backdrop, close) {
   sheet.addEventListener('touchcancel', end);
 }
 
+// options.back を渡すと、いちばん下のボタンが「‹ 戻る」になり、押すとひとつ前のメニュー（back()）に戻る
 export function actionSheet(title, actions, options = {}) {
   return openSheet((close) => [
     h('div', { class: 'sheet-title' }, title),
@@ -159,7 +160,17 @@ export function actionSheet(title, actions, options = {}) {
         a.label,
       ),
     ),
-    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'キャンセル'),
+    h(
+      'button',
+      {
+        class: 'sheet-action cancel',
+        onClick: () => {
+          close(null);
+          options.back?.();
+        },
+      },
+      options.back ? '‹ 戻る' : 'キャンセル',
+    ),
   ], options);
 }
 

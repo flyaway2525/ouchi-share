@@ -2988,7 +2988,8 @@ function membersSheet(group, recoveryCodes = {}) {
 
 // グループのメニュー（グループの画面の ⋯ と、ホームのグループのカードで共通）。
 // options.asWindow で、下から出るシートではなく画面の真ん中に浮かぶウィンドウとして出す（ホームのカードから）
-// グループの管理（オーナー・管理者だけの機能をまとめたメニュー）。メンバー系・報酬系はもう 1 段下のメニューにまとめる
+// グループの管理（オーナー・管理者だけの機能をまとめたメニュー）。メンバー系・報酬系はもう 1 段下のメニューにまとめる。
+// 下の段で「‹ 戻る」を押すとひとつ上の段へ（options.back）
 function groupAdminMenu(group, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
@@ -3001,8 +3002,8 @@ function groupAdminMenu(group, options = {}) {
         setTimeout(() => groupNewsWriter?.(true), 300);
       },
     },
-    { label: '👥 メンバーの管理 ＞', onClick: () => groupMembersAdminMenu(group, options) },
-    { label: '🎁 報酬の管理 ＞', onClick: () => groupRewardsAdminMenu(group, options) },
+    { label: '👥 メンバーの管理 ＞', onClick: () => groupMembersAdminMenu(group, { ...options, back: () => groupAdminMenu(group, options) }) },
+    { label: '🎁 報酬の管理 ＞', onClick: () => groupRewardsAdminMenu(group, { ...options, back: () => groupAdminMenu(group, options) }) },
     owner && {
       label: 'グループを削除（オーナーだけ）',
       danger: true,
@@ -3031,7 +3032,6 @@ function groupMembersAdminMenu(group, options = {}) {
         }
       },
     },
-    { label: '‹ グループの管理に戻る', onClick: () => groupAdminMenu(group, options) },
   ].filter(Boolean), options);
 }
 
@@ -3046,7 +3046,6 @@ function groupRewardsAdminMenu(group, options = {}) {
     { label: '＋ ごほうびを追加', onClick: () => open('reward') },
     { label: '⚙️ チケットのレート（両替・換金）', onClick: () => open('rates') },
     { label: '🎟 ごほうび・交換の記録を見る', onClick: () => open(null) },
-    { label: '‹ グループの管理に戻る', onClick: () => groupAdminMenu(group, options) },
   ], options);
 }
 
@@ -3054,7 +3053,7 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
   actionSheet(group.name, [
-    isManager(group) && { label: '🛠 グループの管理（オーナー・管理者だけ）', onClick: () => groupAdminMenu(group, options) },
+    isManager(group) && { label: '🛠 グループの管理（オーナー・管理者だけ）', onClick: () => groupAdminMenu(group, { ...options, back: () => groupMenu(group, recoveryCodes, options) }) },
     {
       label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
       onClick: () => (location.hash = `#/g/${groupId}/news`),
