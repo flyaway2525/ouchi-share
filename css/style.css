@@ -2046,26 +2046,40 @@ select.text-input {
   border-bottom-right-radius: 6px;
 }
 
-.cal-dots {
+.cal-labels {
   z-index: 1;
   display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 3px;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 1px 2px 3px;
+  overflow: hidden;
   pointer-events: none;
 }
 
-.cal-dots i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
+/* その日の予定の名前（マスの幅に合わせて「…」で省略） */
+.cal-label {
+  padding: 0 3px;
+  border-left: 2px solid var(--accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.cal-dots b {
+.cal-label.sched {
+  border-left-color: #3b7ddd;
+  background: color-mix(in srgb, #3b7ddd 12%, transparent);
+}
+
+.cal-more {
   font-size: 10px;
-  line-height: 1;
+  line-height: 14px;
   color: var(--accent);
+  text-align: center;
 }
 
 .cal-panel {

@@ -2701,7 +2701,15 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   // 何日か続く普段の予定は、イベントと同じく帯で表示する（点は付けない）
   const isSpan = (p) => !!p.date && !!p.endDate && p.endDate > p.date;
   const spanPlans = ps.filter(isSpan);
-  const dotsOn = (d) => schedItems.filter((x) => x.item.date === d).length + ps.filter((p) => p.date === d && !isSpan(p)).length;
+  // その日のマスに名前を出す予定（普段の予定は時刻順、旅程の予定はあと）
+  const MAX_LABELS = 2;
+  const labelsOn = (d) => [
+    ...ps
+      .filter((p) => p.date === d && !isSpan(p))
+      .sort((a, b) => (a.start ?? '').localeCompare(b.start ?? '') || (a.createdAt ?? 0) - (b.createdAt ?? 0))
+      .map((p) => ({ title: p.title, kind: 'plan' })),
+    ...schedItems.filter((x) => x.item.date === d).sort((a, b) => bySeq(a.item, b.item)).map((x) => ({ title: x.item.title, kind: 'sched' })),
+  ];
 
   // 表示範囲の真ん中の日がある月を「表示中の月」とする（見出しと、薄く表示する日の基準）
   const mid = addDays(state.start, Math.floor((state.weeks * 7) / 2));
@@ -2775,9 +2783,12 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       if (lane >= MAX_LANES) for (let i = seg.s; i <= seg.t; i++) hidden[i]++;
     }
     const lanes = Math.min(laneEnds.length, MAX_LANES);
+    const labels = days.map(labelsOn);
+    // 名前の行の高さは、その週でいちばん多い日に合わせる（1 件 15px、なければ 14px）
+    const rows = Math.min(MAX_LABELS, Math.max(0, ...labels.map((l) => l.length + (hidden[labels.indexOf(l)] > 0 ? 1 : 0))));
     return h(
       'div',
-      { class: 'cal-week', style: `grid-template-rows: 26px repeat(${lanes}, 18px) 14px` },
+      { class: 'cal-week', style: `grid-template-rows: 26px repeat(${lanes}, 18px) ${rows ? rows * 15 + 4 : 14}px` },
       days.map((d, i) =>
         h(
           'button',
@@ -2804,14 +2815,16 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           ),
         ),
       days.map((d, i) => {
-        const n = dotsOn(d);
+        const list = labels[i];
+        const shown = list.length > MAX_LABELS ? list.slice(0, MAX_LABELS - 1) : list;
+        const more = list.length - shown.length + hidden[i];
         return (
-          (n > 0 || hidden[i] > 0) &&
+          (list.length > 0 || hidden[i] > 0) &&
           h(
             'span',
-            { class: 'cal-dots', style: `grid-column: ${i + 1}; grid-row: ${lanes + 2}` },
-            Array.from({ length: Math.min(n, 3) }, () => h('i', {})),
-            (n > 3 || hidden[i] > 0) && h('b', {}, '+'),
+            { class: 'cal-labels', style: `grid-column: ${i + 1}; grid-row: ${lanes + 2}` },
+            shown.map((x) => h('span', { class: `cal-label ${x.kind}` }, x.title)),
+            more > 0 && h('b', { class: 'cal-more' }, `+${more}`),
           )
         );
       }),
