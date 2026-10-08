@@ -3,7 +3,17 @@
 PC の Chrome では確かめたが、実機ではまだ確かめていないもの。実機で確かめたら、結果の欄に ✅（OK）・❌（ダメ。下の「わかったこと」に様子を書く）・—（関係なし）を書く。
 環境によって動きが違ったら、その環境に合わせて直す（CLAUDE.md の「対応する環境」）。
 
-環境の略：**iS** = iPhone の Safari、**iH** = iPhone のホーム画面に追加したアプリ、**iA** = iPhone の Capacitor アプリ（TestFlight）、**AC** = Android の Chrome、**AH** = Android のホーム画面に追加したアプリ
+アプリの形は 3 つ（CLAUDE.md の「対応する環境」）。表の列は「形 × 端末」：
+
+| 列 | 形 | 端末 |
+|---|---|---|
+| **iS** | ブラウザ版 | iPhone（Safari） |
+| **iH** | ホーム画面版 | iPhone |
+| **iA** | アプリ版 | iPhone（TestFlight） |
+| **AC** | ブラウザ版 | Android（Chrome） |
+| **AH** | ホーム画面版 | Android |
+
+PC のブラウザ版は、手元の Chrome で確かめている（Android のアプリ版は、作ったら列を足す）。
 
 ## ＋ボタン・リンクの登録
 | 確かめること | 版 | iS | iH | iA | AC | AH |

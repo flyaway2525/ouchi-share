@@ -5,7 +5,20 @@ iPhone アプリは Capacitor で包んで TestFlight で配る。Firebase（Spa
 有料サービスは使わない（Apple の年 99 ドルだけ）。設計は docs/design.md、残りの作業は docs/todo.md。
 
 ## 対応する環境
-- **ブラウザ（PC）**、**iPhone**（Safari／ホーム画面に追加した Web アプリ／Capacitor のアプリ）、**Android**（Chrome／ホーム画面に追加した Web アプリ。アプリ化は今後）の 3 つに対応する。
+アプリの形は 3 つ。それぞれ iPhone・Android（ブラウザ版は PC も）で動かす。
+
+| 形 | 中身 | 対応する端末 |
+|---|---|---|
+| **ブラウザ版** | GitHub Pages の Web ページをブラウザで開く | PC（Chrome など）、iPhone（Safari）、Android（Chrome） |
+| **ホーム画面版** | ブラウザ版を「ホーム画面に追加」したもの（PWA。全画面で開く） | iPhone、Android |
+| **アプリ版** | Capacitor で包んだアプリ（iPhone は TestFlight で配る） | iPhone（Android は今後） |
+
+- 形によって決まっている違い（例）：
+  - iPhone のホーム画面版は、Safari とログインが別。
+  - 通知は、ホーム画面版とアプリ版だけ。
+  - Apple でのログインは、アプリ版だけ。
+  - ホーム画面に追加の案内は、ブラウザ版だけ。
+  - 形の判定は `auth.isNativeApp`（アプリ版）・`isStandalone()`（ホーム画面版）。
 - 環境によって動きが違うとき（クリップボード、長押し・スワイプなどのタッチ操作、キーボード、日付・時刻の入力、ホーム画面への追加、通知、ログインなど）は、いちばん弱い環境に合わせて機能を削らず、**環境ごとに判定してそれぞれに合った動きにする**。
   - 判定は機能があるかどうかで行う（例：`navigator.clipboard.read` があるか）。それで決められないときだけ、端末の種類（`isIOS()` / `isAndroid()` / `auth.isNativeApp` / `isStandalone()` など）で分ける。
   - 環境ごとの違いと、どう分けたかは docs/design.md の該当する節に書く。
