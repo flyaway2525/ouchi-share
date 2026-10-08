@@ -12,6 +12,11 @@
 //   - TikTok / YouTube は公式の oEmbed、ほかはページの og:title / og:image を読む
 //   - 画像のアドレスは期限切れになることがあるので、画像そのものを data URL で返す（アプリ側で縮小して保存）
 //   → { title, site, image: 'data:image/...' | null }
+// POST /admin … アプリ開発者だけの管理（元に戻せない削除）。Authorization: Bearer <ID トークン>
+//   body: { action: 'deleteGroup', groupId } … グループと中身（リスト・予定・日記・写真など）と、そのグループの復旧ID を全部消す
+//   body: { action: 'deleteUser', uid }       … 全グループから外し（オーナーなら、いちばん古いメンバーをオーナーにする。
+//                                                 1 人だけのグループは消す）、プロフィール・通知の送り先・既読・停止の印・復旧ID を消し、ログインのアカウントも消す
+//   アプリ開発者（DEVELOPER_UIDS か admins/{uid} に developer: true）以外は 403。アプリ開発者は消せない
 // 毎日の定期実行（wrangler.toml の crons）… 翌日の予定・イベントのリマインドを送る
 //
 // 必要な秘密の値（wrangler secret put で登録。リポジトリには入れない）：
@@ -37,6 +42,19 @@ export default {
     if (request.method !== 'POST') return json({ error: 'method' }, 405, cors);
     try {
       const sender = await verifyIdToken((request.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, ''));
+      if (new URL(request.url).pathname === '/admin') {
+        if (!rateLimit(`admin:${sender}`, 20)) return json({ error: 'too-many' }, 429, cors);
+        const token = await accessToken(env);
+        if (!(await isDeveloperUid(token, sender))) throw fail(403, 'not-developer');
+        const req = await request.json();
+        if (req.action === 'deleteGroup') return json(await adminDeleteGroup(token, String(req.groupId ?? '')), 200, cors);
+        if (req.action === 'deleteUser') {
+          const target = String(req.uid ?? '');
+          if (!target || target === sender || (await isDeveloperUid(token, target))) throw fail(400, 'cannot-delete');
+          return json(await adminDeleteUser(token, target), 200, cors);
+        }
+        throw fail(400, 'bad-action');
+      }
       if (new URL(request.url).pathname === '/preview') {
         if (!rateLimit(`preview:${sender}`, 30)) return json({ error: 'too-many' }, 429, cors);
         const req = await request.json();
@@ -96,7 +114,7 @@ async function handleNotify(env, sender, req) {
   let recipients;
   if (kind === 'appnews') {
     // アプリからのお知らせ：アプリ開発者（いつもの開発者か、admins/{uid} に developer: true）だけが、全員に送れる
-    if (!DEVELOPER_UIDS.includes(sender) && (await getDoc(token, `admins/${sender}`))?.developer !== true) throw fail(403, 'not-developer');
+    if (!(await isDeveloperUid(token, sender))) throw fail(403, 'not-developer');
     recipients = (await listDocs(token, 'push')).map((d) => d.id);
   } else {
     const group = await getDoc(token, `groups/${String(req.groupId ?? '')}`);
@@ -353,6 +371,86 @@ async function listDocs(token, collection) {
   return out;
 }
 
+// ---- アプリ開発者の管理（/admin） ----
+async function isDeveloperUid(token, uid) {
+  return DEVELOPER_UIDS.includes(uid) || (await getDoc(token, `admins/${uid}`))?.developer === true;
+}
+
+const docName = (path) => `projects/${PROJECT_ID}/databases/(default)/documents/${path}`;
+
+// 書き込みをまとめて送る（1 回 450 件まで）
+async function commitWrites(token, writes) {
+  for (let i = 0; i < writes.length; i += 450) {
+    const res = await fetch(`${FIRESTORE}:commit`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ writes: writes.slice(i, i + 450) }),
+    });
+    if (!res.ok) throw new Error(`firestore commit ${res.status}`);
+  }
+}
+
+// いちばん上のコレクションの検索（op: EQUAL / ARRAY_CONTAINS）
+async function rootQuery(token, collectionId, field, op, value) {
+  const res = await fetch(`${FIRESTORE}:runQuery`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId }], where: { fieldFilter: { field: { fieldPath: field }, op, value: { stringValue: value } } } } }),
+  });
+  if (!res.ok) throw new Error(`firestore query ${res.status}`);
+  return (await res.json()).filter((r) => r.document).map((r) => decodeDoc(r.document));
+}
+
+const GROUP_SUBCOLLECTIONS = ['lists', 'events', 'plans', 'announcements', 'bonus', 'rewards', 'redemptions', 'settings', 'photos', 'diary', 'diaryTags', 'anniversaries'];
+
+async function adminDeleteGroup(token, groupId) {
+  if (!/^[\w-]+$/.test(groupId) || !(await getDoc(token, `groups/${groupId}`))) throw fail(404, 'no-group');
+  const writes = [];
+  for (const sub of GROUP_SUBCOLLECTIONS) {
+    for (const d of await listDocs(token, `groups/${groupId}/${sub}`)) writes.push({ delete: docName(`groups/${groupId}/${sub}/${d.id}`) });
+  }
+  for (const r of await rootQuery(token, 'recovery', 'groupId', 'EQUAL', groupId)) writes.push({ delete: docName(`recovery/${r.id}`) });
+  writes.push({ delete: docName(`groups/${groupId}`) });
+  await commitWrites(token, writes);
+  return { ok: true, deleted: writes.length };
+}
+
+async function adminDeleteUser(token, uid) {
+  if (!/^[\w-]+$/.test(uid)) throw fail(400, 'bad-uid');
+  const writes = [];
+  let groupsDeleted = 0;
+  for (const g of await rootQuery(token, 'groups', 'memberIds', 'ARRAY_CONTAINS', uid)) {
+    const others = Object.entries(g.members ?? {}).filter(([id]) => id !== uid);
+    if (!others.length) {
+      await adminDeleteGroup(token, g.id);
+      groupsDeleted++;
+      continue;
+    }
+    // オーナーを消すときは、いちばん古いメンバーをオーナーにする
+    const wasOwner = g.members?.[uid]?.role === 'owner';
+    const next = wasOwner ? others.sort((a, b) => (a[1].joinedAt ?? 0) - (b[1].joinedAt ?? 0))[0][0] : null;
+    const fields = { memberIds: { arrayValue: { values: (g.memberIds ?? []).filter((id) => id !== uid).map((id) => ({ stringValue: id })) } } };
+    const mask = ['memberIds', `members.\`${uid}\``];
+    if (next) {
+      fields.members = { mapValue: { fields: { [next]: { mapValue: { fields: { role: { stringValue: 'owner' } } } } } } };
+      mask.push(`members.\`${next}\`.role`);
+    }
+    writes.push({ update: { name: docName(`groups/${g.id}`), fields }, updateMask: { fieldPaths: mask } });
+    writes.push({ delete: docName(`groups/${g.id}/bonus/${uid}`) });
+  }
+  for (const col of ['profiles', 'push', 'presence', 'reads', 'suspendedUsers']) writes.push({ delete: docName(`${col}/${uid}`) });
+  for (const r of await rootQuery(token, 'recovery', 'uid', 'EQUAL', uid)) writes.push({ delete: docName(`recovery/${r.id}`) });
+  await commitWrites(token, writes);
+  // ログインのアカウントを消す（失敗してもデータは消えている）
+  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:delete`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ localId: uid }),
+  });
+  if (!res.ok) console.error('auth delete', res.status, await res.text());
+  return { ok: true, groupsDeleted, authDeleted: res.ok };
+}
+
 async function queryEq(token, parent, collectionId, field, value) {
   const res = await fetch(`${FIRESTORE}/${parent}:runQuery`, {
     method: 'POST',
@@ -399,7 +497,7 @@ async function accessToken(env) {
     { alg: 'RS256', typ: 'JWT' },
     {
       iss: sa.client_email,
-      scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase.messaging',
+      scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/identitytoolkit',
       aud: 'https://oauth2.googleapis.com/token',
       iat: now,
       exp: now + 3600,

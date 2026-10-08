@@ -104,3 +104,18 @@ export async function linkPreview(groupId, url) {
     return null;
   }
 }
+
+// アプリ開発者の管理（同じ Workers の /admin。元に戻せない削除）。失敗したら Error を投げる
+// action: 'deleteGroup'（{ groupId }）| 'deleteUser'（{ uid }）
+export async function adminAction(action, payload) {
+  if (!NOTIFY_URL || !auth.currentUser) throw new Error('通知のサーバーにつながりません');
+  const idToken = await auth.currentUser.getIdToken();
+  const res = await fetch(new URL('admin', NOTIFY_URL), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`できませんでした（${data.error ?? res.status}）`);
+  return data;
+}

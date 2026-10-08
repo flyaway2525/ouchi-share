@@ -4556,3 +4556,18 @@ a.btn.wide {
   max-width: none;
   margin-top: 8px;
 }
+
+/* 管理者ダッシュボード：停止中の印・一覧 */
+.badge.danger {
+  margin-left: 6px;
+  background: #d0453c;
+  color: #fff;
+}
+
+.admin-list .member-seen {
+  overflow-wrap: anywhere;
+}
+
+.admin-tabs .tab {
+  font-size: 13px;
+}

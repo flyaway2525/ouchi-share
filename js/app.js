@@ -9,6 +9,8 @@ const EVENT_EMOJIS = ['✈️', '🏕️', '🚗', '🏖️', '♨️', '🎿', 
 
 let user; // undefined = 確認中, null = 未ログイン
 let isAdmin = false; // グループを作れる人（許可リスト admins/{uid}）
+let accountSuspended = false; // このアカウントがアプリ開発者に停止されている（suspendedUsers/{uid}）
+let unwatchSuspension = null;
 let isDeveloper = false; // アプリ開発者（いつもの開発者 DEVELOPER_UIDS か、admins/{uid} に developer: true）。管理者ダッシュボードはこの人だけ
 let unwatchAdmin = null;
 // ログイン処理の途中（名前の設定など）で画面が切り替わらないようにする
@@ -2568,7 +2570,7 @@ function homeView(root) {
                 'a',
                 { class: 'card', href: `#/g/${g.id}` },
                 h('span', { class: 'card-icon' }, '🏠'),
-                h('span', { class: 'card-main' }, h('span', { class: 'card-title' }, g.name), h('span', { class: 'card-sub' }, `メンバー ${g.memberIds.length} 人`)),
+                h('span', { class: 'card-main' }, h('span', { class: 'card-title' }, g.name, g.suspended && h('span', { class: 'badge danger' }, '停止中')), h('span', { class: 'card-sub' }, `メンバー ${g.memberIds.length} 人`)),
                 h('span', { class: 'chevron' }, '›'),
               ),
             ),
@@ -4036,8 +4038,10 @@ function groupView(root, { groupId }) {
   let unwatchRecovery = null;
   if (auth.isGuest()) store.ensureRecoveryCode(groupId).catch(() => {});
 
-  const onGone = (e) => {
+  const onGone = async (e) => {
     if (e?.code !== 'permission-denied' && e?.message !== 'not-found') return showError(e);
+    // 停止中のグループは中身が読めないだけ（停止の案内を出したまま、ホームには戻さない）
+    if ((await store.fetchGroup(groupId).catch(() => null))?.suspended) return;
     if (prefs.get('lastGroup') === groupId) prefs.set('lastGroup', null);
     toast('グループが見つかりません');
     location.hash = '#/';
@@ -4046,6 +4050,12 @@ function groupView(root, { groupId }) {
   const unwatchGroup = store.watchGroup(
     groupId,
     (g) => {
+      // 停止中のグループは、中身を見せない（ルールでも読めない）
+      if (g.suspended) {
+        setChildren(top, header({ title: g.name, back: '#/' }));
+        setChildren(body, h('div', { class: 'notice' }, h('p', {}, '⛔ このグループは、アプリの管理者によって停止されています。'), h('p', {}, '再開されるまで、中のリストや予定は見られません。')));
+        return;
+      }
       group = g;
       prefs.set('lastGroup', groupId);
       updateGlobalFab();
@@ -6125,6 +6135,19 @@ function eventView(root, { groupId, eventId, date = null }) {
 
 // 管理者だけの機能は、ここにまとめる（タブ：利用状況 / お知らせ / ログボ / グループ）
 // - アプリからのお知らせ（announcements。アプリを使う全員に届く）を書く・再通知する・消すのは、ここからだけ（ルールでも管理者だけ）
+// アカウントが停止されているときの画面（ほかの画面は出さない）
+function suspendedView(root) {
+  root.append(
+    h(
+      'main',
+      { class: 'content welcome' },
+      h('h1', {}, '⛔ このアカウントは停止されています'),
+      h('p', { class: 'welcome-text' }, 'アプリの管理者によって、このアカウントの利用が止められています。心当たりがない場合は、アプリの管理者に連絡してください。'),
+      h('button', { class: 'btn wide', onClick: () => auth.signOut().then(() => (location.hash = '#/')) }, 'ログアウト'),
+    ),
+  );
+}
+
 // 管理者ダッシュボードはアプリ開発者だけ。それ以外の人が開いたら、ホームに戻す
 function notDeveloperView(root) {
   root.append(header({ title: '管理者ダッシュボード', back: '#/' }), h('main', { class: 'content' }, h('p', { class: 'empty' }, 'このページはアプリ開発者だけが使えます')));
@@ -6136,10 +6159,18 @@ function adminView(root) {
   root.append(top, body);
   let users = null;
   let news = null;
+  let allGroups = null; // すべてのグループ（アプリ開発者は全部読める）
+  let suspended = null; // 停止中のユーザー { uid: { name, at, by } }
+  const refreshGroups = () =>
+    store.listAllGroups().then(
+      (gs) => ((allGroups = gs), render()),
+      (e) => showError(e),
+    );
   const TABS = [
     ['usage', '📊 利用状況'],
-    ['news', '📢 アプリのお知らせ'],
+    ['users', '👤 ユーザー'],
     ['groups', '🏠 グループ'],
+    ['news', '📢 お知らせ'],
   ];
   let tab = TABS.some(([id]) => id === prefs.get('adminTab')) ? prefs.get('adminTab') : 'usage';
 
@@ -6241,9 +6272,134 @@ function adminView(root) {
           ),
   ];
 
+  // ---- ユーザーの一覧（停止・削除） ----
+  // ユーザー = 最終アクセスの記録（presence）と、全グループのメンバーを合わせたもの
+  const userList = () => {
+    const map = new Map();
+    for (const u of users ?? []) map.set(u.id, { uid: u.id, name: u.name, guest: u.guest, lastSeen: u.lastSeen, groups: [] });
+    for (const g of allGroups ?? []) {
+      for (const [id, m] of Object.entries(g.members ?? {})) {
+        const u = map.get(id) ?? { uid: id, name: m.name, guest: m.guest, lastSeen: m.lastSeen, groups: [] };
+        u.name ||= m.name;
+        u.groups.push({ id: g.id, name: g.name, role: m.role });
+        map.set(id, u);
+      }
+    }
+    return [...map.values()].sort((a, b) => store.millis(b.lastSeen) - store.millis(a.lastSeen));
+  };
+  const isDev = (id) => store.DEVELOPER_UIDS.includes(id);
+  const userMenu = (u) => {
+    const stopped = !!suspended?.[u.uid];
+    actionSheet(`${u.name || '（名前なし）'}${u.guest ? '（ゲスト）' : ''}`, [
+      {
+        label: stopped ? '▶️ 停止を解除する' : '⏸ 停止する（データを読み書きできなくする）',
+        onClick: async () => {
+          if (!stopped && !(await confirmSheet(`${u.name || 'この人'} を停止しますか？ アプリを開いても「停止されています」とだけ出て、データを読み書きできなくなります（あとで解除できます）`, '停止する'))) return;
+          store.setUserSuspended(u.uid, !stopped, u.name ?? '').then(() => toast(stopped ? '停止を解除しました' : '停止しました'), showError);
+        },
+      },
+      {
+        label: '🗑 削除する（元に戻せません）',
+        danger: true,
+        onClick: async () => {
+          const owned = u.groups.filter((g) => g.role === 'owner').map((g) => g.name);
+          if (!(await confirmSheet(`${u.name || 'この人'} を削除しますか？ 全グループから外し、プロフィールとログインのアカウントも消します。元に戻せません。${owned.length ? `（オーナーのグループ「${owned.join('」「')}」は、いちばん古いメンバーがオーナーになります。1 人だけのグループは消えます）` : ''}`, '削除する'))) return;
+          try {
+            const res = await (await loadPush()).adminAction('deleteUser', { uid: u.uid });
+            toast(res.authDeleted ? '削除しました' : 'データは削除しました（ログインのアカウントは消せませんでした）');
+            refreshGroups();
+          } catch (e) {
+            showError(e);
+          }
+        },
+      },
+    ]);
+  };
+  const usersPanel = () => {
+    if (!users || !allGroups) return h('p', { class: 'empty small' }, '読み込み中…');
+    const list = userList();
+    const now = Date.now();
+    return [
+      h('p', { class: 'sch-hint' }, `ユーザー ${list.length} 人。押すと停止・削除できます（アプリ開発者は停止・削除できません）`),
+      h(
+        'ul',
+        { class: 'member-list admin-list' },
+        list.map((u) =>
+          h(
+            'li',
+            isDev(u.uid) || u.uid === user.uid ? {} : { class: 'is-tappable', onClick: () => userMenu(u) },
+            onlineDot(store.isOnline(u.lastSeen, now)),
+            h(
+              'span',
+              { class: 'member-name' },
+              h('span', {}, u.name || '（名前なし）', u.uid === user.uid && '（自分）'),
+              h('span', { class: 'member-seen' }, `${u.lastSeen ? timeAgo(store.millis(u.lastSeen)) : '記録なし'} ・ ${u.groups.length ? u.groups.map((g) => `${g.name}${g.role === 'owner' ? '👑' : ''}`).join('、') : 'グループなし'}`),
+            ),
+            suspended?.[u.uid] && h('span', { class: 'badge danger' }, '停止中'),
+            isDev(u.uid) && h('span', { class: 'badge' }, '開発者'),
+            u.guest && h('span', { class: 'badge muted' }, 'ゲスト'),
+            !isDev(u.uid) && u.uid !== user.uid && h('span', { class: 'chevron' }, '›'),
+          ),
+        ),
+      ),
+    ];
+  };
+
+  // ---- グループの一覧（停止・削除） ----
+  const groupMenuAdmin = (g) => {
+    actionSheet(g.name, [
+      {
+        label: g.suspended ? '▶️ 停止を解除する' : '⏸ 停止する（中身を読み書きできなくする）',
+        onClick: async () => {
+          if (!g.suspended && !(await confirmSheet(`「${g.name}」を停止しますか？ メンバーは中のリストや予定を見られなくなります（あとで解除できます）`, '停止する'))) return;
+          store.setGroupSuspended(g.id, !g.suspended).then(() => {
+            toast(g.suspended ? '停止を解除しました' : '停止しました');
+            refreshGroups();
+          }, showError);
+        },
+      },
+      { label: '👥 メンバーを見る', onClick: () => membersSheet(g) },
+      {
+        label: '🗑 削除する（元に戻せません）',
+        danger: true,
+        onClick: async () => {
+          if (!(await confirmSheet(`「${g.name}」を削除しますか？ 中のリスト・予定・日記・写真などもすべて消えます。メンバー ${g.memberIds?.length ?? 0} 人が見られなくなります。元に戻せません。`, '削除する'))) return;
+          try {
+            await (await loadPush()).adminAction('deleteGroup', { groupId: g.id });
+            toast(`「${g.name}」を削除しました`);
+            refreshGroups();
+          } catch (e) {
+            showError(e);
+          }
+        },
+      },
+    ]);
+  };
   const groupsPanel = () => [
-    h('p', { class: 'sch-hint' }, 'グループを作れるのは許可リスト（admins）に入っている人だけです。ログインボーナスの配布表は、各グループのオーナー・管理者が「報酬の管理」で決めます'),
+    h('p', { class: 'sch-hint' }, 'すべてのグループです。押すと停止・削除できます。グループを作れるのは許可リスト（admins）に入っている人だけです'),
     h('button', { class: 'add-card', onClick: createGroup }, '＋ グループを作成'),
+    !allGroups
+      ? h('p', { class: 'empty small' }, '読み込み中…')
+      : h(
+          'ul',
+          { class: 'member-list admin-list' },
+          allGroups.map((g) => {
+            const owner = Object.values(g.members ?? {}).find((m) => m.role === 'owner');
+            return h(
+              'li',
+              { class: 'is-tappable', onClick: () => groupMenuAdmin(g) },
+              h('span', { class: 'card-icon' }, '🏠'),
+              h(
+                'span',
+                { class: 'member-name' },
+                h('span', {}, g.name),
+                h('span', { class: 'member-seen' }, `メンバー ${g.memberIds?.length ?? 0} 人 ・ オーナー ${owner?.name ?? '—'} ・ ${fmtDateTime(g.createdAt).split(' ')[0]} 作成`),
+              ),
+              g.suspended && h('span', { class: 'badge danger' }, '停止中'),
+              h('span', { class: 'chevron' }, '›'),
+            );
+          }),
+        ),
   ];
 
   function render() {
@@ -6269,7 +6425,7 @@ function adminView(root) {
           ),
         ),
       ),
-      { usage: usagePanel, news: newsPanel, groups: groupsPanel }[tab](),
+      { usage: usagePanel, users: usersPanel, news: newsPanel, groups: groupsPanel }[tab](),
     );
   }
 
@@ -6281,10 +6437,13 @@ function adminView(root) {
   };
   const unwatch = store.watchPresence((list) => ((users = list), render()), onError);
   const unwatchNews = store.watchAppNews((list) => ((news = list), render()), () => {});
+  const unwatchSuspended = store.watchSuspendedUsers((s) => ((suspended = s), render()), () => ((suspended = {}), render()));
+  refreshGroups();
   return () => {
     clearInterval(ticker);
     unwatch();
     unwatchNews();
+    unwatchSuspended();
   };
 }
 
@@ -8086,6 +8245,7 @@ function route() {
 
   updateGlobalFab();
   if (!user) return welcomeView(app);
+  if (accountSuspended) return suspendedView(app);
   if (auth.needsName()) return nameSetupView(app);
 
   // アプリを開いた最初の 1 回だけ：ホームなら、最後に開いていたグループの画面から始める（‹ でホームに戻れる）
@@ -8142,6 +8302,16 @@ auth.watchUser((u) => {
   unwatchAdmin = null;
   isAdmin = false;
   isDeveloper = !!u && store.DEVELOPER_UIDS.includes(u.uid);
+  unwatchSuspension?.();
+  unwatchSuspension = null;
+  accountSuspended = false;
+  if (u) {
+    unwatchSuspension = store.watchMySuspension(u.uid, (v) => {
+      if (v === accountSuspended) return;
+      accountSuspended = v;
+      route();
+    });
+  }
   if (u && !u.isAnonymous) {
     unwatchAdmin = store.watchIsAdmin(u.uid, ({ admin, developer }) => {
       developer ||= store.DEVELOPER_UIDS.includes(u.uid);

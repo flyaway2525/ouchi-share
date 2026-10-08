@@ -10,8 +10,16 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ログインしていて、停止されていない（suspendedUsers/{uid} がない）人
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null
+        && !exists(/databases/$(database)/documents/suspendedUsers/$(request.auth.uid));
+    }
+
+    // グループのメンバーで、グループが停止されていない（グループの中身を読み書きするとき）
+    function isActiveMember(gid) {
+      let g = get(/databases/$(database)/documents/groups/$(gid)).data;
+      return signedIn() && request.auth.uid in g.memberIds && g.get('suspended', false) != true;
     }
 
     function isGuestUser() {
@@ -33,6 +41,13 @@ service cloud.firestore {
 
     function isNonEmptyString(v, max) {
       return v is string && v.size() > 0 && v.size() <= max;
+    }
+
+    // ---- 停止されたユーザー（アプリ開発者が書く。本人は自分が停止されているかだけ読める） ----
+    // signedIn() を使わない（停止された本人が、停止されていることを読めるように）
+    match /suspendedUsers/{userId} {
+      allow get: if request.auth != null && (request.auth.uid == userId || isDeveloper());
+      allow list, write: if isDeveloper();
     }
 
     // ---- 許可リスト（コンソールからのみ編集） ----
@@ -263,10 +278,14 @@ service cloud.firestore {
           && d.inviteCode is string && d.inviteCode.size() >= 16;
       }
 
-      allow get, list: if isMember();
+      // アプリ開発者は、すべてのグループを見られる（管理者ダッシュボードのグループの一覧）
+      allow get, list: if isMember() || isDeveloper();
       allow create: if isAdmin() && isValidNewGroup();
       // グループ名と「全員の予定の色」（allColor）はメンバーなら誰でも変えられる
-      allow update: if (isMember() && changed().hasOnly(['name', 'allColor']) && isNonEmptyString(request.resource.data.name, 40)
+      // アプリ開発者は、グループの停止・再開（suspended）だけできる
+      allow update: if (isDeveloper() && changed().hasOnly(['suspended', 'suspendedAt'])
+          && request.resource.data.suspended is bool)
+        || (isMember() && changed().hasOnly(['name', 'allColor']) && isNonEmptyString(request.resource.data.name, 40)
           && (!('allColor' in request.resource.data) || request.resource.data.allColor.matches('^#[0-9a-fA-F]{6}$')))
         || (isOwner() && changed().hasOnly(['inviteCode']) && request.resource.data.inviteCode.size() >= 16)
         || (isMember() && isOwnProfileUpdate())
@@ -281,7 +300,7 @@ service cloud.firestore {
       match /lists/{listId} {
         function isGroupMember() {
           return signedIn()
-            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+            && isActiveMember(groupId);
         }
 
         function isValidList(d) {
@@ -300,7 +319,7 @@ service cloud.firestore {
       match /events/{eventId} {
         function isGroupMember() {
           return signedIn()
-            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+            && isActiveMember(groupId);
         }
 
         function isDate(v) {
@@ -328,7 +347,7 @@ service cloud.firestore {
         }
 
         function isGroupMember() {
-          return signedIn() && request.auth.uid in groupData().memberIds;
+          return signedIn() && isActiveMember(groupId);
         }
 
         function isManager() {
@@ -357,7 +376,7 @@ service cloud.firestore {
         }
 
         function isGroupMember() {
-          return signedIn() && request.auth.uid in groupData().memberIds;
+          return signedIn() && isActiveMember(groupId);
         }
 
         // ログインボーナス（スタンプ集め）：メンバーはみんなの記録を読める。書けるのは本人だけ。消すのは本人かオーナー（グループの削除）
@@ -378,10 +397,10 @@ service cloud.firestore {
         }
 
         function isOwner() {
-          return signedIn() && request.auth.uid in groupData().memberIds && groupData().members[request.auth.uid].role in ['owner', 'admin'];
+          return signedIn() && isActiveMember(groupId) && groupData().members[request.auth.uid].role in ['owner', 'admin'];
         }
 
-        allow read: if signedIn() && request.auth.uid in groupData().memberIds;
+        allow read: if signedIn() && isActiveMember(groupId);
         allow create, update: if isOwner()
           && request.resource.data.keys().hasOnly(['title', 'emoji', 'ticket', 'count', 'createdAt'])
           && isNonEmptyString(request.resource.data.title, 40)
@@ -398,7 +417,7 @@ service cloud.firestore {
         }
 
         function isGroupMember() {
-          return signedIn() && request.auth.uid in groupData().memberIds;
+          return signedIn() && isActiveMember(groupId);
         }
 
         function isOwner() {
@@ -420,9 +439,9 @@ service cloud.firestore {
           return get(/databases/$(database)/documents/groups/$(groupId)).data;
         }
 
-        allow read: if signedIn() && request.auth.uid in groupData().memberIds;
+        allow read: if signedIn() && isActiveMember(groupId);
         // rates：チケットのレート。bonus：ログインボーナスの配布表（グループごと）。書くのはオーナー・管理者
-        allow write: if signedIn() && request.auth.uid in groupData().memberIds
+        allow write: if signedIn() && isActiveMember(groupId)
           && groupData().members[request.auth.uid].role in ['owner', 'admin']
           && ((docId == 'bonus'
               && request.resource.data.keys().hasOnly(['days', 'updatedAt']) && request.resource.data.days is map)
@@ -434,7 +453,7 @@ service cloud.firestore {
       match /photos/{photoId} {
         function isGroupMember() {
           return signedIn()
-            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+            && isActiveMember(groupId);
         }
 
         allow read: if isGroupMember();
@@ -451,7 +470,7 @@ service cloud.firestore {
       match /plans/{planId} {
         function isGroupMember() {
           return signedIn()
-            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+            && isActiveMember(groupId);
         }
 
         function isValidPlan(d) {
@@ -475,7 +494,7 @@ service cloud.firestore {
       match /diary/{entryId} {
         function isGroupMember() {
           return signedIn()
-            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+            && isActiveMember(groupId);
         }
 
         function isValidDiary(d) {
@@ -499,7 +518,7 @@ service cloud.firestore {
       match /anniversaries/{annivId} {
         function isGroupMember() {
           return signedIn()
-            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+            && isActiveMember(groupId);
         }
 
         function isValidAnniv(d) {
@@ -524,7 +543,7 @@ service cloud.firestore {
       match /diaryTags/{tagId} {
         function isGroupMember() {
           return signedIn()
-            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+            && isActiveMember(groupId);
         }
 
         allow read: if isGroupMember();

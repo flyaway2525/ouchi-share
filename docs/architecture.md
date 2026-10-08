@@ -40,7 +40,7 @@ flowchart LR
 |---|---|---|---|---|
 | **GitHub** | ソースコード、Web 版の公開（GitHub Pages） | 無料 | GitHub のユーザー `flyaway2525`、リポジトリ `ouchi-share` | リポジトリ直下のファイルがそのまま公開される（ビルドなし） |
 | **Firebase**（Google） | ログイン（Authentication：Google・匿名（ゲスト）・Apple）、データ（Firestore、東京リージョン `asia-northeast1`）、通知の配達（Cloud Messaging） | Spark（無料）。超えても課金されず、その日は止まる | Firebase コンソールのプロジェクト `ouchi-share` | `js/firebase.js`（公開してよい設定値・VAPID キー）、`firestore.rules`、`firebase.json`、`.firebaserc`、`ios/App/App/GoogleService-Info.plist` |
-| **Cloudflare Workers** | 通知を送る（`POST /`）、リンクのタイトルと画像を取る（`POST /preview`）、毎日 20 時（日本時間）の翌日の予定のリマインド | 無料（1 日 10 万リクエストまで） | Cloudflare のアカウント（workers.dev のサブドメイン `flyaway2525`）、Worker `ouchi-share-notify` | `worker/`（`wrangler.toml` に定期実行の時刻）。URL は `js/firebase.js` の `NOTIFY_URL` |
+| **Cloudflare Workers** | 通知を送る（`POST /`）、リンクのタイトルと画像を取る（`POST /preview`）、アプリ開発者の削除（`POST /admin`：グループ・ユーザーをまとめて消す。ログインのアカウントの削除も）、毎日 20 時（日本時間）の翌日の予定のリマインド | 無料（1 日 10 万リクエストまで） | Cloudflare のアカウント（workers.dev のサブドメイン `flyaway2525`）、Worker `ouchi-share-notify` | `worker/`（`wrangler.toml` に定期実行の時刻）。URL は `js/firebase.js` の `NOTIFY_URL` |
 | **Apple** | iPhone アプリ版（Xcode でビルド → TestFlight で配る）、Apple でサインイン、アプリの通知（APNs。これから） | Apple Developer Program 年 99 ドル（**更新はまだ**） | Apple Developer・App Store Connect | `ios/`、`capacitor.config.json`（アプリ ID `io.github.flyaway2525.ouchishare`） |
 
 ### 外から読み込んでいるもの（アカウント不要・無料）
@@ -72,7 +72,7 @@ flowchart LR
 
 | サービス | 無料枠 | 気にするところ |
 |---|---|---|
-| Firestore（Spark） | 1 日：読み取り 5 万・書き込み 2 万・削除 2 万。保存 1GiB | オンライン表示の記録（1 人 1 分に 1〜2 回）、写真（縮小した JPEG を Firestore に保存） |
+| Firestore（Spark） | 1 日：読み取り 5 万・書き込み 2 万・削除 2 万。保存 1GiB | オンライン表示の記録（1 人 1 分に 1〜2 回）、写真（縮小した JPEG を Firestore に保存）、ルールの停止の確認（読み書きのたびに停止の印を 1 回見る。読み取りに数えられる） |
 | Cloudflare Workers | 1 日 10 万リクエスト | 通知とリンクの取得には 1 人ごとの回数の上限を入れてある |
 | Cloud Messaging | 無料 | — |
 | GitHub Pages | 公開サイト 1GB・月 100GB の転送（目安） | — |

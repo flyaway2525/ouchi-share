@@ -71,6 +71,7 @@
 
 ```
 admins/{uid}                        グループを作れる人の許可リスト（コンソールから手で追加）。developer: true ならアプリ開発者
+suspendedUsers/{uid}                停止されたユーザー { name, at, by }（アプリ開発者が書く）
 config/{docId}                      アプリ全体の設定（前のログボの共通の配布表など。アプリ開発者が書く）
 announcements/{id}                  アプリからのお知らせ
 reads/{uid}                         お知らせの既読
@@ -81,6 +82,7 @@ recovery/{code}                     ゲストの復旧ID { groupId, uid, name, c
 groups/{groupId}
   ├─ name, createdAt, createdBy
   ├─ allColor                       全員の予定の色（#rrggbb。なければ元の色）
+  ├─ suspended, suspendedAt         アプリ開発者による停止（true のあいだメンバーは中身を読み書きできない）
   ├─ inviteCode                     招待リンクに含める合言葉。作り直すと古いリンクは無効
   ├─ memberIds: [uid, ...]          「自分が入っているグループ」を検索するための配列
   ├─ members: { uid: { name, role, guest, joinedAt, lastSeen, icon, photo, title, colors, custom } }
@@ -309,8 +311,16 @@ groups/{groupId}
 ## 管理者ダッシュボード（`#/admin`。アプリ開発者だけ）
 
 - アプリ開発者以外が開いても「このページはアプリ開発者だけが使えます」。アカウントのメニューにも出さない
-- タブ：📊 利用状況（ユーザーと最終アクセス）／📢 アプリのお知らせ（アプリからのお知らせを書く・🔁 再通知・🗑 削除）／
-  🏠 グループ（グループの作成。ホームのボタンも残す）。最後に開いたタブを端末に保存
+- タブ：📊 利用状況（ユーザーと最終アクセス）／👤 ユーザー（一覧・停止・削除）／🏠 グループ（一覧・停止・削除・グループの作成）／
+  📢 お知らせ（アプリからのお知らせを書く・🔁 再通知・🗑 削除）。最後に開いたタブを端末に保存
+- ユーザーの一覧 = 最終アクセスの記録（presence）＋全グループのメンバー。名前・最終アクセス・入っているグループ（👑 オーナー）・停止中・開発者・ゲスト
+- 停止（いつでも解除できる。アプリ開発者がアプリから直接書く）
+  - ユーザー：`suspendedUsers/{uid}` = { name, at, by }。ルールの signedIn() がこれを見るので、停止された人はデータを読み書きできない（本人は停止の印だけ読める）。アプリは「⛔ このアカウントは停止されています」の画面だけを出す
+  - グループ：`groups/{id}.suspended = true`。ルールの isActiveMember() で、メンバーは中身（リスト・予定など）を読み書きできない。グループの画面は「⛔ 停止されています」、ホームのカードに「停止中」
+  - アプリ開発者は停止・削除できない（自分を止めて戻せなくなるのを防ぐ）
+- 削除（元に戻せない。Workers の `/admin` がサービスアカウントの権限で行う。アプリ開発者からの依頼だけ受け付ける）
+  - グループ：中身（lists・events・plans・announcements・bonus・rewards・redemptions・settings・photos・diary・diaryTags・anniversaries）とそのグループの復旧ID ごと消す
+  - ユーザー：全グループから外す（オーナーなら、いちばん古いメンバーをオーナーに。1 人だけのグループは消す）、そのグループのログボの記録・profiles・push・presence・reads・停止の印・復旧ID を消し、ログインのアカウント（Firebase Authentication）も消す
 - アプリからのお知らせ（`announcements`。アプリを使う全員に届く）を書く・再通知・削除できるのはアプリ開発者だけ（ルールでも）。
   みんなのお知らせ一覧（`#/news`）は読むだけで、アプリ開発者にはダッシュボードへのボタンを出す
 
