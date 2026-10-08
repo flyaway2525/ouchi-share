@@ -3022,8 +3022,6 @@ function groupMembersAdminMenu(group, options = {}) {
   actionSheet(`👥 ${group.name}のメンバーの管理`, [
     { label: 'メンバーを見る（外す・復旧ID）', onClick: () => membersSheet(group) },
     owner && { label: '👑 管理者を設定（オーナーだけ）', onClick: () => managersSheet(group) },
-    { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
-    { label: '招待リンクを送る', onClick: () => shareInvite(group) },
     owner && {
       label: '招待リンクを作り直す（オーナーだけ）',
       onClick: async () => {
@@ -3049,6 +3047,19 @@ function groupRewardsAdminMenu(group, options = {}) {
   ], options);
 }
 
+// グループのメニュー ＞ メンバー（招待など。メンバー全員が使う）。オーナー・管理者には「メンバーの管理」も
+function groupMembersMenu(group, recoveryCodes = {}, options = {}) {
+  actionSheet(`👥 ${group.name}のメンバー`, [
+    { label: 'メンバーを見る', onClick: () => membersSheet(group, recoveryCodes) },
+    { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
+    { label: '招待リンクを送る', onClick: () => shareInvite(group) },
+    isManager(group) && {
+      label: '🛠 メンバーの管理 ＞（オーナー・管理者だけ）',
+      onClick: () => groupMembersAdminMenu(group, { ...options, back: () => groupMembersMenu(group, recoveryCodes, options) }),
+    },
+  ].filter(Boolean), options);
+}
+
 function groupMenu(group, recoveryCodes = {}, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
@@ -3060,9 +3071,7 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
     },
     { label: '🎟 チケット・ごほうび', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
     { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
-    { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
-    { label: '招待リンクを送る', onClick: () => shareInvite(group) },
-    { label: 'メンバーを見る', onClick: () => membersSheet(group, recoveryCodes) },
+    { label: '👥 メンバー ＞', onClick: () => groupMembersMenu(group, recoveryCodes, { ...options, back: () => groupMenu(group, recoveryCodes, options) }) },
     { label: '👤 このグループでのプロフィール', onClick: () => profileSheet({ group }) },
     {
       label: 'グループ名を変更',
