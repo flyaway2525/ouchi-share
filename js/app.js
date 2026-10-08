@@ -4610,11 +4610,13 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     }
     const lanes = Math.min(laneEnds.length, MAX_LANES);
     const labels = days.map(labelsOn);
-    // 名前の行は、名前が折り返して何行になっても全部見えるように高さを自動に（なければ 14px）
-    const any = labels.some((l) => l.length) || hidden.some((n) => n > 0);
+    // 名前の行は、名前が折り返して何行になっても全部見えるように高さを自動に（なくても週の高さまで伸ばし、マス全体を押せるように）
     return h(
       'div',
-      { class: 'cal-week', style: `grid-template-rows: 26px repeat(${lanes}, 18px) ${any ? 'minmax(14px, auto)' : '14px'}` },
+      // 帯がない週に repeat(0, …) を書くと指定ぜんぶが無効になり、マスが 1 行目だけになるので、帯の行は帯があるときだけ書く
+      { class: 'cal-week', style: `grid-template-rows: 26px${lanes ? ` repeat(${lanes}, 18px)` : ''} minmax(14px, auto)` },
+      // 選んだ日：マス全体（予定の名前の行まで）に色と枠。iPhone の Safari はボタンがマスの高さまで伸びないことがあるので、別の部品で描く
+      !state.multi && days.includes(state.selected) && h('span', { class: 'cal-sel', style: `grid-column: ${days.indexOf(state.selected) + 1}; grid-row: 1 / -1`, 'aria-hidden': 'true' }),
       days.map((d, i) =>
         h(
           'button',
@@ -4838,6 +4840,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         base = state.multi ?? [];
         add = !base.includes(first);
         grid.querySelectorAll('.cal-day.selected').forEach((el) => el.classList.remove('selected'));
+        grid.querySelectorAll('.cal-sel').forEach((el) => el.remove());
         apply(first);
         navigator.vibrate?.(15);
       };

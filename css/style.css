@@ -1835,8 +1835,19 @@ select.text-input {
   font-weight: 700;
 }
 
-.cal-day.selected {
+.cal-day {
+  /* マスの高さいっぱいまでタップできるように（iPhone の Safari はボタンを伸ばさないことがある） */
+  height: 100%;
+}
+
+/* 選んだ日：マス全体に色と枠（.cal-sel。予定の名前の行まで） */
+.cal-sel {
+  align-self: stretch;
+  margin: 1px;
+  border-radius: 6px;
   background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+  pointer-events: none;
 }
 
 /* 長押しの複数選択：iPhone の長押しメニューや文字の選択を出さない */
