@@ -4361,3 +4361,198 @@ body:has(.cal-multi-bar) .fab-wrap.global {
   color: var(--who-text);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--who) 40%, transparent);
 }
+
+/* ---- プロフィールの画面・メンバーの確認画面 ---- */
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 8px 0 12px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-left: 6px solid var(--who, var(--accent));
+  border-radius: var(--radius);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--who, var(--accent)) 14%, var(--surface)), var(--surface) 70%);
+}
+
+.profile-card-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.profile-card-name {
+  font-size: 22px;
+  overflow-wrap: anywhere;
+}
+
+.profile-card .profile-title {
+  margin-left: 0;
+  font-size: 13px;
+}
+
+.member-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pv-table {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.pv-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.pv-row:first-child {
+  border-top: 0;
+}
+
+.pv-label {
+  flex-shrink: 0;
+  width: 92px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.pv-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pv-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pv-colors {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pv-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pv-color i {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.pv-color i.none {
+  background: repeating-linear-gradient(45deg, var(--surface), var(--surface) 3px, var(--border) 3px, var(--border) 5px) !important;
+}
+
+.profile-explain p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.profile-group-card {
+  width: 100%;
+  border: 1px solid var(--border);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.profile-status {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.profile-status.custom {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* グループでのプロフィール：全体の設定とこのグループの値を並べる */
+.pv-compare {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.pv-compare-head,
+.pv-compare-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.pv-compare-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.pv-compare-row {
+  border-top: 1px solid var(--border);
+}
+
+.pv-compare-row.custom {
+  background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
+}
+
+.pv-compare-row > span:last-child {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.pv-dim {
+  opacity: 0.45;
+}
+
+.pv-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pv-switch .chip {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+a.btn.wide {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+  text-decoration: none;
+}
+
+.content > .btn.wide {
+  max-width: none;
+  margin-top: 8px;
+}
