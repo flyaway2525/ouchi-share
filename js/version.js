@@ -1,3 +1,3 @@
 // アプリのバージョン（scripts/bump-version.mjs が書き換える。手で直さない）
-export const APP_VERSION = 78;
-export const APP_BUILT_AT = '2026-10-08 12:21';
+export const APP_VERSION = 79;
+export const APP_BUILT_AT = '2026-10-08 12:25';

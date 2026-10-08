@@ -5483,7 +5483,32 @@ function wishSheet(groupId, initial = {}, { editing = false, list = null, target
         },
         targets && h('span', { class: 'links-label' }, '登録先'),
         targetChips,
-        url,
+        // 「📋 貼り付け」：ボタンを押した瞬間ならクリップボードを読める（iPhone は指の操作の直後しか読ませない）
+        h(
+          'div',
+          { class: 'url-row' },
+          url,
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn paste-btn',
+              onClick: async () => {
+                let text = '';
+                try {
+                  text = (await navigator.clipboard.readText()) ?? '';
+                } catch {
+                  return toast('クリップボードを読めませんでした。URL の欄を長押しして「ペースト」してください');
+                }
+                const found = splitUrl(text).url;
+                if (!found) return toast('コピーした内容に URL がありませんでした');
+                url.value = found;
+                fillFromLink();
+              },
+            },
+            '📋 貼り付け',
+          ),
+        ),
         status,
         text,
         place,
@@ -5593,14 +5618,18 @@ async function registerLink(groupId, lists, events = []) {
     toast('先に「行きたいところ」などのリストを作りましょう');
     return addListMenu(groupId);
   }
-  // リンク以外の文字（「TikTok でこの動画を見て」など）は使わず、名前はリンクのタイトルから入れる
+  // リンク以外の文字（「TikTok でこの動画を見て」など）は使わず、名前はリンクのタイトルから入れる。
+  // iPhone は「指でボタンを押した瞬間」しかクリップボードを読ませない（長押しして指をずらした場合などは断られる）。
+  // 読めなければ、登録画面の「📋 貼り付け」ボタンで読んでもらう
   let url = '';
+  let denied = false;
   try {
     url = splitUrl((await navigator.clipboard.readText()) ?? '').url;
   } catch {
-    // 読めなければ登録画面で貼ってもらう
+    denied = true;
   }
-  if (!url) toast('コピーしたリンクが見つかりませんでした。URL の欄に貼ってください');
+  if (denied) toast('URL の欄の横の「📋 貼り付け」を押してください');
+  else if (!url) toast('コピーした内容に URL がありませんでした。URL の欄に貼ってください');
   const lastKey = `linkTarget:${groupId}`;
   const res = await wishSheet(groupId, { url, listId: prefs.get(lastKey) }, { targets });
   if (!res) return;

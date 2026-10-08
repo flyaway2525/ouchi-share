@@ -4087,3 +4087,14 @@ a.sch-add {
 .fab-wrap .cal-fab {
   touch-action: none;
 }
+
+/* 登録画面の URL の欄と「📋 貼り付け」 */
+.url-row {
+  display: flex;
+  gap: 8px;
+}
+
+.paste-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
