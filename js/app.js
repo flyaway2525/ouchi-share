@@ -3540,12 +3540,6 @@ function groupView(root, { groupId }) {
           title: g.name,
           back: '#/',
           extra: memberPill,
-          // コピーしたリンクの登録は、どのタブからでもすぐ使えるようにヘッダーに置く
-          extraLeft: h(
-            'button',
-            { class: 'register-link', 'aria-label': 'コピーしたリンクを登録', title: 'コピーしたリンクを登録', onClick: () => lists && registerLink(groupId, lists, events ?? []) },
-            '📋 登録',
-          ),
           onMenu: () =>
             groupMenu(g, recoveryCodes),
         }),
@@ -4447,6 +4441,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       : fabWithMenu(() => addPlan(), [
           ['＋ 予定を1つ追加', () => addPlan()],
           ['📝 テキストでまとめて書く', () => (location.hash = `#/g/${groupId}/text`)],
+          ['📋 URLから登録', () => registerLink(groupId, lists, events)],
         ]),
   );
 }
