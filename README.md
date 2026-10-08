@@ -23,6 +23,7 @@ python -m http.server 5173
 ## 資料
 
 - [CLAUDE.md](CLAUDE.md)：開発の決まり（対応する環境、テストと実機確認、版の上げ方）
+- [docs/architecture.md](docs/architecture.md)：構成（使っているサービス・費用・秘密の値の置き場所・データの流れ）
 - [docs/design.md](docs/design.md)：設計メモ（機能一覧と意図、データ構造、各機能の決まり）
 - [docs/todo.md](docs/todo.md)：次にやること
 - [docs/device-test.md](docs/device-test.md)：実機確認リスト

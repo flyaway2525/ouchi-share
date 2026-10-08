@@ -3,6 +3,7 @@
 家族・友だちで予定やリストを共有するアプリ。vanilla JS の PWA（ビルドなし、ES modules）を GitHub Pages で公開し、
 iPhone アプリは Capacitor で包んで TestFlight で配る。Firebase（Spark プラン）と Cloudflare Worker を使う。
 有料サービスは使わない（Apple の年 99 ドルだけ）。設計は docs/design.md、残りの作業は docs/todo.md。
+使っているサービス・費用・秘密の値の置き場所・データの流れは docs/architecture.md。サービスやプラン、設定値（URL・キーの置き場所など）を変えたら、そのファイルも直す。
 
 ## 対応する環境
 アプリの形は 3 つ。それぞれ iPhone・Android（ブラウザ版は PC も）で動かす。

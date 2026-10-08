@@ -64,7 +64,7 @@
 | `worker/` | Cloudflare Workers（通知の送信・毎日のリマインド・リンクのタイトルと画像の取得）。手順は worker/README.md |
 | `ios/` / `capacitor.config.json` / `scripts/build-www.mjs` | iPhone アプリ版。手順は docs/ios-setup.md |
 | `icons/` / `img/` / `scripts/make-*.mjs` | アイコン・起動画面の画像と、それを作るスクリプト。ホーム画面に追加の説明の画像 |
-| `docs/` | 設計メモ（このファイル）・次にやること（todo.md）・実機確認リスト（device-test.md）・アプリ版の手順（ios-setup.md） |
+| `docs/` | 構成（architecture.md）・設計メモ（このファイル）・次にやること（todo.md）・実機確認リスト（device-test.md）・アプリ版の手順（ios-setup.md） |
 
 ## データ構造
 
