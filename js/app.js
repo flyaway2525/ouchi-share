@@ -4855,7 +4855,7 @@ function planSheet(members, initial = {}, { editing = false } = {}) {
 // ---- カレンダー ----
 // 月の表示：イベントは期間の帯、旅程の予定と普段の予定は日ごとの点。日をタップすると下にその日の一覧。
 // 表示している範囲・選んでいる日は画面を描き直しても保つ（グループごと）。人の絞り込みは端末に保存。
-// 表示範囲は「先頭の週の日曜日」と「週の数」で持つ。‹ › は月単位（その月の 1 日を含む週から）、−2週 / +2週 は 2 週ずつずらす。
+// 表示範囲は「先頭の週の日曜日」と「週の数」で持つ。‹ › とスワイプは月単位（その月の 1 日を含む週から）。
 
 const calState = {};
 
@@ -4990,7 +4990,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   const weeks = Array.from({ length: state.weeks }, (_, i) => addDays(state.start, i * 7));
   const viewEnd = addDays(state.start, state.weeks * 7 - 1);
 
-  // 日をタップしても表示範囲は動かさない（2 週ずらした表示のまま選べるように）
+  // 日をタップしても表示範囲は動かさない
   const select = (d) => {
     state.selected = d;
     rerender();
@@ -5025,10 +5025,6 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   };
   const shiftMonth = (n) => {
     Object.assign(state, monthView(monthOf(n)));
-    rerender();
-  };
-  const shiftWeeks = (n) => {
-    state.start = addDays(state.start, n * 7);
     rerender();
   };
   const goToday = () => {
@@ -5350,11 +5346,9 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     h(
       'div',
       { class: 'cal-head' },
-      // 先月 / −2週 / （見出し） / +2週 / 来月
+      // 先月 / （見出し） / 来月
       h('button', { class: 'day-nav-btn', 'aria-label': '先月', title: '先月', onClick: () => slideMonth(-1) }, '‹'),
-      h('button', { class: 'cal-mini', 'aria-label': '2週間前へ', onClick: () => shiftWeeks(-2) }, '−2週'),
       h('span', { class: 'cal-title' }, `${seasonEmoji} ${Number(viewMonth.slice(0, 4))}年${Number(viewMonth.slice(5))}月`),
-      h('button', { class: 'cal-mini', 'aria-label': '2週間後へ', onClick: () => shiftWeeks(2) }, '+2週'),
       h('button', { class: 'day-nav-btn', 'aria-label': '来月', title: '来月', onClick: () => slideMonth(1) }, '›'),
       (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
