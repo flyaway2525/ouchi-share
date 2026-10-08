@@ -3952,8 +3952,14 @@ a.sch-add {
 
 .text-actions {
   display: grid;
-  grid-template-columns: 1fr 2fr;
+  grid-template-columns: 1fr 1fr 1.4fr;
   gap: 8px;
+}
+
+.text-actions .btn {
+  padding-left: 4px;
+  padding-right: 4px;
+  white-space: nowrap;
 }
 
 /* 日付・時刻を選ぶための、見えない入力欄 */

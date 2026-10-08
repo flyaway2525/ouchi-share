@@ -51,27 +51,68 @@ export function progressBar(done, total) {
 
 // ---- ボトムシート（iOS の prompt/confirm の代わり） ----
 
-// asWindow: 下から出るシートではなく、画面の真ん中に浮かぶウィンドウとして出す
-export function openSheet(build, { asWindow = false } = {}) {
+// ---- ポップアップの重なり ----
+// ポップアップの中のボタンで閉じて、すぐ次のポップアップが開いたら「重なり」として覚える。
+// 「キャンセル」「‹ 戻る」「閉じる」など（null / false で閉じる）で閉じたら、ひとつ前のポップアップを開き直す。
+// 保存・決定などの値で閉じたら戻らない。背景のタップ・下スワイプは全部閉じる。画面が切り替わったら重なりは忘れる
+let chain = null; // { reopen, at }：ボタンで閉じたばかりのポップアップ（ここから次が開かれたら、それの「ひとつ前」）
+let backTimer = null;
+const CHAIN_MS = 1500; // 閉じてからこの時間のうちに開いたものを「次」とみなす（読み込みを待ってから開くものもあるので）
+const BACK_DELAY = 250; // キャンセルのあと、次のポップアップも画面の切り替わりもなければ、ひとつ前に戻る
+addEventListener('hashchange', () => {
+  chain = null;
+  clearTimeout(backTimer);
+});
+
+// asWindow: 下から出るシートではなく、画面の真ん中に浮かぶウィンドウとして出す。
+// build(close, { hasParent }) … hasParent はひとつ前のポップアップがあるか（「‹ 戻る」の文字に使う）
+export function openSheet(build, options = {}) {
+  const { asWindow = false } = options;
+  const parent = options.parent ?? (chain && Date.now() - chain.at < CHAIN_MS ? chain.reopen : null);
+  chain = null;
+  clearTimeout(backTimer);
+  // 開き直すとき用（自分のひとつ前も一緒に覚えておく）
+  const reopen = () => openSheet(build, { ...options, parent });
   return new Promise((resolve) => {
     const backdrop = h('div', { class: `sheet-backdrop${asWindow ? ' as-window' : ''}` });
     const sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' });
-    const close = (value) => {
+    let closed = false;
+    // how: 'button'（ボタンで閉じた）/ 'dismiss'（背景・下スワイプで全部閉じる）
+    const finish = (value, how) => {
+      if (closed) return;
+      closed = true;
       backdrop.classList.remove('open');
       setTimeout(() => backdrop.remove(), 200);
       resolve(value);
+      if (how === 'dismiss') {
+        chain = null;
+        clearTimeout(backTimer);
+        return;
+      }
+      // 保存・決定など（値あり）で閉じたら戻らない。ただし項目を選んだとき（undefined）は、次のポップアップの「ひとつ前」になる
+      if (value !== null && value !== false && value !== undefined) return;
+      chain = { reopen, at: Date.now() };
+      clearTimeout(backTimer);
+      if (parent && value !== undefined) {
+        backTimer = setTimeout(() => {
+          if (chain?.reopen !== reopen) return;
+          chain = null;
+          parent();
+        }, BACK_DELAY);
+      }
     };
+    const close = (value) => finish(value, 'button');
     // 背景のタップで閉じる。ただし入力欄で文字を選択しながら背景の上で指やマウスを離した場合は
     // 閉じない（押した場所と離した場所の両方が背景のときだけ閉じる）
     let downOnBackdrop = false;
     backdrop.addEventListener('pointerdown', (e) => (downOnBackdrop = e.target === backdrop));
     backdrop.addEventListener('click', (e) => {
-      if (downOnBackdrop && e.target === backdrop) close(null);
+      if (downOnBackdrop && e.target === backdrop) finish(null, 'dismiss');
       downOnBackdrop = false;
     });
     // 条件付きで出す部品（false / null）は飛ばす
-    sheet.append(...build(close).flat().filter((c) => c != null && c !== false));
-    enableSwipeDown(sheet, backdrop, close);
+    sheet.append(...build(close, { hasParent: !!parent }).flat().filter((c) => c != null && c !== false));
+    enableSwipeDown(sheet, backdrop, () => finish(null, 'dismiss'));
     backdrop.append(sheet);
     document.body.append(backdrop);
     requestAnimationFrame(() => {
@@ -142,9 +183,9 @@ function enableSwipeDown(sheet, backdrop, close) {
   sheet.addEventListener('touchcancel', end);
 }
 
-// options.back を渡すと、いちばん下のボタンが「‹ 戻る」になり、押すとひとつ前のメニュー（back()）に戻る
+// 項目を選んだら閉じて実行する。ひとつ前のポップアップがあるときは、いちばん下のボタンが「‹ 戻る」になる
 export function actionSheet(title, actions, options = {}) {
-  return openSheet((close) => [
+  return openSheet((close, { hasParent }) => [
     h('div', { class: 'sheet-title' }, title),
     // 条件付きの項目（false / null）は出さない
     ...actions.filter(Boolean).map((a) =>
@@ -153,7 +194,7 @@ export function actionSheet(title, actions, options = {}) {
         {
           class: `sheet-action${a.danger ? ' danger' : ''}`,
           onClick: () => {
-            close(null);
+            close(undefined); // 項目を選んだ（次のポップアップが開けば、このメニューが「ひとつ前」）
             a.onClick();
           },
         },
@@ -164,12 +205,9 @@ export function actionSheet(title, actions, options = {}) {
       'button',
       {
         class: 'sheet-action cancel',
-        onClick: () => {
-          close(null);
-          options.back?.();
-        },
+        onClick: () => close(null),
       },
-      options.back ? '‹ 戻る' : 'キャンセル',
+      hasParent ? '‹ 戻る' : 'キャンセル',
     ),
   ], options);
 }

@@ -1447,10 +1447,20 @@ function textPlansView(root, { groupId }) {
   };
   area.addEventListener('input', renderResult);
 
+  let loadedText = ''; // 読み込んだとき（または元に戻したとき）のテキスト。これと違えば「書き換えた」
   const reload = () => {
     original = upcomingPlans(plans).map((plan) => ({ line: planToLine(plan), plan }));
     area.value = original.map((o) => o.line).join('\n') + (original.length ? '\n' : '');
+    loadedText = area.value;
     renderResult();
+  };
+  const dirty = () => area.value !== loadedText;
+  const back = `#/g/${groupId}`;
+  // 閉じる：書き換えた部分があれば、破棄してよいか確かめてから前の画面へ
+  const closeView = async () => {
+    if (dirty() && !(await confirmSheet('書き換えた内容を破棄して閉じますか？（カレンダーには反映されません）', '破棄して閉じる'))) return;
+    loadedText = area.value; // もう聞かない
+    location.hash = back;
   };
 
   const save = async () => {
@@ -1471,6 +1481,7 @@ function textPlansView(root, { groupId }) {
       return showError(e);
     }
     toast(`カレンダーに反映しました（${summary}）`);
+    loadedText = area.value; // 反映したので「書き換えた」ではなくなる
     if (d.adds.length) {
       requestNotify({
         groupId,
@@ -1485,7 +1496,13 @@ function textPlansView(root, { groupId }) {
 
   function render() {
     if (!group || !plans) return;
-    setChildren(top, header({ title: `📝 ${group.name}のテキスト予定表`, back: `#/g/${groupId}` }));
+    setChildren(top, header({ title: `📝 ${group.name}のテキスト予定表`, back }));
+    // 左上の「‹」も「閉じる」と同じ（書き換えた部分があれば確かめる）
+    top.querySelector('a.topbar-btn')?.addEventListener('click', (e) => {
+      if (!dirty()) return;
+      e.preventDefault();
+      closeView();
+    });
     // 書いている途中にほかの人の変更が届いても、入力欄は書き換えない（保存したあとや開き直したときに反映）
     if (!started) {
       started = true;
@@ -1548,8 +1565,21 @@ function textPlansView(root, { groupId }) {
     h(
       'div',
       { class: 'text-actions' },
-      h('button', { type: 'button', class: 'btn', onClick: () => (reload(), toast('今のカレンダーの内容に戻しました')) }, '元に戻す'),
-      h('button', { type: 'button', class: 'btn primary', onClick: save }, '💾 保存'),
+      h('button', { type: 'button', class: 'btn', onClick: closeView }, '✕ 閉じる'),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn',
+          onClick: async () => {
+            if (dirty() && !(await confirmSheet('書き換えた内容を消して、今のカレンダーの内容に戻しますか？', '元に戻す'))) return;
+            reload();
+            toast('今のカレンダーの内容に戻しました');
+          },
+        },
+        '↺ 元に戻す',
+      ),
+      h('button', { type: 'button', class: 'btn primary', onClick: save }, '💾 更新'),
     ),
   );
   root.append(toolbar);
@@ -3323,7 +3353,7 @@ function membersSheet(group, recoveryCodes = {}) {
 // options.asWindow で、下から出るシートではなく画面の真ん中に浮かぶウィンドウとして出す（ホームのカードから）
 // グループの管理（メンバー全員が開ける。グループ名の変更は全員、それ以外はオーナー・管理者だけ）。
 // メンバー系・報酬系はもう 1 段下のメニューにまとめる。
-// 下の段で「‹ 戻る」を押すとひとつ上の段へ（options.back）
+// 下の段で「‹ 戻る」を押すとひとつ上の段へ（ポップアップの重なりの仕組み。ui.js の openSheet）
 function groupAdminMenu(group, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
@@ -3344,8 +3374,8 @@ function groupAdminMenu(group, options = {}) {
         setTimeout(() => groupNewsWriter?.(true), 300);
       },
     },
-    manager && { label: '👥 メンバーの管理 ＞', onClick: () => groupMembersAdminMenu(group, { ...options, back: () => groupAdminMenu(group, options) }) },
-    manager && { label: '🎁 報酬の管理 ＞', onClick: () => groupRewardsAdminMenu(group, { ...options, back: () => groupAdminMenu(group, options) }) },
+    manager && { label: '👥 メンバーの管理 ＞', onClick: () => groupMembersAdminMenu(group, options) },
+    manager && { label: '🎁 報酬の管理 ＞', onClick: () => groupRewardsAdminMenu(group, options) },
     owner && {
       label: 'グループを削除（オーナーだけ）',
       danger: true,
@@ -3397,7 +3427,7 @@ function groupMembersMenu(group, recoveryCodes = {}, options = {}) {
     { label: '招待リンクを送る', onClick: () => shareInvite(group) },
     isManager(group) && {
       label: '🛠 メンバーの管理 ＞（オーナー・管理者だけ）',
-      onClick: () => groupMembersAdminMenu(group, { ...options, back: () => groupMembersMenu(group, recoveryCodes, options) }),
+      onClick: () => groupMembersAdminMenu(group, options),
     },
   ].filter(Boolean), options);
 }
@@ -3406,7 +3436,7 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
   actionSheet(group.name, [
-    { label: '🛠 グループの管理 ＞', onClick: () => groupAdminMenu(group, { ...options, back: () => groupMenu(group, recoveryCodes, options) }) },
+    { label: '🛠 グループの管理 ＞', onClick: () => groupAdminMenu(group, options) },
     {
       label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
       onClick: () => (location.hash = `#/g/${groupId}/news`),
@@ -3414,7 +3444,7 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
     { label: '🎟 チケット・ごほうび', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
     { label: '📝 テキスト予定表', onClick: () => (location.hash = `#/g/${groupId}/text`) },
     { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
-    { label: '👥 メンバー ＞', onClick: () => groupMembersMenu(group, recoveryCodes, { ...options, back: () => groupMenu(group, recoveryCodes, options) }) },
+    { label: '👥 メンバー ＞', onClick: () => groupMembersMenu(group, recoveryCodes, options) },
     { label: '👤 このグループでのプロフィール', onClick: () => profileSheet({ group }) },
     !owner && { label: 'グループから退出', danger: true, onClick: () => leaveGroup(group) },
   ].filter(Boolean), options);
