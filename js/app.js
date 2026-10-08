@@ -3732,7 +3732,6 @@ function groupView(root, { groupId }) {
   let diaryTags = null;
   let diaryFilter = null; // 日記のタグの絞り込み（タグ ID）
   let annivs = null;
-  const annivState = {}; // 記念日カレンダーの表示中の月・選んでいる日
 
   function renderBody() {
     if (!group || !lists || !events || !plans) return;
@@ -3846,7 +3845,7 @@ function groupView(root, { groupId }) {
         body,
         tabs,
         annivMode
-          ? annivSection({ groupId, members: memberList(group), annivs: annivs ?? [], state: annivState, rerender: renderBody })
+          ? annivSection({ groupId, members: memberList(group), annivs: annivs ?? [], rerender: renderBody })
           : calendarSection({ groupId, group, events, lists, plans, rerender: renderBody }),
       );
       return;
@@ -4121,17 +4120,19 @@ function annivNext(a, today) {
   return next;
 }
 
-// 記念日カレンダーの画面（カレンダーのタブの中身）
-function annivSection({ groupId, members, annivs, state, rerender }) {
+// 記念日カレンダーの画面（カレンダーのタブの中身）。
+// 表示中の月と選んでいる日は、ふつうのカレンダーと同じもの（calState）を使う。切り替えても同じ月・同じ日のまま
+function annivSection({ groupId, members, annivs, rerender }) {
   const today = todayStr();
-  state.month ??= today.slice(0, 7);
-  state.selected ??= today;
-  const view = monthView(state.month);
+  const state = (calState[groupId] ??= { ...monthView(today.slice(0, 7)), selected: today });
+  // ふつうのカレンダーと同じく、表示範囲の真ん中の日がある月を「表示中の月」とする
+  const month = addDays(state.start, Math.floor((state.weeks * 7) / 2)).slice(0, 7);
+  const view = monthView(month);
   const sel = state.selected;
   const shift = (n) => {
-    const d = new Date(`${state.month}-01T00:00:00`);
+    const d = new Date(`${month}-01T00:00:00`);
     d.setMonth(d.getMonth() + n);
-    state.month = dateStr(d).slice(0, 7);
+    Object.assign(state, monthView(dateStr(d).slice(0, 7)));
     rerender();
   };
   const select = (d) => {
@@ -4150,7 +4151,7 @@ function annivSection({ groupId, members, annivs, state, rerender }) {
     } else if (res) store.updateAnniversary(groupId, a.id, res).catch(showError);
   };
 
-  const [seasonColor] = SEASONS[Number(state.month.slice(5)) - 1];
+  const [seasonColor] = SEASONS[Number(month.slice(5)) - 1];
   const week = (ws) => {
     const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
     return h(
@@ -4161,7 +4162,7 @@ function annivSection({ groupId, members, annivs, state, rerender }) {
         h(
           'button',
           {
-            class: `cal-day${d.slice(0, 7) !== state.month ? ' other' : ''}${d === today ? ' today' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
+            class: `cal-day${d.slice(0, 7) !== month ? ' other' : ''}${d === today ? ' today' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
             style: `grid-column: ${i + 1}; grid-row: 1 / -1`,
             'aria-label': fmtDate(d),
             onClick: () => select(d),
@@ -4212,16 +4213,15 @@ function annivSection({ groupId, members, annivs, state, rerender }) {
       'div',
       { class: 'cal-head' },
       h('button', { class: 'day-nav-btn', 'aria-label': '先月', onClick: () => shift(-1) }, '‹'),
-      h('span', { class: 'cal-title' }, `🎉 ${Number(state.month.slice(0, 4))}年${Number(state.month.slice(5))}月の記念日`),
+      h('span', { class: 'cal-title' }, `🎉 ${Number(month.slice(0, 4))}年${Number(month.slice(5))}月の記念日`),
       h('button', { class: 'day-nav-btn', 'aria-label': '来月', onClick: () => shift(1) }, '›'),
-      (state.month !== today.slice(0, 7) || sel !== today) &&
+      (month !== today.slice(0, 7) || sel !== today) &&
         h(
           'button',
           {
             class: 'cal-today',
             onClick: () => {
-              state.month = today.slice(0, 7);
-              state.selected = today;
+              Object.assign(state, monthView(today.slice(0, 7)), { selected: today });
               rerender();
             },
           },

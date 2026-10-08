@@ -2,7 +2,7 @@
 // ネットワーク優先で、つながらないときだけキャッシュを使う
 // （開発中に古いファイルが表示され続けるのを避けるため）。
 
-const CACHE = 'ouchi-share-v98';
+const CACHE = 'ouchi-share-v99';
 const SHELL = ['./', './index.html', './css/style.css', './js/app.js', './js/store.js', './js/ui.js', './js/auth.js', './js/firebase.js', './js/push.js', './js/version.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
