@@ -2685,6 +2685,15 @@ function linksEditor(initialLinks = []) {
     url.addEventListener('change', () => {
       if (type.value === 'none') type.value = guessLinkType(url.value);
     });
+    // URL をいくつも貼ったら、1 つずつの行に分ける
+    url.addEventListener('paste', (e) => {
+      const urls = splitUrls(e.clipboardData?.getData('text') ?? '').urls;
+      if (urls.length < 2) return;
+      e.preventDefault();
+      url.value = urls[0];
+      if (type.value === 'none') type.value = guessLinkType(urls[0]);
+      for (const u of urls.slice(1)) addRow({ type: guessLinkType(u), url: u });
+    });
     const row = h('div', { class: 'link-row' }, type, url, h('button', { type: 'button', class: 'link-remove', 'aria-label': 'このリンクを削除', onClick: () => row.remove() }, '×'));
     rows.append(row);
     return url;
@@ -3249,6 +3258,38 @@ async function pickSourceList(groupId, { excludeListId, title }) {
 
 // ---- 取り込むアイテムを選ぶシート ----
 // すでに同じ名前のアイテムがあるものは、最初はチェックを外しておく
+
+// 通常のリストのアイテムを編集：名前とリンク（いくつでも）。戻り値 { text, links } / null
+function checklistItemSheet(item) {
+  return openSheet((close) => {
+    const text = h('input', { class: 'text-input', value: item.text ?? '', placeholder: 'アイテム名', maxlength: 100, 'aria-label': 'アイテム名' });
+    const links = linksEditor(itemLinks(item));
+    return [
+      h('div', { class: 'sheet-title' }, 'アイテムを編集'),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            const ls = links.value();
+            if (!ls) return;
+            if (!text.value.trim() && !ls.length) return toast('名前かリンクを入れてください');
+            close({ text: text.value.trim(), links: ls });
+          },
+        },
+        text,
+        links.el,
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, '保存'),
+        ),
+      ),
+    ];
+  });
+}
 
 function pickItems(source, existingTexts = []) {
   const existing = new Set(existingTexts.map((t) => t.trim()));
@@ -5206,7 +5247,7 @@ function listCard(groupId, l) {
                       checked: item.checked,
                       onChange: (e) => store.setItemChecked(groupId, l.id, item.id, e.target.checked).catch(showError),
                     }),
-                    h('span', { class: 'item-text' }, item.url ? `🔗 ${itemTitle(item)}` : item.text),
+                    h('span', { class: 'item-text' }, itemLinks(item).length ? `🔗 ${itemTitle(item)}` : item.text),
                   ),
                 ),
               ),
@@ -5765,18 +5806,43 @@ async function readClipboard() {
   if (!navigator.clipboard.read) return (await navigator.clipboard.readText()) ?? '';
   const items = await navigator.clipboard.read();
   const texts = [];
-  for (const item of items) {
-    for (const type of ['text/uri-list', 'text/plain', 'text/html']) {
-      if (!item.types.includes(type)) continue;
-      try {
-        texts.push(await (await item.getType(type)).text());
-      } catch {
-        // 読めない形式は飛ばす
-      }
+  const read = async (item, type) => {
+    try {
+      return await (await item.getType(type)).text();
+    } catch {
+      return ''; // 読めない形式は飛ばす
     }
+  };
+  for (const item of items) {
+    const plain = [];
+    for (const type of ['text/uri-list', 'text/plain']) if (item.types.includes(type)) plain.push(await read(item, type));
+    // HTML は、URL・文字がないときだけ（リンク先 href を取り出す）
+    if (!plain.some((t) => t.trim()) && item.types.includes('text/html')) {
+      const html = await read(item, 'text/html');
+      plain.push([...html.matchAll(/href="(https?:[^"]+)"/g)].map((m) => m[1]).join(' '));
+    }
+    texts.push(...plain);
   }
   return texts.join(' ');
 }
+
+// 文字の中の URL をすべて取り出す（同じものは 1 つ）。残りの文字が text
+function splitUrls(text) {
+  const found = text.match(/https?:\/\/\S+/g);
+  if (!found) {
+    const one = splitUrl(text);
+    return { text: one.text, urls: one.url ? [one.url] : [] };
+  }
+  const urls = [];
+  let rest = text;
+  for (const m of found) {
+    rest = rest.replace(m, ' ');
+    const u = normalizeUrl(m);
+    if (u && !urls.includes(u)) urls.push(u);
+  }
+  return { text: rest.replace(/\s+/g, ' ').trim(), urls };
+}
+const toLinks = (urls) => urls.map((url) => ({ type: guessLinkType(url), url }));
 
 function splitUrl(text) {
   const m = text.match(/https?:\/\/\S+/) ?? text.match(/^(?:[a-z0-9-]+\.)+[a-z]{2,}\/\S*$/i);
@@ -5881,8 +5947,22 @@ const WISH_STATUS = Object.fromEntries(Object.values(WISH_KINDS).flatMap((k) => 
 const CHECK_KIND = { placeholder: 'アイテム名（例：電池）', noPhoto: true, statuses: [] };
 const isChecklist = (list) => (list?.type ?? 'checklist') === 'checklist';
 const wishKind = (list) => (list && isChecklist(list) ? CHECK_KIND : (WISH_KINDS[list?.variant] ?? WISH_KINDS.buy));
+// チェックリストのアイテムのリンク（links。少し前の版の url 1 つも読む）
+const itemLinks = (item) => item.links ?? (item.url ? toLinks([item.url]) : []);
+// アイテムのリンクのボタン（サイト名で出す。▶️ YouTube、📦 Amazon など）
+function itemLinkChips(links) {
+  const safe = links.map((l) => normalizeUrl(l.url ?? '')).filter(Boolean);
+  return (
+    safe.length > 0 &&
+    h(
+      'span',
+      { class: 'sch-links' },
+      safe.map((url) => h('a', { class: 'sch-link', href: url, target: '_blank', rel: 'noopener noreferrer', onClick: (e) => e.stopPropagation() }, shopLabel(url))),
+    )
+  );
+}
 // チェックリストのアイテムの表示名（URL だけでタイトルがまだ取れていないときは、サイト名）
-const itemTitle = (item) => item.text || (item.url ? shopLabel(item.url) : '');
+const itemTitle = (item) => item.text || (itemLinks(item)[0] ? shopLabel(itemLinks(item)[0].url) : '');
 // 「＋ リストを追加」のひな形
 const WISH_TEMPLATES = [
   { variant: 'place', emoji: '📍', title: '行きたいところ' },
@@ -5918,10 +5998,14 @@ async function fetchLinkInfo(groupId, url) {
 }
 
 // 追加・編集シート。photo の結果は { action: 'keep' | 'remove' | 'new', data }
-// targets を渡すと、登録先のリストを選べる（「📋 リンクを登録」）。結果の listId が選んだリスト
-function wishSheet(groupId, initial = {}, { editing = false, list = null, targets = null } = {}) {
+// targets を渡すと、登録先のリストを選べる（「📋 リンクを登録」）。結果の listId が選んだリスト、target がそのリスト。
+// targetsPromise / clipPromise：登録先のリスト・クリップボードの URL を、画面を出してからあとで入れる
+// （読み込みを待ってから画面を出すと、iPhone で何も起きないように見えることがあるので）。
+// 登録先がないときは 'none' を返す
+function wishSheet(groupId, initial = {}, { editing = false, list = null, targets = null, targetsPromise = null, clipPromise = null } = {}) {
   return openSheet((close) => {
     let target = targets ? (targets.find((l) => l.id === initial.listId) ?? targets[0]) : list;
+    let extraUrls = []; // 2 つめからの URL（通常のリストに登録するときは、まとめてリンクにする）
     const text = h('input', { class: 'text-input', value: initial.text ?? '', maxlength: 200, 'aria-label': '名前・メモ' });
     const url = h('input', { class: 'text-input', type: 'text', inputmode: 'url', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', value: initial.url ?? '', placeholder: 'URL（例：TikTok やお店のリンク）', maxlength: 2000, 'aria-label': 'URL' });
     const place = h('input', { class: 'text-input', value: initial.place ?? '', placeholder: '場所・住所（例：大阪 難波）', maxlength: 200, 'aria-label': '場所' });
@@ -6021,8 +6105,20 @@ function wishSheet(groupId, initial = {}, { editing = false, list = null, target
 
     const title = h('div', { class: 'sheet-title' });
     const targetChips = targets && h('div', { class: 'people-chips' });
+    // 通常のリストに登録するとき、2 つめからの URL もリンクとして一緒に入れる
+    const extraNote = h('p', { class: 'link-preview-status' });
+    const renderExtra = () =>
+      setChildren(
+        extraNote,
+        extraUrls.length > 0 &&
+          wishKind(target).noPhoto && [
+            `🔗 ほかのリンク ${extraUrls.length} 件も一緒に登録します `,
+            h('button', { type: 'button', class: 'chip', onClick: () => ((extraUrls = []), renderExtra()) }, '外す'),
+          ],
+      );
     const syncTarget = () => {
       const kind = wishKind(target);
+      renderExtra();
       text.placeholder = kind.placeholder;
       place.style.display = kind.place ? '' : 'none';
       howChips.style.display = kind.how ? '' : 'none';
@@ -6031,6 +6127,7 @@ function wishSheet(groupId, initial = {}, { editing = false, list = null, target
       if (targets) {
         setChildren(
           targetChips,
+          !target && h('span', { class: 'links-label' }, '登録先を読み込み中…'),
           targets.map((l) =>
             h(
               'button',
@@ -6049,6 +6146,34 @@ function wishSheet(groupId, initial = {}, { editing = false, list = null, target
       }
     };
     syncTarget();
+    targetsPromise?.then(
+      (ts) => {
+        if (!ts.length) return close('none');
+        targets = ts;
+        target = ts.find((l) => l.id === initial.listId) ?? ts[0];
+        syncTarget();
+      },
+      (e) => {
+        close(null);
+        showError(e);
+      },
+    );
+    // クリップボードの URL（押した瞬間に読み始めたもの）
+    const takeUrls = (urls) => {
+      if (!urls.length) return false;
+      url.value = urls[0];
+      extraUrls = urls.slice(1);
+      renderExtra();
+      fillFromLink();
+      return true;
+    };
+    clipPromise?.then(
+      (urls) => {
+        if (url.value.trim()) return;
+        if (!takeUrls(urls)) toast('コピーした内容に URL がありませんでした。URL の欄に貼ってください');
+      },
+      () => toast('URL の欄の横の「📋 貼り付け」を押してください'),
+    );
 
     return [
       title,
@@ -6060,10 +6185,14 @@ function wishSheet(groupId, initial = {}, { editing = false, list = null, target
             e.preventDefault();
             const u = url.value.trim() ? normalizeUrl(url.value) : '';
             if (u === null) return toast('http:// か https:// で始まるリンクを入れてください');
+            if (!target) return toast('登録先を読み込み中です。少し待ってください');
             const kind = wishKind(target);
             if (!text.value.trim() && !u && (kind.noPhoto || !hasPhoto())) return toast(kind.noPhoto ? '名前か URL を入れてください' : '名前・URL・写真のどれかを入れてください');
             close({
               listId: target?.id ?? null,
+              target,
+              // 通常のリスト用：URL と、2 つめからの URL をまとめたリンク
+              links: u ? toLinks([u, ...extraUrls.filter((x) => x !== u)]) : toLinks(extraUrls),
               text: text.value.trim(),
               url: u,
               photo: kind.noPhoto ? { action: 'keep', data: null } : photo,
@@ -6091,16 +6220,14 @@ function wishSheet(groupId, initial = {}, { editing = false, list = null, target
                 } catch {
                   return toast('クリップボードを読めませんでした。URL の欄を長押しして「ペースト」してください');
                 }
-                const found = splitUrl(text).url;
-                if (!found) return toast('コピーした内容に URL がありませんでした');
-                url.value = found;
-                fillFromLink();
+                if (!takeUrls(splitUrls(text).urls)) return toast('コピーした内容に URL がありませんでした');
               },
             },
             '📋 貼り付け',
           ),
         ),
         status,
+        extraNote,
         text,
         place,
         howChips,
@@ -6204,38 +6331,26 @@ async function registerLink(groupId) {
   // リンク以外の文字（「TikTok でこの動画を見て」など）は使わず、名前はリンクのタイトルから入れる。
   // iPhone は「指でボタンを押した瞬間」しかクリップボードを読ませない（長押しして指をずらした場合などは断られる）ので、
   // ほかの読み込みより先に読む。読めなければ、登録画面の「📋 貼り付け」ボタンで読んでもらう
-  let url = '';
-  let denied = false;
-  try {
-    url = splitUrl(await readClipboard()).url;
-  } catch {
-    denied = true;
-  }
-  let lists;
-  let events;
-  try {
-    [lists, events] = await Promise.all([store.fetchLists(groupId), store.fetchEvents(groupId).catch(() => [])]);
-  } catch (e) {
-    return showError(e);
-  }
+  // 押した瞬間に読み始める。登録の画面は読み終わるのを待たずにすぐ出し、URL と登録先はあとから入れる
+  const clipPromise = readClipboard().then((t) => splitUrls(t).urls);
   // 登録先：欲しいもの系のリストと通常のリスト（チェックリスト）。イベントのリストは後ろ、同じなら欲しいもの系が先
-  const targets = lists
-    .filter((l) => l.type === 'wish' || isChecklist(l))
-    .map((l) => ({ ...l, eventTitle: l.eventId ? events.find((e) => e.id === l.eventId)?.title ?? '' : '' }))
-    .sort((a, b) => Number(!!a.eventId) - Number(!!b.eventId) || Number(isChecklist(a)) - Number(isChecklist(b)));
-  if (!targets.length) {
+  const targetsPromise = Promise.all([store.fetchLists(groupId), store.fetchEvents(groupId).catch(() => [])]).then(([lists, events]) =>
+    lists
+      .filter((l) => l.type === 'wish' || isChecklist(l))
+      .map((l) => ({ ...l, eventTitle: l.eventId ? events.find((e) => e.id === l.eventId)?.title ?? '' : '' }))
+      .sort((a, b) => Number(!!a.eventId) - Number(!!b.eventId) || Number(isChecklist(a)) - Number(isChecklist(b))),
+  );
+  const lastKey = `linkTarget:${groupId}`;
+  const res = await wishSheet(groupId, { listId: prefs.get(lastKey) }, { targets: [], targetsPromise, clipPromise });
+  if (res === 'none') {
     toast('先に「行きたいところ」などのリストを作りましょう');
     return addListMenu(groupId);
   }
-  if (denied) toast('URL の欄の横の「📋 貼り付け」を押してください');
-  else if (!url) toast('コピーした内容に URL がありませんでした。URL の欄に貼ってください');
-  const lastKey = `linkTarget:${groupId}`;
-  const res = await wishSheet(groupId, { url, listId: prefs.get(lastKey) }, { targets });
   if (!res) return;
   prefs.set(lastKey, res.listId);
-  const dest = targets.find((l) => l.id === res.listId);
+  const dest = res.target;
   try {
-    if (isChecklist(dest)) await store.addItem(groupId, res.listId, res.text, res.url);
+    if (isChecklist(dest)) await store.addItem(groupId, res.listId, res.text, res.links);
     else await saveNewWish(groupId, res.listId, res);
     toast(`「${dest.title}」に登録しました`);
   } catch (e) {
@@ -6973,7 +7088,7 @@ function checklistView(root, { groupId, listId }) {
   const top = h('div', { class: 'topbar-wrap' });
   const body = h('main', { class: 'content with-footer' });
   const input = h('input', { class: 'text-input', placeholder: 'アイテム・URL を追加', maxlength: 2100, enterkeyhint: 'enter', 'aria-label': 'アイテムを追加' });
-  // URL だけで追加したら、あとからリンクのタイトルを名前に入れる
+  // URL だけで追加したら、あとから（最初の）リンクのタイトルを名前に入れる
   const fillTitle = async (itemId, url) => {
     const info = await fetchLinkInfo(groupId, url);
     if (info?.title) store.patchListItem(groupId, listId, itemId, { text: info.title.slice(0, 100) }).catch(() => {});
@@ -6987,12 +7102,12 @@ function checklistView(root, { groupId, listId }) {
         e.preventDefault();
         const raw = input.value.trim();
         if (!raw) return;
-        // URL が入っていればリンク付きのアイテムに（URL 以外の文字が名前）
-        const { text, url } = splitUrl(raw);
+        // URL が入っていればリンク付きのアイテムに（URL 以外の文字が名前。URL はいくつでも）
+        const { text, urls } = splitUrls(raw);
         input.value = '';
         input.focus();
         // オフラインでも手元にはすぐ反映されるので、完了を待たない
-        store.addItem(groupId, listId, text.slice(0, 100), url).then((id) => url && !text && fillTitle(id, url), showError);
+        store.addItem(groupId, listId, text.slice(0, 100), toLinks(urls)).then((id) => urls.length && !text && fillTitle(id, urls[0]), showError);
       },
     },
     input,
@@ -7077,9 +7192,21 @@ function checklistView(root, { groupId, listId }) {
                   checked: item.checked,
                   onChange: (e) => store.setItemChecked(groupId, listId, item.id, e.target.checked).catch(showError),
                 }),
-                h('span', { class: 'item-text' }, itemTitle(item)),
+                h('span', { class: 'item-main' }, h('span', { class: 'item-text' }, itemTitle(item)), itemLinkChips(itemLinks(item))),
               ),
-              item.url && h('a', { class: 'item-link', href: item.url, target: '_blank', rel: 'noopener noreferrer', 'data-nodrag': '' }, shopLabel(item.url)),
+              h(
+                'button',
+                {
+                  class: 'item-edit',
+                  'data-nodrag': '',
+                  'aria-label': `${itemTitle(item)} を編集`,
+                  onClick: async () => {
+                    const res = await checklistItemSheet(item);
+                    if (res) store.patchListItem(groupId, listId, item.id, res).catch(showError);
+                  },
+                },
+                '✏️',
+              ),
               h(
                 'button',
                 { class: 'item-delete', 'data-nodrag': '', 'aria-label': `${itemTitle(item)} を削除`, onClick: () => store.deleteItem(groupId, listId, item.id).catch(showError) },
