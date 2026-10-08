@@ -203,11 +203,6 @@ export async function removeMember(groupId, memberUid) {
   await Promise.all((codes?.docs ?? []).map((d) => deleteDoc(d.ref).catch(() => {})));
 }
 
-// このグループでの自分の名前を変える
-export async function renameMeInGroup(groupId, name) {
-  await updateDoc(groupRef(groupId), { [`members.${uid()}.name`]: name });
-}
-
 // ---- ゲストの復旧ID ----
 // ゲスト（匿名アカウント）は別の端末から同じアカウントに戻れないので、
 // 復旧ID を使って「新しいゲストが元のゲストのグループでの席を引き継ぐ」形で復旧する。
@@ -528,13 +523,6 @@ export async function updateScheduleItem(groupId, eventId, itemId, patch) {
   const fields = {};
   for (const [k, v] of Object.entries(patch)) fields[`items.${itemId}.${k}`] = v;
   await updateDoc(listRef(groupId, scheduleId(eventId)), fields);
-}
-
-// 並べ替えで詰め直した開始時刻をまとめて書き込む  { itemId: "HH:MM" }
-export async function setScheduleStarts(groupId, eventId, starts) {
-  const fields = {};
-  for (const [id, start] of Object.entries(starts)) fields[`items.${id}.start`] = start;
-  if (Object.keys(fields).length) await updateDoc(listRef(groupId, scheduleId(eventId)), fields);
 }
 
 // ドラッグ＆ドロップの結果をまとめて書き込む  { itemId: { date, start, ... } }

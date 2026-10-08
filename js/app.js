@@ -2014,7 +2014,7 @@ function welcomeView(root) {
       { class: 'center-screen' },
       h('img', { class: 'welcome-icon', src: 'icons/icon.svg', alt: '' }),
       h('h1', { class: 'welcome-title' }, 'ouchi-share'),
-      h('p', { class: 'welcome-text' }, '家族や友人と、予定・持ち物・日用品の在庫を共有できます。'),
+      h('p', { class: 'welcome-text' }, '家族や友人と、予定・リスト・日記を共有できます。'),
       h('button', { class: 'btn primary wide', onClick: () => runAuth(auth.signInWithGoogle) }, 'Google でログイン'),
       auth.isNativeApp && h('button', { class: 'btn wide apple-signin', onClick: () => runAuth(auth.signInWithApple) }, ' Apple でサインイン'),
       h('p', { class: 'welcome-note' }, '招待リンクを受け取った方は、そのリンクから開いてください。'),

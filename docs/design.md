@@ -17,44 +17,85 @@
 - 公開中の最新のほうが新しいときは「v74 更新あり」（赤）。Web 版は「再読み込みして最新にする」、iPhone アプリ版は TestFlight の更新待ち
 - プッシュする前に毎回 `node scripts/bump-version.mjs "変更の内容"`：js/version.js・version.json・sw.js のキャッシュ名・CHANGELOG.md をまとめて 1 つ上げる
 
+## 機能一覧（何のための機能か）
+
+家族・友だちの小さなグループで「予定」「やること・欲しいもの」「思い出」を一か所で共有するのが目的。詳しくは各節。
+
+| 機能 | 何のためか | 節 |
+|---|---|---|
+| グループ・招待リンク・ゲスト参加 | アカウントを作らなくても、リンク 1 つで家族に入ってもらう | 権限・ゲストの復旧 |
+| 📅 カレンダー・普段の予定 | 歯医者・習い事など日々の予定を全員で見る。人で絞り込める | カレンダーと普段の予定 |
+| 📝 テキスト予定表 | 予定を 1 行ずつ文章でまとめて書く・直す（将来ウィジェットにも出す） | テキスト予定表 |
+| ✈️ イベント・旅程 | 旅行など期間のある予定と、その日ごとの行程・持ち物リスト | イベントと日常・旅程 |
+| 📝 通常のリスト | やること・買うものをチェックで管理。名前＋リンクいくつでも | 通常のリストのリンク |
+| 欲しいもの系リスト | 欲しいもの・行きたいところ・食べたいものを、リンクの写真付きでためる。❤️ で欲しい度 | 欲しいもの系リスト |
+| 貸し借りリスト | 立て替えたお金・貸したものを、一人ずつの差し引きで見る | 貸し借りリスト |
+| 📔 日記 | 出来事を、メンバー・タグ・0.01 秒までの日時つきで残し、全員で読む | 日記 |
+| ＋ボタン | どの画面からでも、コピーしたリンクの登録（短押し）・予定の追加（長押し） | アプリ全体の ＋ ボタン |
+| 📢 お知らせ | アプリからのお知らせ・グループのお知らせ（管理者お知らせ）を、未読ならポップアップ | お知らせ |
+| 🔔 通知 | お知らせ・予定の追加・前日のリマインドをスマホに届ける（Cloudflare Workers から） | 通知 |
+| 🎟 ログインボーナス・ごほうび | 毎日開くと貯まるチケットを、グループの管理者が決めたごほうびやお小遣いと交換 | ログインボーナス |
+| 👤 プロフィール | アイコン・写真・色・肩書きを、全体とグループごとに | プロフィール |
+| 🛠 管理者ダッシュボード | アプリの管理者だけ：アプリのお知らせ・ログボの配布表・グループ作成 | 管理者ダッシュボード |
+
 ## 方針
 
-- iPhone の Safari で使う PWA（ホーム画面に追加して使う）
-- 画面は静的サイトとして GitHub Pages で公開（ビルド不要の素の JavaScript）
+- アプリの形は 3 つ（ブラウザ版・ホーム画面版・アプリ版）。どの端末・形でどう動かすかは CLAUDE.md の「対応する環境」
+- 画面は静的サイトとして GitHub Pages で公開（ビルド不要の素の JavaScript）。アプリ版は同じファイルを Capacitor で包む
 - データは Firebase（Firestore + Authentication）でメンバー間リアルタイム同期
   - Spark（無料）プランで運用。無料枠を超えても課金はされず、その日は止まるだけ
   - 端末にもキャッシュするので、オフラインでも表示・編集でき、つながったら同期される
+- 通知とリンクのタイトル・画像の取得は Cloudflare Workers（無料プラン）。費用は Apple Developer Program の年 99 ドルだけ
 
 ## ファイル構成
 
 | ファイル | 役割 |
 |---|---|
-| `js/firebase.js` | Firebase の初期化（設定値は公開して問題ない値） |
-| `js/auth.js` | ログイン（Google / ゲスト）、ゲスト → Google の引き継ぎ |
+| `index.html` / `manifest.webmanifest` / `sw.js` | 入口・ホーム画面に追加したときの設定・Service Worker（オフライン用のキャッシュと通知の表示） |
+| `js/firebase.js` | Firebase の初期化（設定値は公開して問題ない値）。`isNativeApp`・`WEB_URL`・Workers の URL |
+| `js/auth.js` | ログイン（Google / Apple / ゲスト）、ゲストからの引き継ぎ・連携 |
 | `js/store.js` | Firestore の読み書き |
-| `js/ui.js` | 画面部品（ヘッダー、ボトムシート、トーストなど） |
+| `js/ui.js` | 画面部品（ヘッダー、ポップアップとその重なり、トースト、QR コード） |
+| `js/push.js` | 通知の登録・設定、Workers への通知・リンク情報の依頼（必要になったときだけ読み込む） |
 | `js/app.js` | 各画面とルーター |
-| `firestore.rules` | セキュリティルール（コンソールに貼り付けて反映） |
+| `js/version.js` / `version.json` / `CHANGELOG.md` | 版と変更の記録（`scripts/bump-version.mjs` でまとめて更新） |
+| `css/style.css` | 見た目 |
+| `firestore.rules` | セキュリティルール（`firebase deploy --only firestore:rules` で反映） |
+| `worker/` | Cloudflare Workers（通知の送信・毎日のリマインド・リンクのタイトルと画像の取得）。手順は worker/README.md |
+| `ios/` / `capacitor.config.json` / `scripts/build-www.mjs` | iPhone アプリ版。手順は docs/ios-setup.md |
+| `icons/` / `img/` / `scripts/make-*.mjs` | アイコン・起動画面の画像と、それを作るスクリプト。ホーム画面に追加の説明の画像 |
+| `docs/` | 設計メモ（このファイル）・次にやること（todo.md）・実機確認リスト（device-test.md）・アプリ版の手順（ios-setup.md） |
 
 ## データ構造
 
 ```
 admins/{uid}                        グループを作れる人の許可リスト（コンソールから手で追加）
-recovery/{code}                     ゲストの復旧ID { groupId, uid, name, createdAt }
+config/{docId}                      アプリ全体の設定（ログボの配布表など。アプリの管理者が書く）
+announcements/{id}                  アプリからのお知らせ
+reads/{uid}                         お知らせの既読
+push/{uid}                          通知の送り先（端末のトークン）と受け取る種類
+profiles/{uid}                      全体のプロフィール { icon, photo, title, colors }
 presence/{uid}                      最終アクセス時刻 { lastSeen, name, guest }（本人と管理者だけ読める）
+recovery/{code}                     ゲストの復旧ID { groupId, uid, name, createdAt }
 groups/{groupId}
   ├─ name, createdAt, createdBy
   ├─ inviteCode                     招待リンクに含める合言葉。作り直すと古いリンクは無効
   ├─ memberIds: [uid, ...]          「自分が入っているグループ」を検索するための配列
-  ├─ members: { uid: { name, role, guest, joinedAt, lastSeen } }   role = owner / member
-  ├─ events/{eventId}                 イベント（旅行など）{ title, emoji, startDate, endDate, participants }（日付は "YYYY-MM-DD"）
-  ├─ plans/{planId}                   普段の予定（歯医者など）{ title, date, start, duration, place, memo, links, participants }
-  └─ lists/{listId}
-        ├─ eventId                   イベントのリストならそのイベント ID、日常のリストなら null / なし
-        ├─ type: checklist | inventory | schedule
-        ├─ title, emoji, createdAt, createdBy
-        ├─ copiedFrom: { groupId, listId }   （将来）別グループからコピーした場合
-        └─ items: { itemId: { text, checked, createdAt } }
+  ├─ members: { uid: { name, role, guest, joinedAt, lastSeen, icon, photo, title, colors, custom } }
+  │                                  role = owner / admin / member。icon〜custom はグループでのプロフィール
+  ├─ events/{eventId}               イベント（旅行など）{ title, emoji, startDate, endDate, participants }（日付は "YYYY-MM-DD"）
+  ├─ plans/{planId}                 普段の予定（歯医者など）{ title, date, endDate, start, duration, place, memo, links, participants }
+  ├─ lists/{listId}
+  │     ├─ eventId                  イベントのリストならそのイベント ID、日常のリストなら null / なし
+  │     ├─ type: checklist | schedule | money | wish（variant: buy / place / food）| inventory（予約。まだ使っていない）
+  │     ├─ title, emoji, order, createdAt, createdBy
+  │     └─ items: { itemId: {...} } 種類ごとの中身。通常のリストは { text, checked, order, links, createdAt }
+  ├─ photos/{photoId}               写真（縮小した JPEG の data URL。Storage は無料プランで使えないため）
+  ├─ announcements/{id}             グループのお知らせ（official = 管理者お知らせ）
+  ├─ bonus/{uid}                    ログインボーナスの記録（連続日数・スタンプ・チケット）
+  ├─ rewards/{id} / redemptions/{id} / settings/{docId}   ごほうび・交換の記録・チケットのレート
+  ├─ diary/{id}                     日記 { title, at, members, tags, body, createdAt, createdBy, updatedAt }
+  └─ diaryTags/{id}                 日記のタグ { name }
 ```
 
 - アイテムはリストのドキュメント内のマップに入れている
@@ -73,7 +114,7 @@ groups/{groupId}
 
 ## イベントと日常
 
-- グループの中は「📅 イベント」（期間のある予定）と「🏡 日常」（期間のないリスト）の 2 階層
+- グループの画面は「📅 カレンダー」「✈️ イベント」「📝 リスト」（日常のリスト）「📔 日記」のタブ。イベント（期間のある予定）の中にも、そのイベントのリストがある
 - イベントはこれから・開催中を日付の近い順に表示し、終わったものは「過去のイベント」に折りたたむ
 - リストは 1 つのコレクションにまとめ、`eventId` で所属を表す（取り込みのコピーが簡単）
 - 取り込み
@@ -207,6 +248,22 @@ groups/{groupId}
 - 図の下に一人ずつの差し引き（お金だけ）、未精算の一覧、折りたたんだ精算済み。チェックで精算済み／未精算を切り替え
 - リストの画面は `listView` がリストの種類を見て、チェックリストか貸し借りの画面に振り分ける
 
+## 通常のリスト（チェックリスト）のリンク
+- アイテムは「名前＋リンクいくつでも」。links（[{ type, url }]、予定のリンクと同じ形）で持つ。v88 の url 1 つも読む
+- 入力欄に「電池 https://… https://…」と貼ると、URL 以外の文字が名前、URL はすべてリンク。URL だけなら、あとで最初のリンクのタイトルを名前に入れる
+- 名前の下にサイト名のボタン（▶️ YouTube、📦 Amazon など）。押すとリンクを開く。右の ✏️ で名前とリンクを編集（リンクの欄に URL をいくつも貼ると、行が分かれる。予定のリンクの欄も同じ）
+- グループ画面のカードの中では「🔗 名前」
+- ＋の短押し（📋 リンクを登録）の登録先に、欲しいもの系のリストに続けて通常のリストも出す。通常のリストを選ぶと写真・場所の欄は出さず、名前とリンクだけ登録する。コピーした内容に URL がいくつもあれば、通常のリストには全部をリンクにする（欲しいもの系は最初の 1 つ）
+- ＋の短押しは、押したらすぐ登録の画面を出し、クリップボードの URL と登録先のリストは読み終わってから入れる（読み終わるのを待ってから画面を出すと、iPhone で何も起きないように見えることがあったため）
+
+## 日記
+- グループ画面のタブ「📔 日記」（カレンダー・イベント・リストの横）。タブが 4 つなので、タブは絵文字を上・名前を下に並べる
+- 1 件ごとに、タイトル・日時・メンバー・タグ・内容をどれも好きなだけ入れられる（全部空は保存しない）。書くとき日時は「いま」（0.01 秒まで）が入っている
+- 日時は at に「YYYY-MM-DD」「YYYY-MM-DDTHH:MM」「YYYY-MM-DDTHH:MM:SS.ss」の文字列で持つ（日付・時刻・秒の欄。秒は 0〜59.99）
+- メンバー全員の日記を、日時の新しい順に並べる（日時がなければ書いた日時）。タグで絞り込める。カードを押すと全文と「編集」「削除」
+- タグ（groups/{id}/diaryTags）は誰でも自由に作れる：書く画面の「＋ タグを作る」（書きかけを消さないよう画面の中で名前を聞く）、タブの「🏷 タグの管理」で作る・名前を変える・消す（消しても日記は残り、タグが外れる）
+- 保存先 groups/{id}/diary（title, at, members, tags, body, createdAt, createdBy, updatedAt）。メンバーなら誰でも読む・書く・直す・消すことができる
+
 ## 通知
 
 - Firebase は無料プラン（Spark）のまま。Cloud Functions（有料プランが必要）は使わず、**Cloudflare Workers（無料）**で送る（`worker/`）
@@ -329,6 +386,12 @@ groups/{groupId}
 - 設定（groupMenu。グループの画面の ⋯ と同じ中身）は、下から出るシートではなく、画面の真ん中に浮かぶウィンドウ（openSheet の asWindow）で出す
 - シート・ウィンドウはすべて、下にスワイプして閉じられる（上の「つまみ」が目印。90px 以上で閉じ、少しなら戻る。中身がいちばん上のときだけ・入力欄の上からは動かない・data-noswipe の部品（写真の切り抜き）の上からも動かない）
 
+## ホーム画面に追加の案内
+- ブラウザで開いているとき（ホーム画面から開いていない・iPhone アプリでもない）だけ、ホームのいちばん上に「📲 ホーム画面に追加しよう」を出す。× で消せる（prefs の installHintHidden）。右上「⋯」のメニューからはいつでも見られる
+- やり方は端末に合わせて iPhone（Safari の「…」→ 共有 → ホーム画面に追加 → Webアプリとして開く → 追加。画像は img/install-ios-*.jpg）か Android（⋮ → ホーム画面に追加）。PC では両方
+- Android の Chrome などで beforeinstallprompt が来ていれば「このまま追加する」ボタンも出す
+- iPhone はホーム画面のアプリと Safari でログインが別なので、ログインし直し（ゲストは復旧ID）と通知はホーム画面から、を書いておく
+
 ## グループの管理者
 
 - `members.{uid}.role`：'owner'（オーナー）/ 'admin'（管理者）/ 'member'。オーナーがグループの ⋯ →「👑 管理者を設定」か、メンバー一覧のメニューで切り替える
@@ -374,25 +437,3 @@ groups/{groupId}
 
 - iPhone のホーム画面から起動した PWA では、Google ログインのポップアップがうまく動かない場合がある。その場合は Safari で開いてログインする
 - ゲストのままログアウトしたり Safari のデータを消したりすると、同じゲストには戻れない（招待リンクから新しいゲストとして再参加は可能）
-
-## ホーム画面に追加の案内
-- ブラウザで開いているとき（ホーム画面から開いていない・iPhone アプリでもない）だけ、ホームのいちばん上に「📲 ホーム画面に追加しよう」を出す。× で消せる（prefs の installHintHidden）。右上「⋯」のメニューからはいつでも見られる
-- やり方は端末に合わせて iPhone（Safari の「…」→ 共有 → ホーム画面に追加 → Webアプリとして開く → 追加。画像は img/install-ios-*.jpg）か Android（⋮ → ホーム画面に追加）。PC では両方
-- Android の Chrome などで beforeinstallprompt が来ていれば「このまま追加する」ボタンも出す
-- iPhone はホーム画面のアプリと Safari でログインが別なので、ログインし直し（ゲストは復旧ID）と通知はホーム画面から、を書いておく
-
-## 日記
-- グループ画面のタブ「📔 日記」（カレンダー・イベント・リストの横）。タブが 4 つなので、タブは絵文字を上・名前を下に並べる
-- 1 件ごとに、タイトル・日時・メンバー・タグ・内容をどれも好きなだけ入れられる（全部空は保存しない）。書くとき日時は「いま」（0.01 秒まで）が入っている
-- 日時は at に「YYYY-MM-DD」「YYYY-MM-DDTHH:MM」「YYYY-MM-DDTHH:MM:SS.ss」の文字列で持つ（日付・時刻・秒の欄。秒は 0〜59.99）
-- メンバー全員の日記を、日時の新しい順に並べる（日時がなければ書いた日時）。タグで絞り込める。カードを押すと全文と「編集」「削除」
-- タグ（groups/{id}/diaryTags）は誰でも自由に作れる：書く画面の「＋ タグを作る」（書きかけを消さないよう画面の中で名前を聞く）、タブの「🏷 タグの管理」で作る・名前を変える・消す（消しても日記は残り、タグが外れる）
-- 保存先 groups/{id}/diary（title, at, members, tags, body, createdAt, createdBy, updatedAt）。メンバーなら誰でも読む・書く・直す・消すことができる
-
-## 通常のリスト（チェックリスト）のリンク
-- アイテムは「名前＋リンクいくつでも」。links（[{ type, url }]、予定のリンクと同じ形）で持つ。v88 の url 1 つも読む
-- 入力欄に「電池 https://… https://…」と貼ると、URL 以外の文字が名前、URL はすべてリンク。URL だけなら、あとで最初のリンクのタイトルを名前に入れる
-- 名前の下にサイト名のボタン（▶️ YouTube、📦 Amazon など）。押すとリンクを開く。右の ✏️ で名前とリンクを編集（リンクの欄に URL をいくつも貼ると、行が分かれる。予定のリンクの欄も同じ）
-- グループ画面のカードの中では「🔗 名前」
-- ＋の短押し（📋 リンクを登録）の登録先に、欲しいもの系のリストに続けて通常のリストも出す。通常のリストを選ぶと写真・場所の欄は出さず、名前とリンクだけ登録する。コピーした内容に URL がいくつもあれば、通常のリストには全部をリンクにする（欲しいもの系は最初の 1 つ）
-- ＋の短押しは、押したらすぐ登録の画面を出し、クリップボードの URL と登録先のリストは読み終わってから入れる（読み終わるのを待ってから画面を出すと、iPhone で何も起きないように見えることがあったため）

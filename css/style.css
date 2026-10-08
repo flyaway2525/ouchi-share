@@ -715,34 +715,6 @@ a {
   user-select: all;
 }
 
-.member-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-.member-strip button {
-  border: 0;
-  background: none;
-  min-height: 44px;
-  padding: 0 14px;
-}
-
-.member-strip-count {
-  flex: 1;
-  text-align: left;
-  font-size: 14px;
-}
-
-.member-strip-invite {
-  font-weight: 600;
-  color: var(--accent);
-}
-
 .member-list {
   list-style: none;
   margin: 0 0 12px;
@@ -815,21 +787,6 @@ a {
 .dot.online {
   background: #34c759;
   box-shadow: 0 0 0 3px rgb(52 199 89 / 0.2);
-}
-
-.member-strip-count {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-}
-
-.online-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--muted);
 }
 
 .member-name {
@@ -1390,32 +1347,6 @@ select.text-input {
   color: var(--muted);
   white-space: nowrap;
 }
-
-.sch-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 13px;
-}
-
-.sch-card-span {
-  color: var(--muted);
-}
-
-.sch-card-line {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sch-card-line b {
-  font-variant-numeric: tabular-nums;
-}
-
-.sch-card-more {
-  color: var(--muted);
-}
-
 
 .schedule.overview .sch-day.candidates {
   margin-top: 10px;
@@ -2177,12 +2108,6 @@ select.text-input {
 
 /* ---- カレンダー：2 週ずらす小さいボタン ---- */
 
-.cal-shift {
-  display: flex;
-  gap: 4px;
-  margin-left: auto;
-}
-
 .cal-mini {
   padding: 4px 8px;
   border: 1px solid var(--border);
@@ -2191,10 +2116,6 @@ select.text-input {
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
-}
-
-.cal-shift + .cal-today {
-  margin-left: 4px;
 }
 
 /* スマホ幅でも見出しが 1 行に収まるように */
@@ -2370,22 +2291,6 @@ select.text-input {
 
 .link-preview-status:empty {
   display: none;
-}
-
-/* ヘッダーの「📋 登録」（コピーしたリンクを登録） */
-.register-link {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 .wish-photo {
@@ -2827,25 +2732,6 @@ select.text-input {
   text-align: center;
 }
 
-.bonus-stamp {
-  display: grid;
-  place-items: center;
-  width: 112px;
-  height: 112px;
-  border: 3px dashed var(--accent);
-  border-radius: 50%;
-  background: var(--accent-soft);
-  font-size: 60px;
-  line-height: 1;
-  animation: bonus-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both;
-}
-
-.bonus-stamp.rare {
-  border-color: #f5a623;
-  background: radial-gradient(circle, #fff6d6, #ffe08a);
-  box-shadow: 0 0 24px rgb(245 166 35 / 0.6);
-}
-
 @keyframes bonus-pop {
   0% {
     transform: scale(2.2) rotate(-25deg);
@@ -2858,12 +2744,6 @@ select.text-input {
   100% {
     transform: scale(1) rotate(-8deg);
   }
-}
-
-.bonus-labels {
-  display: flex;
-  gap: 6px;
-  min-height: 22px;
 }
 
 .bonus-tag {

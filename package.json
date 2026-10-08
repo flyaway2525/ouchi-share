@@ -1,7 +1,7 @@
 {
   "name": "ouchi-share",
   "private": true,
-  "description": "家族や友人と共有できる、おうちの情報共有ツール（Web 版は GitHub Pages、iPhone アプリ版は Capacitor）",
+  "description": "家族や友人と予定・リスト・日記を共有するアプリ（Web 版は GitHub Pages、iPhone アプリ版は Capacitor）",
   "type": "module",
   "scripts": {
     "build": "node scripts/build-www.mjs",
