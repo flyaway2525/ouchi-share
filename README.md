@@ -28,4 +28,5 @@ python -m http.server 5173
 - [docs/todo.md](docs/todo.md)：次にやること
 - [docs/device-test.md](docs/device-test.md)：実機確認リスト
 - [docs/ios-setup.md](docs/ios-setup.md)：iPhone アプリ版の作り方（Mac での作業）
+- [docs/development-history.md](docs/development-history.md)：開発履歴（Claude Code でどうつくったか）
 - [CHANGELOG.md](CHANGELOG.md)：版ごとの変更
