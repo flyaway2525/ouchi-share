@@ -4400,7 +4400,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
     pagerEl(),
-    !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定を追加 ・ 長押しで何日も選べます'),
+    !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定を追加 ・ 長押しで何日も選べます ・ ＋を長押しでテキストでまとめて書く'),
     h(
       'div',
       { class: 'cal-panel' },
@@ -4426,7 +4426,6 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       ),
       dayPlans.map(planRow),
       h('button', { class: 'sch-add', onClick: () => addPlan() }, '＋ この日に予定を追加'),
-      h('a', { class: 'sch-add', href: `#/g/${groupId}/text` }, '📝 テキストでまとめて書く'),
     ),
     undated.length > 0 &&
       h(
@@ -4445,8 +4444,71 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           h('button', { class: 'btn', onClick: endMulti }, 'やめる'),
           h('button', { class: 'btn primary', disabled: !state.multi.length, onClick: () => addPlan([...state.multi].sort()) }, '予定を追加'),
         )
-      : h('button', { class: 'cal-fab', 'aria-label': '予定を追加', title: '予定を追加', onClick: () => addPlan() }, '＋'),
+      : fabWithMenu(() => addPlan(), [
+          ['＋ 予定を1つ追加', () => addPlan()],
+          ['📝 テキストでまとめて書く', () => (location.hash = `#/g/${groupId}/text`)],
+        ]),
   );
+}
+
+// 右下の ＋ ボタン。タップで onTap、長押しで ＋ の上にメニューが伸びて出る（items = [[ラベル, 処理], …]）。
+// メニューの外を触ると閉じる。長押しのあとに来るタップは無視する
+function fabWithMenu(onTap, items) {
+  let longPressed = false;
+  let timer = null;
+  const menu = h(
+    'div',
+    { class: 'fab-menu', role: 'menu' },
+    items.map(([label, run], i) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'fab-menu-item',
+          role: 'menuitem',
+          style: `--i: ${items.length - 1 - i}`,
+          onClick: () => {
+            close();
+            run();
+          },
+        },
+        label,
+      ),
+    ),
+  );
+  const fab = h('button', { class: 'cal-fab', 'aria-label': '予定を追加（長押しでほかの追加方法）', title: '予定を追加（長押しでほかの追加方法）' }, '＋');
+  const wrap = h('div', { class: 'fab-wrap' }, menu, fab);
+  const outside = (e) => {
+    if (!wrap.contains(e.target)) close();
+  };
+  function open() {
+    wrap.classList.add('open');
+    document.addEventListener('pointerdown', outside, true);
+  }
+  function close() {
+    wrap.classList.remove('open');
+    document.removeEventListener('pointerdown', outside, true);
+  }
+  fab.addEventListener('contextmenu', (e) => e.preventDefault());
+  fab.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    longPressed = false;
+    timer = setTimeout(() => {
+      longPressed = true;
+      navigator.vibrate?.(15);
+      open();
+    }, 450);
+  });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) fab.addEventListener(ev, () => clearTimeout(timer));
+  fab.addEventListener('click', () => {
+    if (longPressed) {
+      longPressed = false;
+      return;
+    }
+    if (wrap.classList.contains('open')) return close();
+    onTap();
+  });
+  return wrap;
 }
 
 // 一覧に出すリスト（旅程は旅程タブに出すので除く）

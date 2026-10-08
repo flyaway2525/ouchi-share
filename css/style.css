@@ -4023,3 +4023,54 @@ a.sch-add {
   margin: 0 4px 8px;
   font-size: 13px;
 }
+
+/* 右下の ＋ を長押しして出るメニュー（＋ の上に伸びる） */
+.fab-wrap .fab-menu {
+  position: fixed;
+  right: max(16px, calc((100vw - 640px) / 2 + 16px));
+  bottom: calc(86px + var(--safe-bottom));
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.fab-menu-item {
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(24px) scale(0.6);
+  transform-origin: right bottom;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.18s;
+  transition-delay: calc(var(--i) * 40ms);
+}
+
+.fab-wrap.open .fab-menu {
+  pointer-events: auto;
+}
+
+.fab-wrap.open .fab-menu-item {
+  opacity: 1;
+  transform: none;
+}
+
+.fab-wrap .cal-fab {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: transform 0.2s;
+}
+
+.fab-wrap.open .cal-fab {
+  transform: rotate(45deg);
+}
