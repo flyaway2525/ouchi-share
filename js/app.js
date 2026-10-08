@@ -5758,6 +5758,26 @@ function shopLabel(url) {
 }
 
 // メモの中の最初の URL を取り出す
+// クリップボードの中身を文字で読む。アプリの「リンクをコピー」は「URL」として入っていて、
+// readText（ただの文字）では空になることがあるので、read() で URL・文字・HTML のどれでも読む。
+// どちらも呼ぶのは 1 回だけ（iPhone は指で押した直後の 1 回しか読ませず、そのとき「ペースト」の確認が出る）
+async function readClipboard() {
+  if (!navigator.clipboard.read) return (await navigator.clipboard.readText()) ?? '';
+  const items = await navigator.clipboard.read();
+  const texts = [];
+  for (const item of items) {
+    for (const type of ['text/uri-list', 'text/plain', 'text/html']) {
+      if (!item.types.includes(type)) continue;
+      try {
+        texts.push(await (await item.getType(type)).text());
+      } catch {
+        // 読めない形式は飛ばす
+      }
+    }
+  }
+  return texts.join(' ');
+}
+
 function splitUrl(text) {
   const m = text.match(/https?:\/\/\S+/) ?? text.match(/^(?:[a-z0-9-]+\.)+[a-z]{2,}\/\S*$/i);
   if (!m) return { text: text.trim(), url: '' };
@@ -6061,7 +6081,7 @@ function wishSheet(groupId, initial = {}, { editing = false, list = null, target
               onClick: async () => {
                 let text = '';
                 try {
-                  text = (await navigator.clipboard.readText()) ?? '';
+                  text = await readClipboard();
                 } catch {
                   return toast('クリップボードを読めませんでした。URL の欄を長押しして「ペースト」してください');
                 }
@@ -6181,7 +6201,7 @@ async function registerLink(groupId) {
   let url = '';
   let denied = false;
   try {
-    url = splitUrl((await navigator.clipboard.readText()) ?? '').url;
+    url = splitUrl(await readClipboard()).url;
   } catch {
     denied = true;
   }
