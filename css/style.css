@@ -4098,3 +4098,26 @@ a.sch-add {
   flex-shrink: 0;
   white-space: nowrap;
 }
+
+/* アプリ全体の ＋ ボタン：下に入力欄がある画面では、その上に出す。テキスト予定表・日付の複数選択中・シートの表示中は隠す */
+body:has(.add-bar) .fab-wrap.global .cal-fab {
+  bottom: calc(84px + var(--safe-bottom));
+}
+
+body:has(.add-bar) .fab-wrap.global .fab-menu {
+  bottom: calc(150px + var(--safe-bottom));
+}
+
+body:has(.text-toolbar) .fab-wrap.global,
+body:has(.cal-multi-bar) .fab-wrap.global {
+  display: none;
+}
+
+/* 一覧のいちばん下が ＋ に隠れないように（下に入力欄がある画面は、入力欄＋＋のぶん） */
+.content:not(.with-footer):not(.with-text-toolbar) {
+  padding-bottom: calc(96px + var(--safe-bottom));
+}
+
+.content.with-footer {
+  padding-bottom: calc(160px + var(--safe-bottom));
+}

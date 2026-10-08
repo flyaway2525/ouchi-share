@@ -3517,6 +3517,7 @@ function groupView(root, { groupId }) {
 
   const onGone = (e) => {
     if (e?.code !== 'permission-denied' && e?.message !== 'not-found') return showError(e);
+    if (prefs.get('lastGroup') === groupId) prefs.set('lastGroup', null);
     toast('グループが見つかりません');
     location.hash = '#/';
   };
@@ -3525,6 +3526,8 @@ function groupView(root, { groupId }) {
     groupId,
     (g) => {
       group = g;
+      prefs.set('lastGroup', groupId);
+      updateGlobalFab();
       groupMembers[groupId] = memberList(g);
       groupThemes[groupId] = g.members?.[user.uid]?.colors ?? null;
       applyTheme(themeForHash(location.hash));
@@ -4429,21 +4432,17 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         undated.map(planRow),
         h('p', { class: 'cal-undated-hint' }, '日付が決まったら ⋮ →「編集」で日付を入れると、カレンダーに移ります'),
       ),
-    // 日付を選ばなくても追加できる ＋ ボタン（画面の右下に固定）。複数選択中は代わりに選んだ日数と「追加」のバー
-    state.multi
-      ? h(
+    // 日付を複数選んでいる間は、右下に選んだ日数と「追加」のバー（＋ ボタンはアプリ全体のもの。複数選択中は隠れる）
+    state.multi &&
+      h(
           'div',
           { class: 'cal-multi-bar' },
           h('span', { class: 'cal-multi-count' }, h('b', {}, `${state.multi.length}日`), '選択中', h('small', {}, 'タップで選ぶ・外す')),
           h('button', { class: 'btn', onClick: endMulti }, 'やめる'),
           h('button', { class: 'btn primary', disabled: !state.multi.length, onClick: () => addPlan([...state.multi].sort()) }, '予定を追加'),
-        )
-      : // タップは「URLから登録」（iPhone はタップの瞬間しかクリップボードを読ませないので、タップに割り当てる）。
-        // 長押しのメニューで、予定の追加・テキストでまとめて書く
-        fabWithMenu(() => registerLink(groupId, lists, events), [
-          ['＋ 予定を1つ追加', () => addPlan()],
-          ['📝 テキストでまとめて書く', () => (location.hash = `#/g/${groupId}/text`)],
-        ]),
+        ),
+    // アプリ全体の ＋ の「予定を1つ追加」から来たときは、カレンダーを開いたらすぐ追加の画面を出す
+    pendingCalendarAdd && !state.multi && (setTimeout(() => addPlan(), 0), (pendingCalendarAdd = false), null),
   );
 }
 
@@ -4539,6 +4538,39 @@ function fabWithMenu(onTap, items) {
     onTap();
   });
   return wrap;
+}
+
+// ---- アプリ全体の ＋ ボタン（どの画面でも右下に出す） ----
+// タップ：📋 URLから登録。長押し：＋ 予定を1つ追加 ／ 📝 テキストでまとめて書く。
+// 登録先のグループは、グループの中ならそのグループ、外（ホームなど）なら最後に開いたグループ。どれもなければ出さない
+let pendingCalendarAdd = false; // 「予定を1つ追加」→ グループのカレンダーを開いたら追加の画面を出す
+const fabGroup = () => location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? prefs.get('lastGroup');
+const globalFab = fabWithMenu(
+  () => {
+    const gid = fabGroup();
+    if (gid) registerLink(gid);
+  },
+  [
+    [
+      '＋ 予定を1つ追加',
+      () => {
+        const gid = fabGroup();
+        if (!gid) return;
+        pendingCalendarAdd = true;
+        prefs.set(`groupTab:${gid}`, 'calendar');
+        if (location.hash === `#/g/${gid}`) route();
+        else location.hash = `#/g/${gid}`;
+      },
+    ],
+    ['📝 テキストでまとめて書く', () => fabGroup() && (location.hash = `#/g/${fabGroup()}/text`)],
+  ],
+);
+globalFab.classList.add('global');
+document.body.append(globalFab);
+
+function updateGlobalFab() {
+  const show = !!user && !auth.needsName() && !!fabGroup() && !/^#\/(join|recover|admin)/.test(location.hash);
+  globalFab.hidden = !show;
 }
 
 // 一覧に出すリスト（旅程は旅程タブに出すので除く）
@@ -5610,7 +5642,24 @@ function closeWishSheet(w, kind) {
 
 // 「📋 リンクを登録」：コピーしたリンクを読み、登録先を選んで追加する。
 // ブラウザ版はボタンを押したときだけクリップボードを読める（iPhone では「ペースト」の確認が出る）
-async function registerLink(groupId, lists, events = []) {
+async function registerLink(groupId) {
+  // リンク以外の文字（「TikTok でこの動画を見て」など）は使わず、名前はリンクのタイトルから入れる。
+  // iPhone は「指でボタンを押した瞬間」しかクリップボードを読ませない（長押しして指をずらした場合などは断られる）ので、
+  // ほかの読み込みより先に読む。読めなければ、登録画面の「📋 貼り付け」ボタンで読んでもらう
+  let url = '';
+  let denied = false;
+  try {
+    url = splitUrl((await navigator.clipboard.readText()) ?? '').url;
+  } catch {
+    denied = true;
+  }
+  let lists;
+  let events;
+  try {
+    [lists, events] = await Promise.all([store.fetchLists(groupId), store.fetchEvents(groupId).catch(() => [])]);
+  } catch (e) {
+    return showError(e);
+  }
   const targets = lists
     .filter((l) => l.type === 'wish')
     .map((l) => ({ ...l, eventTitle: l.eventId ? events.find((e) => e.id === l.eventId)?.title ?? '' : '' }))
@@ -5618,16 +5667,6 @@ async function registerLink(groupId, lists, events = []) {
   if (!targets.length) {
     toast('先に「行きたいところ」などのリストを作りましょう');
     return addListMenu(groupId);
-  }
-  // リンク以外の文字（「TikTok でこの動画を見て」など）は使わず、名前はリンクのタイトルから入れる。
-  // iPhone は「指でボタンを押した瞬間」しかクリップボードを読ませない（長押しして指をずらした場合などは断られる）。
-  // 読めなければ、登録画面の「📋 貼り付け」ボタンで読んでもらう
-  let url = '';
-  let denied = false;
-  try {
-    url = splitUrl((await navigator.clipboard.readText()) ?? '').url;
-  } catch {
-    denied = true;
   }
   if (denied) toast('URL の欄の横の「📋 貼り付け」を押してください');
   else if (!url) toast('コピーした内容に URL がありませんでした。URL の欄に貼ってください');
@@ -6624,6 +6663,7 @@ const routes = [
 ];
 
 let unmount = null;
+let startedRouting = false;
 
 function route() {
   unmount?.();
@@ -6640,8 +6680,19 @@ function route() {
   const recover = hash.match(/^#\/recover(?:\/([0-9A-Za-z]+))?$/);
   if (recover) return recoverView(app, { code: recover[1] ?? '' });
 
+  updateGlobalFab();
   if (!user) return welcomeView(app);
   if (auth.needsName()) return nameSetupView(app);
+
+  // アプリを開いた最初の 1 回だけ：ホームなら、最後に開いていたグループの画面から始める（‹ でホームに戻れる）
+  if (!startedRouting) {
+    startedRouting = true;
+    const last = prefs.get('lastGroup');
+    if (last && (hash === '' || hash === '#' || hash === '#/')) {
+      location.replace(`#/g/${last}`);
+      return;
+    }
+  }
 
   for (const [re, make] of routes) {
     const m = hash.match(re);
