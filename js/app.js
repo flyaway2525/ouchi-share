@@ -7209,7 +7209,14 @@ function checklistView(root, { groupId, listId }) {
               ),
               h(
                 'button',
-                { class: 'item-delete', 'data-nodrag': '', 'aria-label': `${itemTitle(item)} を削除`, onClick: () => store.deleteItem(groupId, listId, item.id).catch(showError) },
+                {
+                  class: 'item-delete',
+                  'data-nodrag': '',
+                  'aria-label': `${itemTitle(item)} を削除`,
+                  onClick: async () => {
+                    if (await confirmSheet(`「${itemTitle(item)}」を削除しますか？`)) store.deleteItem(groupId, listId, item.id).catch(showError);
+                  },
+                },
                 '×',
               ),
             ),
