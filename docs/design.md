@@ -80,6 +80,7 @@ presence/{uid}                      最終アクセス時刻 { lastSeen, name, g
 recovery/{code}                     ゲストの復旧ID { groupId, uid, name, createdAt }
 groups/{groupId}
   ├─ name, createdAt, createdBy
+  ├─ allColor                       全員の予定の色（#rrggbb。なければ元の色）
   ├─ inviteCode                     招待リンクに含める合言葉。作り直すと古いリンクは無効
   ├─ memberIds: [uid, ...]          「自分が入っているグループ」を検索するための配列
   ├─ members: { uid: { name, role, guest, joinedAt, lastSeen, icon, photo, title, colors, custom } }
@@ -186,6 +187,10 @@ groups/{groupId}
   - 「日付を決めない」で登録した予定は、カレンダーの下の「📌 日付未定の予定」に並ぶ。編集で日付を入れるとカレンダーへ移る
 - 参加者：イベントと普段の予定の `participants`（uid の配列。空なら全員）。カレンダー上部で人を選ぶと、
   その人が参加する（または全員の）ものだけ表示。選択は端末に保存。人を選んだまま予定を追加すると、その人が参加者に入る
+
+## 全員の予定の色
+- カレンダーの予定の色：1 人の予定はその人の色（サードカラー）、全員（または 2 人以上）の予定はグループの「全員の予定の色」（groups/{id}.allColor。決めていなければ元の色）。何日か続く普段の予定の帯も同じ
+- グループの管理（🛠。誰でも）→「🎨 全員の予定の色」で、メンバーの色と並べた見本を見ながらパレットから選ぶ。「元の色に戻す」で消す。メンバーなら誰でも変えられる（ルールで name と allColor だけ）
 
 ## 記念日カレンダー
 - 「📅 カレンダー」のタブを長押しすると記念日カレンダーに切り替わる（タブは「🎉 記念日」になる。もう一度長押しで戻る。グループごとに端末へ保存 prefs の calMode:{groupId}）。切り替え方は今後変えるかもしれない

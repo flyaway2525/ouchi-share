@@ -4331,3 +4331,21 @@ body:has(.cal-multi-bar) .fab-wrap.global {
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* 何日か続く普段の予定の帯：その人の色・全員の予定の色（--who があるとき） */
+.cal-bar.plan[style*='--who'] {
+  background: color-mix(in srgb, var(--who) 80%, transparent);
+}
+
+/* 「全員の予定の色」の見本（全員の予定と、メンバーそれぞれの色を並べる） */
+.allcolor-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.allcolor-preview .cal-label {
+  font-size: 13px;
+  padding: 3px 8px;
+}

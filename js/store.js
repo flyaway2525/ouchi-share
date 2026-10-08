@@ -149,6 +149,11 @@ export async function renameGroup(groupId, name) {
   await updateDoc(groupRef(groupId), { name });
 }
 
+// 「全員の予定の色」（参加者が全員・2 人以上の予定の、カレンダーでの色）。null で元の色に戻す
+export async function setGroupAllColor(groupId, color) {
+  await updateDoc(groupRef(groupId), { allColor: color ?? deleteField() });
+}
+
 // 招待リンクを作り直す（古いリンクでは参加できなくなる）
 export async function regenerateInvite(groupId) {
   await updateDoc(groupRef(groupId), { inviteCode: randomCode() });

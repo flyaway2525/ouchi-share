@@ -3495,6 +3495,55 @@ function membersSheet(group, recoveryCodes = {}) {
 // グループの管理（メンバー全員が開ける。グループ名の変更は全員、それ以外はオーナー・管理者だけ）。
 // メンバー系・報酬系はもう 1 段下のメニューにまとめる。
 // 下の段で「‹ 戻る」を押すとひとつ上の段へ（ポップアップの重なりの仕組み。ui.js の openSheet）
+// 「全員の予定の色」を選ぶ：カレンダーで、参加者が全員（または 2 人以上）の予定の色。
+// 個人の色（サードカラー）とかぶらないように、グループごとに誰でも変えられる。戻り値 '#rrggbb' / ''（元の色に戻す）/ null（やめる）
+function allColorSheet(group) {
+  return openSheet((close) => {
+    let color = group.allColor || '';
+    const taken = memberList(group).map((m) => ({ m, c: personColor(m) }));
+    const preview = h('div', { class: 'allcolor-preview' });
+    const renderPreview = () =>
+      setChildren(
+        preview,
+        h('span', { class: 'cal-label plan', style: color ? `--who: ${color}` : null }, '👥 全員の予定'),
+        taken.map(({ m, c }) => h('span', { class: 'cal-label plan', style: `--who: ${c}` }, m.name)),
+      );
+    const swatches = h('div', { class: 'palette' });
+    const renderSwatches = () =>
+      setChildren(
+        swatches,
+        PALETTE.map((c) =>
+          h('button', {
+            type: 'button',
+            class: `palette-cell${color === c ? ' on' : ''}`,
+            style: `background: ${c}`,
+            'aria-label': c,
+            onClick: () => {
+              color = c;
+              renderSwatches();
+              renderPreview();
+            },
+          }),
+        ),
+      );
+    renderSwatches();
+    renderPreview();
+    return [
+      h('div', { class: 'sheet-title' }, '🎨 全員の予定の色'),
+      h('p', { class: 'sch-hint' }, 'カレンダーで、参加者が全員（または 2 人以上）の予定に使う色です。メンバーの色とかぶらない色にしましょう。グループのみんなの画面で変わります。'),
+      preview,
+      swatches,
+      h(
+        'div',
+        { class: 'sheet-buttons' },
+        h('button', { type: 'button', class: 'btn', onClick: () => close('') }, '元の色に戻す'),
+        h('button', { type: 'button', class: 'btn primary', onClick: () => close(color) }, '保存'),
+      ),
+      h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'キャンセル'),
+    ];
+  });
+}
+
 function groupAdminMenu(group, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
@@ -3505,6 +3554,13 @@ function groupAdminMenu(group, options = {}) {
       onClick: async () => {
         const name = await askText({ title: 'グループ名を変更', value: group.name, okLabel: '保存' });
         if (name) store.renameGroup(groupId, name).catch(showError);
+      },
+    },
+    {
+      label: '🎨 全員の予定の色',
+      onClick: async () => {
+        const res = await allColorSheet(group);
+        if (res !== null) store.setGroupAllColor(groupId, res || null).then(() => toast(res ? '全員の予定の色を変えました' : '元の色に戻しました'), showError);
       },
     },
     manager && {
@@ -4902,6 +4958,8 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     (lists.find((l) => l.id === store.scheduleId(ev.id))?.items ?? []).filter((i) => i.date).map((item) => ({ ev, item })),
   );
   const ps = plans.filter((p) => visible(p.participants));
+  // 予定の色：1 人の予定はその人の色、全員（2 人以上）の予定はグループの「全員の予定の色」（決めていなければ元の色）
+  const planColor = (p) => (p.participants?.length === 1 ? personColor(members.find((m) => m.uid === p.participants[0])) : group.allColor || null);
   // 何日か続く普段の予定は、イベントと同じく帯で表示する（点は付けない）
   const isSpan = (p) => !!p.date && !!p.endDate && p.endDate > p.date;
   const spanPlans = ps.filter(isSpan);
@@ -4911,7 +4969,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     ...ps
       .filter((p) => p.date === d && !isSpan(p))
       .sort((a, b) => (a.start ?? '').localeCompare(b.start ?? '') || (a.createdAt ?? 0) - (b.createdAt ?? 0))
-      .map((p) => ({ title: p.title, kind: 'plan', color: p.participants?.length === 1 ? personColor(members.find((m) => m.uid === p.participants[0])) : null })),
+      .map((p) => ({ title: p.title, kind: 'plan', color: planColor(p) })),
     ...schedItems.filter((x) => x.item.date === d).sort((a, b) => bySeq(a.item, b.item)).map((x) => ({ title: x.item.title, kind: 'sched' })),
   ];
 
@@ -4973,7 +5031,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     const we = addDays(ws, 6);
     const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
     // 帯：週と重なるイベントを、空いている段に順に置く
-    const bars = [...evs.map((e) => ({ ...e, kind: 'event' })), ...spanPlans.map((p) => ({ startDate: p.date, endDate: p.endDate, emoji: '📅', title: p.title, kind: 'plan' }))];
+    const bars = [...evs.map((e) => ({ ...e, kind: 'event' })), ...spanPlans.map((p) => ({ startDate: p.date, endDate: p.endDate, emoji: '📅', title: p.title, kind: 'plan', color: planColor(p) }))];
     const segs = bars
       .filter((e) => e.startDate <= we && e.endDate >= ws)
       .sort((a, b) => a.startDate.localeCompare(b.startDate) || b.endDate.localeCompare(a.endDate))
@@ -5016,7 +5074,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
             'span',
             {
               class: `cal-bar${seg.e.kind === 'plan' ? ' plan' : ''}${seg.e.startDate >= ws ? ' head' : ''}${seg.e.endDate <= we ? ' tail' : ''}`,
-              style: `grid-column: ${seg.s + 1} / ${seg.t + 2}; grid-row: ${seg.lane + 2}`,
+              style: `grid-column: ${seg.s + 1} / ${seg.t + 2}; grid-row: ${seg.lane + 2}${seg.e.color ? `; --who: ${seg.e.color}` : ''}`,
             },
             // 前の週から続いている帯は、絵文字を省いて名前を見えやすくする
             seg.e.startDate >= ws ? `${seg.e.emoji} ${seg.e.title}` : seg.e.title,

@@ -257,7 +257,9 @@ service cloud.firestore {
 
       allow get, list: if isMember();
       allow create: if isAdmin() && isValidNewGroup();
-      allow update: if (isMember() && changed().hasOnly(['name']) && isNonEmptyString(request.resource.data.name, 40))
+      // グループ名と「全員の予定の色」（allColor）はメンバーなら誰でも変えられる
+      allow update: if (isMember() && changed().hasOnly(['name', 'allColor']) && isNonEmptyString(request.resource.data.name, 40)
+          && (!('allColor' in request.resource.data) || request.resource.data.allColor.matches('^#[0-9a-fA-F]{6}$')))
         || (isOwner() && changed().hasOnly(['inviteCode']) && request.resource.data.inviteCode.size() >= 16)
         || (isMember() && isOwnProfileUpdate())
         || (isMember() && isStaleRemoval())
