@@ -5262,7 +5262,13 @@ function enableLongPressSort(container, selector, onDrop) {
       };
       // （保存するとすぐ描き直されて container ごと入れ替わるので、ページ全体で受ける）
       document.addEventListener('click', swallow, { capture: true, once: true });
-      setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 450);
+      const disarm = () => setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 450);
+      // iPhone は指を動かしている途中で pointercancel を送ってくることがある。そのときは指がまだ画面に付いていて、
+      // 離した場所（上のタブなど）へのタップが後から来るので、指が実際に離れるまで無視を続ける（念のため 3 秒まで）
+      if (ev.type === 'pointercancel') {
+        const timer = setTimeout(disarm, 3000);
+        window.addEventListener('touchend', () => (clearTimeout(timer), disarm()), { capture: true, once: true });
+      } else disarm();
       const order = before();
       if (order.join() !== startOrder.join()) onDrop(order);
       const pending = sortDrag.pending;
