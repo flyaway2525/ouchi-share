@@ -99,11 +99,13 @@ function toList(snap) {
 
 // ---- 許可リスト ----
 
+// 許可リスト admins/{uid}：あればグループを作れる。developer: true ならアプリ開発者（管理者ダッシュボード）
+// cb({ admin, developer })
 export function watchIsAdmin(userId, cb) {
   return onSnapshot(
     doc(db, 'admins', userId),
-    (snap) => cb(snap.exists()),
-    () => cb(false),
+    (snap) => cb({ admin: snap.exists(), developer: snap.exists() && snap.data().developer === true }),
+    () => cb({ admin: false, developer: false }),
   );
 }
 
@@ -751,16 +753,19 @@ export function watchBonus(groupId, cb, onError) {
   return onSnapshot(bonusRef(groupId, uid()), (snap) => cb(snap.exists() ? snap.data() : null), onError);
 }
 
-// ---- チケットの配布表（アプリ共通。管理者だけ書ける） ----
-// config/bonus = { days: { "1": { bronze: 1 }, "7": { silver: 1 }, ... }, updatedAt }
+// ---- チケットの配布表（グループごと。オーナー・管理者が決める） ----
+// groups/{id}/settings/bonus = { days: { "1": { bronze: 1 }, "7": { silver: 1 }, ... }, updatedAt }
+// グループで決めていなければ、前のアプリ共通の配布表（config/bonus）。それもなければ null（アプリの初期値）
 
-export async function getBonusSchedule() {
-  const snap = await getDoc(doc(db, 'config', 'bonus'));
-  return snap.exists() ? snap.data().days ?? null : null;
+export async function getBonusSchedule(groupId) {
+  const own = await getDoc(doc(db, 'groups', groupId, 'settings', 'bonus'));
+  if (own.exists() && own.data().days) return own.data().days;
+  const shared = await getDoc(doc(db, 'config', 'bonus')).catch(() => null);
+  return shared?.exists() ? shared.data().days ?? null : null;
 }
 
-export async function setBonusSchedule(days) {
-  await setDoc(doc(db, 'config', 'bonus'), { days, updatedAt: Date.now() });
+export async function setBonusSchedule(groupId, days) {
+  await setDoc(doc(db, 'groups', groupId, 'settings', 'bonus'), { days, updatedAt: Date.now() });
 }
 
 // ---- ごほうび（グループごと。オーナーが登録し、メンバーがチケットで交換する） ----

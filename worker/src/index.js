@@ -3,7 +3,7 @@
 // POST /  … アプリから「このグループに通知して」と頼まれる
 //   Authorization: Bearer <Firebase のログイン トークン（ID トークン）>
 //   body: { groupId, kind: 'news' | 'plan' | 'reward'（ごほうびの交換） | 'appnews', title, body, url, participants }
-//   - 頼んだ人がそのグループのメンバーか（appnews は管理者か）を確かめてから送る
+//   - 頼んだ人がそのグループのメンバーか（appnews はアプリ開発者か）を確かめてから送る
 //   - 送り先はグループのメンバー（participants があればその人たち）から、頼んだ本人を除いた人
 //   - 各自の push/{uid}.prefs で、受け取らない種類にしている人には送らない
 // POST /preview … リンクのタイトルと画像を取ってくる（行きたいところ・欲しいもの等の登録画面で使う）
@@ -93,8 +93,8 @@ async function handleNotify(env, sender, req) {
 
   let recipients;
   if (kind === 'appnews') {
-    // アプリからのお知らせ：管理者だけが、全員に送れる
-    if (!(await getDoc(token, `admins/${sender}`))) throw fail(403, 'not-admin');
+    // アプリからのお知らせ：アプリ開発者（admins/{uid} に developer: true）だけが、全員に送れる
+    if ((await getDoc(token, `admins/${sender}`))?.developer !== true) throw fail(403, 'not-developer');
     recipients = (await listDocs(token, 'push')).map((d) => d.id);
   } else {
     const group = await getDoc(token, `groups/${String(req.groupId ?? '')}`);

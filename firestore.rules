@@ -18,9 +18,15 @@ service cloud.firestore {
       return request.auth.token.firebase.sign_in_provider == 'anonymous';
     }
 
+    // グループを作れる人（許可リスト admins/{uid}。コンソールから手で追加）
     function isAdmin() {
       return signedIn() && !isGuestUser()
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // アプリ開発者（admins/{uid} に developer: true）。管理者ダッシュボード・アプリからのお知らせ・利用状況・アプリ共通の設定
+    function isDeveloper() {
+      return isAdmin() && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.get('developer', false) == true;
     }
 
     function isNonEmptyString(v, max) {
@@ -54,9 +60,9 @@ service cloud.firestore {
     // アプリからのお知らせ：ログインしている人は読める。書く・消す・再アナウンスは管理者だけ
     match /announcements/{newsId} {
       allow read: if signedIn();
-      allow create: if isAdmin() && isValidNews(request.resource.data);
-      allow update: if isAdmin() && isReannounce();
-      allow delete: if isAdmin();
+      allow create: if isDeveloper() && isValidNews(request.resource.data);
+      allow update: if isDeveloper() && isReannounce();
+      allow delete: if isDeveloper();
     }
 
     // お知らせの既読：本人だけ
@@ -70,10 +76,10 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == userId;
     }
 
-    // ---- アプリ共通の設定（ログインボーナスのチケットの配布表など）：読むのはログインしている人、書くのは管理者 ----
+    // ---- アプリ共通の設定（前のログボの共通の配布表など）：読むのはログインしている人、書くのはアプリ開発者 ----
     match /config/{docId} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow write: if isDeveloper();
     }
 
     // ---- プロフィールの全体の設定：本人だけ ----
@@ -89,8 +95,8 @@ service cloud.firestore {
 
     // ---- 最終アクセス時刻（オンライン表示用） ----
     match /presence/{userId} {
-      allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow list: if isAdmin();
+      allow get: if signedIn() && (request.auth.uid == userId || isDeveloper());
+      allow list: if isDeveloper();
       allow create, update: if signedIn() && request.auth.uid == userId
         && request.resource.data.keys().hasOnly(['lastSeen', 'name', 'guest'])
         && request.resource.data.lastSeen == request.time
@@ -413,10 +419,14 @@ service cloud.firestore {
         }
 
         allow read: if signedIn() && request.auth.uid in groupData().memberIds;
+        // rates：チケットのレート。bonus：ログインボーナスの配布表（グループごと）。書くのはオーナー・管理者
         allow write: if signedIn() && request.auth.uid in groupData().memberIds
           && groupData().members[request.auth.uid].role in ['owner', 'admin']
-          && request.resource.data.keys().hasOnly(['upgrade', 'yen', 'updatedAt'])
-          && request.resource.data.upgrade is map && request.resource.data.yen is map;
+          && ((docId == 'bonus'
+              && request.resource.data.keys().hasOnly(['days', 'updatedAt']) && request.resource.data.days is map)
+            || (docId != 'bonus'
+              && request.resource.data.keys().hasOnly(['upgrade', 'yen', 'updatedAt'])
+              && request.resource.data.upgrade is map && request.resource.data.yen is map));
       }
 
       match /photos/{photoId} {

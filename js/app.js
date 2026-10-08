@@ -8,7 +8,8 @@ const LIST_EMOJIS = ['📝', '🧳', '🧻', '🧊', '🛒', '💊', '🎒', '�
 const EVENT_EMOJIS = ['✈️', '🏕️', '🚗', '🏖️', '♨️', '🎿', '🎂', '🎉', '👶', '📅'];
 
 let user; // undefined = 確認中, null = 未ログイン
-let isAdmin = false;
+let isAdmin = false; // グループを作れる人（許可リスト admins/{uid}）
+let isDeveloper = false; // アプリ開発者（admins/{uid} に developer: true）。管理者ダッシュボードはこの人だけ
 let unwatchAdmin = null;
 // ログイン処理の途中（名前の設定など）で画面が切り替わらないようにする
 let authBusy = false;
@@ -197,7 +198,7 @@ async function checkBonus(group) {
   while (newsShowing) await new Promise((r) => setTimeout(r, 400));
   let res;
   try {
-    res = await store.claimDailyBonus(group.id, todayStr(), addDays(todayStr(), -1), pickStamps, await bonusSchedule());
+    res = await store.claimDailyBonus(group.id, todayStr(), addDays(todayStr(), -1), pickStamps, await bonusSchedule(group.id));
   } catch (e) {
     // オフラインなどで書けなければ、この起動中はあきらめて次に開いたときにもう一度
     console.warn('ログインボーナスを記録できませんでした', e);
@@ -205,7 +206,7 @@ async function checkBonus(group) {
   }
   if (!res) return false;
   newsShowing = 'bonus';
-  await bonusPopup(res, group, await bonusSchedule());
+  await bonusPopup(res, group, await bonusSchedule(group.id));
   newsShowing = null;
   checkNews();
   return true;
@@ -309,8 +310,8 @@ function stampsView(root, { groupId }) {
 const isManager = (group, uid = user.uid) => ['owner', 'admin'].includes(group?.members?.[uid]?.role);
 
 // ---- チケット（ログインボーナスでもらい、ごほうびと交換する） ----
-// 配布表（その月の何回目のログインで、どのチケットを何枚）はアプリの管理者が決める（config/bonus。全グループ共通）。
-// まだ決めていなければ DEFAULT_SCHEDULE。チケットはグループごとに貯まる。
+// 配布表（その月の何回目のログインで、どのチケットを何枚）は、グループのオーナー・管理者が決める（groups/{id}/settings/bonus）。
+// グループで決めていなければ前のアプリ共通の配布表、それもなければ DEFAULT_SCHEDULE。チケットはグループごとに貯まる。
 
 const TICKETS = [
   ['bronze', 'ブロンズ', '🥉'],
@@ -335,10 +336,10 @@ const ticketChip = (t, n, extra = '') => {
   return h('span', { class: `ticket ticket-${t}${extra}` }, h('span', { class: 'ticket-icon' }, icon), h('span', { class: 'ticket-name' }, `${label}チケット`), h('b', {}, `×${n}`));
 };
 
-let scheduleCache = null;
-async function bonusSchedule() {
-  if (!scheduleCache) scheduleCache = store.getBonusSchedule().then((d) => d ?? DEFAULT_SCHEDULE, () => DEFAULT_SCHEDULE);
-  return scheduleCache;
+const scheduleCache = {}; // グループ ID → 配布表（の Promise）
+async function bonusSchedule(groupId) {
+  scheduleCache[groupId] ??= store.getBonusSchedule(groupId).then((d) => d ?? DEFAULT_SCHEDULE, () => DEFAULT_SCHEDULE);
+  return scheduleCache[groupId];
 }
 
 // 次のシルバー・ゴールドまで（その月の受け取り回数で数える）
@@ -418,7 +419,7 @@ function ticketsView(root, { groupId }) {
   let rewards = null;
   let logs = [];
   let schedule = null;
-  bonusSchedule().then((s) => ((schedule = s), render()));
+  bonusSchedule(groupId).then((s) => ((schedule = s), render()));
 
   const isOwner = () => isManager(group);
   const myName = () => group?.members?.[user.uid]?.name ?? auth.displayName();
@@ -703,13 +704,13 @@ function ticketsView(root, { groupId }) {
   };
 }
 
-// ---- 管理者：チケットの配布表（その月の何回目のログインで、どのチケットを何枚） ----
+// ---- グループのオーナー・管理者：チケットの配布表（その月の何回目のログインで、どのチケットを何枚） ----
 const SCHEDULE_CHOICES = [{}, { bronze: 1 }, { bronze: 2 }, { bronze: 3 }, { silver: 1 }, { silver: 2 }, { gold: 1 }, { gold: 2 }];
 
-async function bonusScheduleSheet() {
+async function bonusScheduleSheet(group) {
   let days;
   try {
-    days = { ...((await store.getBonusSchedule()) ?? DEFAULT_SCHEDULE) };
+    days = { ...((await store.getBonusSchedule(group.id)) ?? DEFAULT_SCHEDULE) };
   } catch (e) {
     return showError(e);
   }
@@ -746,8 +747,8 @@ async function bonusScheduleSheet() {
       );
     render();
     return [
-      h('div', { class: 'sheet-title' }, '🎟 チケットの配布表'),
-      h('p', { class: 'sch-hint' }, 'その月の何回目のログインで、どのチケットを何枚もらえるか（全グループ共通。毎月 1 日に 1 回目から）。マスをタップで変更'),
+      h('div', { class: 'sheet-title' }, `🎟 ${group.name}のログインボーナス`),
+      h('p', { class: 'sch-hint' }, 'このグループで、その月の何回目のログインにどのチケットを何枚もらえるか（毎月 1 日に 1 回目から）。マスをタップで変更'),
       grid,
       h(
         'div',
@@ -771,8 +772,8 @@ async function bonusScheduleSheet() {
             class: 'btn primary',
             onClick: () => {
               const clean = Object.fromEntries(Object.entries(days).map(([n, r]) => [n, Object.fromEntries(Object.entries(r).filter(([, v]) => v > 0))]));
-              store.setBonusSchedule(clean).then(() => {
-                scheduleCache = null;
+              store.setBonusSchedule(group.id, clean).then(() => {
+                delete scheduleCache[group.id];
                 toast('配布表を保存しました');
                 close(null);
               }, showError);
@@ -1779,7 +1780,7 @@ function accountMenu() {
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
     { label: `📢 アプリからのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
     { label: '🔔 通知の設定', onClick: pushSettingsSheet },
-    isAdmin && { label: '🛠 管理者ダッシュボード（お知らせ・ログボ・グループ作成）', onClick: () => (location.hash = '#/admin') },
+    isDeveloper && { label: '🛠 管理者ダッシュボード（アプリ開発者だけ）', onClick: () => (location.hash = '#/admin') },
     { label: '👤 プロフィール（アイコン・名前・色）', onClick: () => profileSheet() },
     canSuggestInstall() && { label: '📲 ホーム画面に追加する（やり方）', onClick: installGuideSheet },
     guest && { label: '復旧IDを確認', onClick: myRecoverySheet },
@@ -3622,6 +3623,7 @@ function groupRewardsAdminMenu(group, options = {}) {
   };
   actionSheet(`🎁 ${group.name}の報酬の管理`, [
     { label: '＋ ごほうびを追加', onClick: () => open('reward') },
+    { label: '🎟 ログインボーナスの配布表', onClick: () => bonusScheduleSheet(group) },
     { label: '⚙️ チケットのレート（両替・換金）', onClick: () => open('rates') },
     { label: '🎟 ごほうび・交換の記録を見る', onClick: () => open(null) },
   ], options);
@@ -5842,6 +5844,11 @@ function eventView(root, { groupId, eventId, date = null }) {
 
 // 管理者だけの機能は、ここにまとめる（タブ：利用状況 / お知らせ / ログボ / グループ）
 // - アプリからのお知らせ（announcements。アプリを使う全員に届く）を書く・再通知する・消すのは、ここからだけ（ルールでも管理者だけ）
+// 管理者ダッシュボードはアプリ開発者だけ。それ以外の人が開いたら、ホームに戻す
+function notDeveloperView(root) {
+  root.append(header({ title: '管理者ダッシュボード', back: '#/' }), h('main', { class: 'content' }, h('p', { class: 'empty' }, 'このページはアプリ開発者だけが使えます')));
+}
+
 function adminView(root) {
   const top = h('div', { class: 'topbar-wrap' }, header({ title: '管理者ダッシュボード', back: '#/' }));
   const body = h('main', { class: 'content' });
@@ -5851,7 +5858,6 @@ function adminView(root) {
   const TABS = [
     ['usage', '📊 利用状況'],
     ['news', '📢 アプリのお知らせ'],
-    ['bonus', '🎟 ログボ'],
     ['groups', '🏠 グループ'],
   ];
   let tab = TABS.some(([id]) => id === prefs.get('adminTab')) ? prefs.get('adminTab') : 'usage';
@@ -5926,7 +5932,7 @@ function adminView(root) {
   };
 
   const newsPanel = () => [
-    h('p', { class: 'sch-hint' }, 'アプリを使っている全員に届くお知らせです（通知も届きます）。送る・再通知・削除は管理者だけができます'),
+    h('p', { class: 'sch-hint' }, 'アプリを使っている全員に届くお知らせです（通知も届きます）。送る・再通知・削除はアプリ開発者だけができます'),
     h('button', { class: 'add-card news-add', onClick: writeNews }, '＋ アプリからのお知らせを書く'),
     !news
       ? h('p', { class: 'empty small' }, '読み込み中…')
@@ -5954,13 +5960,8 @@ function adminView(root) {
           ),
   ];
 
-  const bonusPanel = () => [
-    h('p', { class: 'sch-hint' }, 'ログインボーナスで、その月の何回目のログインにどのチケットを何枚配るか（全グループ共通）'),
-    h('button', { class: 'add-card', onClick: bonusScheduleSheet }, '🎟 チケットの配布表を編集'),
-  ];
-
   const groupsPanel = () => [
-    h('p', { class: 'sch-hint' }, 'グループを作れるのは管理者だけです。作ったグループには、招待リンクやQRコードで家族・友人を招待します'),
+    h('p', { class: 'sch-hint' }, 'グループを作れるのは許可リスト（admins）に入っている人だけです。ログインボーナスの配布表は、各グループのオーナー・管理者が「報酬の管理」で決めます'),
     h('button', { class: 'add-card', onClick: createGroup }, '＋ グループを作成'),
   ];
 
@@ -5987,7 +5988,7 @@ function adminView(root) {
           ),
         ),
       ),
-      { usage: usagePanel, news: newsPanel, bonus: bonusPanel, groups: groupsPanel }[tab](),
+      { usage: usagePanel, news: newsPanel, groups: groupsPanel }[tab](),
     );
   }
 
@@ -7707,7 +7708,7 @@ function newsListView(root, { groupId = null }) {
       body,
       canWrite() && h('button', { class: 'add-card news-add', onClick: () => write() }, '＋ お知らせを書く'),
       canWrite() && isManager(group) && h('button', { class: 'add-card news-add official', onClick: () => write(true) }, '📢 管理者お知らせを書く（オーナー・管理者だけ）'),
-      !groupId && isAdmin && h('a', { class: 'add-card news-add', href: '#/admin' }, '🛠 管理者ダッシュボードで書く・再通知・削除'),
+      !groupId && isDeveloper && h('a', { class: 'add-card news-add', href: '#/admin' }, '🛠 管理者ダッシュボードで書く・再通知・削除'),
       sorted.length === 0 && h('p', { class: 'empty' }, 'お知らせはまだありません'),
       h(
         'div',
@@ -7773,7 +7774,7 @@ const routes = [
   [/^#\/g\/([\w-]+)\/e\/([\w-]+)$/, (m) => [eventView, { groupId: m[1], eventId: m[2] }]],
   [/^#\/g\/([\w-]+)\/e\/([\w-]+)\/d\/(\d{4}-\d{2}-\d{2})$/, (m) => [eventView, { groupId: m[1], eventId: m[2], date: m[3] }]],
   [/^#\/g\/([\w-]+)$/, (m) => [groupView, { groupId: m[1] }]],
-  [/^#\/admin$/, () => [adminView, {}]],
+  [/^#\/admin$/, () => [isDeveloper ? adminView : notDeveloperView, {}]],
   [/^#\/news$/, () => [newsListView, {}]],
   [/^#\/g\/([\w-]+)\/stamps$/, (m) => [stampsView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/tickets$/, (m) => [ticketsView, { groupId: m[1] }]],
@@ -7856,10 +7857,12 @@ auth.watchUser((u) => {
   unwatchAdmin?.();
   unwatchAdmin = null;
   isAdmin = false;
+  isDeveloper = false;
   if (u && !u.isAnonymous) {
-    unwatchAdmin = store.watchIsAdmin(u.uid, (v) => {
-      if (v === isAdmin) return;
-      isAdmin = v;
+    unwatchAdmin = store.watchIsAdmin(u.uid, ({ admin, developer }) => {
+      if (admin === isAdmin && developer === isDeveloper) return;
+      isAdmin = admin;
+      isDeveloper = developer;
       if (!authBusy && !location.hash.match(/^#\/g\//)) route();
     });
   }
