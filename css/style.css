@@ -4074,3 +4074,16 @@ a.sch-add {
 .fab-wrap.open .cal-fab {
   transform: rotate(45deg);
 }
+
+/* 長押ししたまま指を乗せている項目 */
+.fab-menu-item.hover {
+  background: var(--accent);
+  color: var(--accent-text);
+  transform: scale(1.06);
+  transition-delay: 0s;
+}
+
+/* 長押ししたまま指をずらせるように、＋ の上ではブラウザのスクロールに使わせない */
+.fab-wrap .cal-fab {
+  touch-action: none;
+}

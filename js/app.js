@@ -4452,7 +4452,8 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
 }
 
 // 右下の ＋ ボタン。タップで onTap、長押しで ＋ の上にメニューが伸びて出る（items = [[ラベル, 処理], …]）。
-// メニューの外を触ると閉じる。長押しのあとに来るタップは無視する
+// 長押ししたまま指をずらすと、指の下の項目が光り、離したところの項目を実行する（iPhone の長押しメニューと同じ）。
+// 項目の上以外で離したらメニューは開いたまま（タップでも選べる）。メニューの外を触ると閉じる。長押しのあとに来るタップは無視する
 function fabWithMenu(onTap, items) {
   let longPressed = false;
   let timer = null;
@@ -4489,17 +4490,50 @@ function fabWithMenu(onTap, items) {
     wrap.classList.remove('open');
     document.removeEventListener('pointerdown', outside, true);
   }
+  const itemAt = (x, y) => document.elementFromPoint(x, y)?.closest?.('.fab-menu-item');
+  const hover = (item) => menu.querySelectorAll('.fab-menu-item').forEach((el) => el.classList.toggle('hover', el === item));
   fab.addEventListener('contextmenu', (e) => e.preventDefault());
   fab.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (wrap.classList.contains('open')) return; // 開いているときのタップは click で閉じる
     longPressed = false;
+    const id = e.pointerId;
+    const sx = e.clientX;
+    const sy = e.clientY;
     timer = setTimeout(() => {
       longPressed = true;
+      calPick.active = true; // 指をずらしている間は画面をスクロールさせない
       navigator.vibrate?.(15);
       open();
     }, 450);
+    const move = (ev) => {
+      if (ev.pointerId !== id) return;
+      if (!longPressed) {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) cleanup();
+        return;
+      }
+      hover(itemAt(ev.clientX, ev.clientY));
+    };
+    const up = (ev) => {
+      if (ev.pointerId !== id) return;
+      const was = longPressed;
+      cleanup();
+      if (!was) return;
+      const item = itemAt(ev.clientX, ev.clientY);
+      hover(null);
+      if (item) item.click(); // 離したところの項目を実行（メニューも閉じる）
+    };
+    function cleanup() {
+      clearTimeout(timer);
+      calPick.active = false;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   });
-  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) fab.addEventListener(ev, () => clearTimeout(timer));
   fab.addEventListener('click', () => {
     if (longPressed) {
       longPressed = false;
