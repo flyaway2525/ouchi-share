@@ -2141,6 +2141,7 @@ function homeView(root) {
   );
 
   return store.watchGroups((groups) => {
+    setKnownGroups(groups);
     setChildren(
       body,
       h(
@@ -4572,35 +4573,58 @@ function fabWithMenu(onTap, items) {
 
 // ---- アプリ全体の ＋ ボタン（どの画面でも右下に出す） ----
 // タップ：📋 URLから登録。長押し：＋ 予定を1つ追加 ／ 📝 テキストでまとめて書く。
-// 登録先のグループは、グループの中ならそのグループ、外（ホームなど）なら最後に開いたグループ。どれもなければ出さない
+// 登録先のグループは、グループの中ならそのグループ。外（ホームなど）では、グループが 1 つならそれ、
+// 2 つ以上なら押したときに「どのグループに？」と選んでもらう。グループがなければ出さない
 let pendingCalendarAdd = false; // 「予定を1つ追加」→ グループのカレンダーを開いたら追加の画面を出す
-const fabGroup = () => location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? prefs.get('lastGroup');
+let knownGroups = null; // 参加中のグループ（グループの外で ＋ を押したとき用。ホームの一覧などで更新）
+const currentGroupId = () => location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null;
+function setKnownGroups(groups) {
+  knownGroups = groups;
+  updateGlobalFab();
+}
+// run(groupId) を、登録先のグループを決めてから実行する。
+// 選ぶメニューの項目を押した瞬間に run するので、URL から登録でもクリップボードを読める
+function withFabGroup(title, run) {
+  const gid = currentGroupId();
+  if (gid) return run(gid);
+  const groups = knownGroups ?? [];
+  if (groups.length === 1) return run(groups[0].id);
+  if (!groups.length) return;
+  const last = prefs.get('lastGroup');
+  const sorted = [...groups].sort((a, b) => Number(b.id === last) - Number(a.id === last));
+  actionSheet(
+    title,
+    sorted.map((g) => ({ label: `🏠 ${g.name}`, onClick: () => run(g.id) })),
+  );
+}
 const globalFab = fabWithMenu(
-  () => {
-    const gid = fabGroup();
-    if (gid) registerLink(gid);
-  },
+  () => withFabGroup('どのグループに登録しますか？', (gid) => registerLink(gid)),
   [
     [
       '＋ 予定を1つ追加',
-      () => {
-        const gid = fabGroup();
-        if (!gid) return;
-        pendingCalendarAdd = true;
-        prefs.set(`groupTab:${gid}`, 'calendar');
-        if (location.hash === `#/g/${gid}`) route();
-        else location.hash = `#/g/${gid}`;
-      },
+      () =>
+        withFabGroup('どのグループの予定に追加しますか？', (gid) => {
+          pendingCalendarAdd = true;
+          prefs.set(`groupTab:${gid}`, 'calendar');
+          if (location.hash === `#/g/${gid}`) route();
+          else location.hash = `#/g/${gid}`;
+        }),
     ],
-    ['📝 テキストでまとめて書く', () => fabGroup() && (location.hash = `#/g/${fabGroup()}/text`)],
+    ['📝 テキストでまとめて書く', () => withFabGroup('どのグループの予定を書きますか？', (gid) => (location.hash = `#/g/${gid}/text`))],
   ],
 );
 globalFab.classList.add('global');
 document.body.append(globalFab);
 
 function updateGlobalFab() {
-  const show = !!user && !auth.needsName() && !!fabGroup() && !/^#\/(join|recover|admin)/.test(location.hash);
+  const hasGroup = !!currentGroupId() || !!knownGroups?.length;
+  const show = !!user && !auth.needsName() && hasGroup && !/^#\/(join|recover|admin)/.test(location.hash);
   globalFab.hidden = !show;
+  // グループの外で、参加中のグループをまだ知らなければ読み込む
+  if (user && !auth.needsName() && !currentGroupId() && knownGroups === null) {
+    knownGroups = [];
+    store.listMyGroups().then(setKnownGroups, () => (knownGroups = null));
+  }
 }
 
 // 一覧に出すリスト（旅程は旅程タブに出すので除く）
@@ -6761,6 +6785,7 @@ document.addEventListener('visibilitychange', () => heartbeat(true));
 
 auth.watchUser((u) => {
   user = u;
+  knownGroups = null; // アカウントが変わったら参加中のグループも読み直す
   startNewsWatchers(u);
   startProfileWatcher(u);
   unwatchAdmin?.();
