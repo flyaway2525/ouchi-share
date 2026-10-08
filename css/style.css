@@ -468,6 +468,25 @@ a {
   font-size: 16px;
 }
 
+/* iPhone の日付・時刻の欄は、そのままだと自分の幅より狭くならない（2 列に並べるとはみ出す）。
+   見た目を標準のものにしてから幅を 100% にし、中の文字は左寄せ */
+.text-input[type='date'],
+.text-input[type='time'] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 44px;
+  color: var(--text);
+}
+
+.text-input[type='date']::-webkit-date-and-time-value,
+.text-input[type='time']::-webkit-date-and-time-value {
+  margin: 0;
+  text-align: left;
+}
+
 .text-input:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
@@ -1041,7 +1060,8 @@ a {
 
 .date-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr)：中の日付の欄が縮められないと、列ごと画面からはみ出すので */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -1049,6 +1069,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
   font-size: 12px;
   color: var(--muted);
 }
