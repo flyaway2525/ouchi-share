@@ -2134,14 +2134,23 @@ select.text-input {
   white-space: nowrap;
 }
 
-/* 先月 / 見出し / 来月 の並び。見出しは真ん中 */
-.cal-head .cal-title {
+/* 先月 / 見出し（＋今日） / 来月 の並び。‹ › は両端に固定、見出しと「今日」は真ん中 */
+.cal-head .cal-title-wrap {
   flex: 1;
-  text-align: center;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .cal-head .cal-today {
-  margin-left: 4px;
+  margin-left: 0;
+}
+
+/* 今日を見ているときは見えなくするが、場所は空けたまま（ほかが動かないように） */
+.cal-today.off {
+  visibility: hidden;
 }
 
 /* タブが 3 つでもスマホ幅に収まるように */

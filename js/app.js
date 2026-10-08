@@ -4294,20 +4294,16 @@ function annivSection({ groupId, members, annivs, rerender }) {
       'div',
       { class: 'cal-head' },
       h('button', { class: 'day-nav-btn', 'aria-label': '先月', onClick: () => pager.slide(-1) }, '‹'),
-      h('span', { class: 'cal-title' }, `🎉 ${Number(month.slice(0, 4))}年${Number(month.slice(5))}月の記念日`),
+      h(
+        'span',
+        { class: 'cal-title-wrap' },
+        h('span', { class: 'cal-title' }, `🎉 ${Number(month.slice(0, 4))}年${Number(month.slice(5))}月の記念日`),
+        todayButton(month !== today.slice(0, 7) || sel !== today, () => {
+          Object.assign(state, monthView(today.slice(0, 7)), { selected: today });
+          rerender();
+        }),
+      ),
       h('button', { class: 'day-nav-btn', 'aria-label': '来月', onClick: () => pager.slide(1) }, '›'),
-      (month !== today.slice(0, 7) || sel !== today) &&
-        h(
-          'button',
-          {
-            class: 'cal-today',
-            onClick: () => {
-              Object.assign(state, monthView(today.slice(0, 7)), { selected: today });
-              rerender();
-            },
-          },
-          '今日',
-        ),
     ),
     pager.el,
     h('p', { class: 'cal-hint' }, '日付をもう一度タップで記念日を追加 ・ 「カレンダー」のタブを長押しで、ふつうのカレンダーに戻ります'),
@@ -4895,6 +4891,11 @@ function addDays(str, n) {
   return dateStr(d);
 }
 
+// カレンダーの見出しの横の「今日」。要らないときも場所は空けておく（‹ › や見出しが動かないように）
+function todayButton(show, onClick) {
+  return h('button', { class: `cal-today${show ? '' : ' off'}`, onClick, tabindex: show ? null : '-1', 'aria-hidden': show ? null : 'true' }, '今日');
+}
+
 // ---- 月の表のスワイプ（ふつうのカレンダー・記念日カレンダー共通） ----
 // 今の月の表の左右に、となりの月の表（.cal-ghost。中身も本物）を並べておき、指に付いて全体が動く。
 // 離すと、となりの月の位置までするっと動いてから shiftMonth(±1) で描き直す（少しだけなら元に戻る）。
@@ -5346,11 +5347,15 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     h(
       'div',
       { class: 'cal-head' },
-      // 先月 / （見出し） / 来月
+      // 先月 / （見出し・今日） / 来月。‹ › はいつも同じ場所（続けて押しても「今日」を押さない）
       h('button', { class: 'day-nav-btn', 'aria-label': '先月', title: '先月', onClick: () => slideMonth(-1) }, '‹'),
-      h('span', { class: 'cal-title' }, `${seasonEmoji} ${Number(viewMonth.slice(0, 4))}年${Number(viewMonth.slice(5))}月`),
+      h(
+        'span',
+        { class: 'cal-title-wrap' },
+        h('span', { class: 'cal-title' }, `${seasonEmoji} ${Number(viewMonth.slice(0, 4))}年${Number(viewMonth.slice(5))}月`),
+        todayButton(today < state.start || today > viewEnd || state.selected !== today, goToday),
+      ),
       h('button', { class: 'day-nav-btn', 'aria-label': '来月', title: '来月', onClick: () => slideMonth(1) }, '›'),
-      (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
     pagerEl(),
     !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定の追加・編集 ・ 長押しで何日も選べます ・ ＋はタップでURLから登録、長押しで予定の追加 ・ 「カレンダー」のタブを長押しで記念日カレンダー'),
