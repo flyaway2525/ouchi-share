@@ -4349,3 +4349,19 @@ body:has(.cal-multi-bar) .fab-wrap.global {
   font-size: 13px;
   padding: 3px 8px;
 }
+
+/* カレンダーの絞り込み：人の色（全員は全員の予定の色）で色分け。選んでいるものは塗りつぶして ✓ */
+.cal-filter .chip.who {
+  --who: var(--accent);
+  --who-text: var(--accent-text);
+  border: 1.5px solid color-mix(in srgb, var(--who) 70%, var(--border));
+  background: color-mix(in srgb, var(--who) 12%, var(--surface));
+  color: var(--text);
+}
+
+.cal-filter .chip.who.on {
+  border-color: var(--who);
+  background: var(--who);
+  color: var(--who-text);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--who) 40%, transparent);
+}

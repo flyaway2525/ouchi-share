@@ -981,6 +981,17 @@ function textOn(hex) {
   return 0.299 * r + 0.587 * g + 0.114 * b > 170 ? '#2b2622' : '#ffffff';
 }
 
+// 人の色などの上に置く文字の色：白と濃い色のうち、背景との明るさの比（コントラスト比）が大きいほう
+function readableOn(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return 1.05 / (l + 0.05) >= (l + 0.05) / 0.07 ? '#ffffff' : '#2b2622';
+}
+
 // メインカラー・サブカラーをアプリの見た目に反映する（決めていなければアプリの色のまま）
 function applyTheme(colors) {
   const root = document.documentElement.style;
@@ -5315,20 +5326,26 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     h(
       'div',
       { class: 'cal-filter people-chips' },
-      [{ uid: 'all', name: '👥 全員' }, ...members].map((m) =>
-        h(
+      // 人の色（全員はグループの「全員の予定の色」）で色分けする。選んでいるものはその色で塗って ✓
+      [{ uid: 'all', name: '👥 全員' }, ...members].map((m) => {
+        const color = m.uid === 'all' ? group.allColor : personColor(m);
+        const on = filter === m.uid;
+        return h(
           'button',
           {
-            class: `chip${filter === m.uid ? ' on' : ''}`,
+            class: `chip who${on ? ' on' : ''}`,
+            style: color ? `--who: ${color}; --who-text: ${readableOn(color)}` : null,
+            'aria-pressed': String(on),
             onClick: () => {
               prefs.set(`calFilter:${groupId}`, m.uid);
               rerender();
             },
           },
+          on && '✓ ',
           m.uid !== 'all' && avatar(m, 18),
           m.uid === user.uid ? `${m.name}（自分）` : m.name,
-        ),
-      ),
+        );
+      }),
     ),
     h(
       'div',
