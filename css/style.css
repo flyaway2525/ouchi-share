@@ -4127,3 +4127,110 @@ body:has(.cal-multi-bar) .fab-wrap.global {
 .content.with-footer {
   padding-bottom: calc(160px + var(--safe-bottom));
 }
+
+/* ホーム画面に追加の案内 */
+.install-card {
+  display: flex;
+  align-items: stretch;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.install-card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px 12px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.install-card-main > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.install-card-main small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.install-card-icon {
+  font-size: 26px;
+}
+
+.install-card-close {
+  padding: 0 14px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.install-lead {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.install-head {
+  margin: 16px 0 8px;
+  font-size: 15px;
+}
+
+.install-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.install-step {
+  display: flex;
+  gap: 10px;
+}
+
+.install-step > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.install-step p {
+  margin: 2px 0 0;
+  font-size: 14px;
+}
+
+.install-num {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.install-img {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin-top: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}

@@ -1770,6 +1770,7 @@ function accountMenu() {
     { label: '🔔 通知の設定', onClick: pushSettingsSheet },
     isAdmin && { label: '🛠 管理者ダッシュボード（お知らせ・ログボ・グループ作成）', onClick: () => (location.hash = '#/admin') },
     { label: '👤 プロフィール（アイコン・名前・色）', onClick: () => profileSheet() },
+    canSuggestInstall() && { label: '📲 ホーム画面に追加する（やり方）', onClick: installGuideSheet },
     guest && { label: '復旧IDを確認', onClick: myRecoverySheet },
     { label: guest ? '🔗 アカウントを連携（ゲストから引き継ぐ）' : '🔗 ログイン方法の連携', onClick: linkAccountsSheet },
     {
@@ -2127,6 +2128,102 @@ async function versionSheet() {
   ]);
 }
 
+// ---- ホーム画面に追加（アプリのように使う）のやり方 ----
+// ブラウザで開いているときだけ案内する（ホーム画面から開いているとき・iPhone アプリでは出さない）
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const canSuggestInstall = () => !auth.isNativeApp && !isStandalone();
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = () => /Android/.test(navigator.userAgent);
+// Android の Chrome などは、ボタン 1 つでインストールの画面を出せる
+let installPrompt = null;
+addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+});
+addEventListener('appinstalled', () => {
+  installPrompt = null;
+  prefs.set('installHintHidden', true);
+});
+
+function installGuideSheet() {
+  const step = (n, text, img) =>
+    h('li', { class: 'install-step' }, h('span', { class: 'install-num' }, n), h('div', {}, h('p', {}, text), img && h('img', { src: img, alt: '', class: 'install-img', loading: 'lazy' })));
+  const ios = h(
+    'section',
+    {},
+    h('h3', { class: 'install-head' }, '📱 iPhone・iPad（Safari）'),
+    h(
+      'ol',
+      { class: 'install-steps' },
+      step(1, '画面の下の「…」（または共有ボタン）をタップして、「共有」を選びます', 'img/install-ios-1.jpg'),
+      step(2, '出てきたメニューを下へスクロールして、「ホーム画面に追加」を選びます', 'img/install-ios-2.jpg'),
+      step(3, '「Webアプリとして開く」がオンになっていることを確かめて、右上の「追加」を押します'),
+      step(4, 'ホーム画面にできた ouchi-share のアイコンから開きます'),
+    ),
+    h(
+      'p',
+      { class: 'sch-hint' },
+      'ホーム画面から開いたアプリは、Safari とログインが別になります。もう一度ログインしてください（ゲストの方は、先にメニューの「復旧IDを確認」で復旧IDを控えておくと、同じデータに戻れます）。通知を受け取れるのも、ホーム画面から開いたときだけです。',
+    ),
+  );
+  const android = h(
+    'section',
+    {},
+    h('h3', { class: 'install-head' }, '🤖 Android（Chrome）'),
+    h(
+      'ol',
+      { class: 'install-steps' },
+      step(1, '右上の「⋮」をタップします'),
+      step(2, '「ホーム画面に追加」または「アプリをインストール」を選び、「インストール」を押します'),
+      step(3, 'ホーム画面にできた ouchi-share のアイコンから開きます'),
+    ),
+  );
+  openSheet((close) => [
+    h('div', { class: 'sheet-title' }, '📲 ホーム画面に追加する'),
+    h('p', { class: 'install-lead' }, 'ホーム画面に追加すると、アプリのように全画面で開けて、通知も受け取れます。'),
+    installPrompt &&
+      h(
+        'button',
+        {
+          class: 'btn primary wide',
+          onClick: async () => {
+            const e = installPrompt;
+            installPrompt = null;
+            close(true);
+            e.prompt();
+          },
+        },
+        '📲 このまま追加する',
+      ),
+    h('div', { class: 'install-guide' }, isIOS() ? ios : isAndroid() ? android : [ios, android]),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
+  ]);
+}
+
+// ホームのいちばん上に出す案内（× で消せる。メニューからはいつでも見られる）
+function installHintCard() {
+  if (!canSuggestInstall() || prefs.get('installHintHidden')) return null;
+  const card = h(
+    'div',
+    { class: 'install-card' },
+    h('button', { class: 'install-card-main', onClick: installGuideSheet }, h('span', { class: 'install-card-icon' }, '📲'), h('span', {}, h('strong', {}, 'ホーム画面に追加しよう'), h('small', {}, 'アプリのように開けて、通知も届きます。やり方を見る ›'))),
+    h(
+      'button',
+      {
+        class: 'install-card-close',
+        'aria-label': '案内を消す',
+        onClick: () => {
+          prefs.set('installHintHidden', true);
+          card.remove();
+          toast('右上の「⋯」からいつでも見られます');
+        },
+      },
+      '×',
+    ),
+  );
+  return card;
+}
+
 // ---- 画面：グループ一覧 ----
 
 function homeView(root) {
@@ -2140,10 +2237,12 @@ function homeView(root) {
     h('div', { class: 'qr-card-text' }, h('strong', {}, '📱 スマホで開く'), h('span', {}, 'カメラで読み取ると、このページを開けます'), h('span', { class: 'qr-url' }, appUrl)),
   );
 
+  const installCard = installHintCard();
   return store.watchGroups((groups) => {
     setKnownGroups(groups);
     setChildren(
       body,
+      !prefs.get('installHintHidden') && installCard,
       h(
         'button',
         { class: 'greeting', onClick: () => profileSheet(), 'aria-label': 'プロフィールを変更' },
