@@ -4394,7 +4394,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
     pagerEl(),
-    !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定を追加 ・ 長押しで何日も選べます ・ ＋を長押しでテキストでまとめて書く'),
+    !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定を追加 ・ 長押しで何日も選べます ・ ＋はタップでURLから登録、長押しで予定の追加'),
     h(
       'div',
       { class: 'cal-panel' },
@@ -4438,10 +4438,11 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           h('button', { class: 'btn', onClick: endMulti }, 'やめる'),
           h('button', { class: 'btn primary', disabled: !state.multi.length, onClick: () => addPlan([...state.multi].sort()) }, '予定を追加'),
         )
-      : fabWithMenu(() => addPlan(), [
+      : // タップは「URLから登録」（iPhone はタップの瞬間しかクリップボードを読ませないので、タップに割り当てる）。
+        // 長押しのメニューで、予定の追加・テキストでまとめて書く
+        fabWithMenu(() => registerLink(groupId, lists, events), [
           ['＋ 予定を1つ追加', () => addPlan()],
           ['📝 テキストでまとめて書く', () => (location.hash = `#/g/${groupId}/text`)],
-          ['📋 URLから登録', () => registerLink(groupId, lists, events)],
         ]),
   );
 }
@@ -4472,7 +4473,7 @@ function fabWithMenu(onTap, items) {
       ),
     ),
   );
-  const fab = h('button', { class: 'cal-fab', 'aria-label': '予定を追加（長押しでほかの追加方法）', title: '予定を追加（長押しでほかの追加方法）' }, '＋');
+  const fab = h('button', { class: 'cal-fab', 'aria-label': 'URLから登録（長押しで予定の追加）', title: 'URLから登録（長押しで予定の追加）' }, '＋');
   const wrap = h('div', { class: 'fab-wrap' }, menu, fab);
   const outside = (e) => {
     if (!wrap.contains(e.target)) close();
