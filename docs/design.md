@@ -1,5 +1,11 @@
 # ouchi-share 設計メモ
 
+## バージョン
+
+- ホームのタイトルの横に「v75」のように出す（js/version.js の APP_VERSION）。タップで「このアプリ」と「公開中の最新」（version.json）を比べる
+- 公開中の最新のほうが新しいときは「v74 更新あり」（赤）。Web 版は「再読み込みして最新にする」、iPhone アプリ版は TestFlight の更新待ち
+- プッシュする前に毎回 `node scripts/bump-version.mjs "変更の内容"`：js/version.js・version.json・sw.js のキャッシュ名・CHANGELOG.md をまとめて 1 つ上げる
+
 ## 方針
 
 - iPhone の Safari で使う PWA（ホーム画面に追加して使う）

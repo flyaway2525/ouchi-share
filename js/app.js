@@ -1,6 +1,7 @@
 import * as store from './store.js';
 import * as auth from './auth.js';
 import { h, setChildren, header, progressBar, actionSheet, confirmSheet, askText, openSheet, toast, qrCode } from './ui.js';
+import { APP_VERSION, APP_BUILT_AT } from './version.js';
 
 const app = document.getElementById('app');
 const LIST_EMOJIS = ['📝', '🧳', '🧻', '🧊', '🛒', '💊', '🎒', '🏕️', '🎁', '🐶'];
@@ -2039,11 +2040,68 @@ function joinView(root, { groupId, code }) {
   );
 }
 
+// ---- アプリのバージョン ----
+// 動いているアプリのバージョン（js/version.js）を、ホームのタイトルの横に出す。
+// 公開中の最新（version.json）と比べて、古い版で動いていれば「更新あり」（タップで再読み込み）。
+// 直したのに反映されていない（GitHub Pages や端末の保存が古い）ときに、確かめる前に分かるように
+let latestVersion = null; // { version, builtAt, note }（読めなければ null）
+
+async function fetchLatestVersion() {
+  try {
+    // iPhone アプリ版でも、Web 版（GitHub Pages）の公開中の版と比べる
+    const res = await fetch(`${store.WEB_URL}version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (res.ok) latestVersion = await res.json();
+  } catch {
+    // オフラインなど。前に読めた値のまま
+  }
+  return latestVersion;
+}
+
+function versionBadge() {
+  const badge = h('button', { type: 'button', class: 'app-version', 'aria-label': `バージョン ${APP_VERSION}`, onClick: () => versionSheet() }, `v${APP_VERSION}`);
+  const mark = () => {
+    const outdated = latestVersion && latestVersion.version > APP_VERSION;
+    badge.classList.toggle('outdated', !!outdated);
+    badge.textContent = outdated ? `v${APP_VERSION} 更新あり` : `v${APP_VERSION}`;
+  };
+  mark();
+  fetchLatestVersion().then(mark);
+  return badge;
+}
+
+async function versionSheet() {
+  const latest = await fetchLatestVersion();
+  const outdated = latest && latest.version > APP_VERSION;
+  openSheet((close) => [
+    h('div', { class: 'sheet-title' }, 'アプリのバージョン'),
+    h(
+      'div',
+      { class: 'version-card' },
+      h('div', {}, h('span', {}, 'このアプリ'), h('b', {}, `v${APP_VERSION}`), h('small', {}, APP_BUILT_AT)),
+      h('div', {}, h('span', {}, '公開中の最新'), h('b', {}, latest ? `v${latest.version}` : '確認できません'), latest && h('small', {}, latest.builtAt)),
+    ),
+    latest?.note && h('p', { class: 'version-note' }, `最新の変更：${latest.note}`),
+    h(
+      'p',
+      { class: 'sch-hint' },
+      outdated
+        ? auth.isNativeApp
+          ? '新しい版が公開されています。iPhone アプリは、TestFlight で新しいビルドが届くと最新になります'
+          : '新しい版が公開されています。再読み込みすると最新になります（公開から反映まで数分かかることがあります）'
+        : latest
+          ? '最新の版です'
+          : 'オフラインなどで、公開中の版を確かめられませんでした',
+    ),
+    outdated && !auth.isNativeApp && h('button', { class: 'sheet-action', onClick: () => (close(null), location.reload()) }, '🔄 再読み込みして最新にする'),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
+  ]);
+}
+
 // ---- 画面：グループ一覧 ----
 
 function homeView(root) {
   const body = h('main', { class: 'content' });
-  root.append(header({ title: 'ouchi-share', onMenu: accountMenu }), body);
+  root.append(header({ title: ['ouchi-share', versionBadge()], onMenu: accountMenu }), body);
   const appUrl = store.WEB_URL;
   const qrCard = h(
     'div',
