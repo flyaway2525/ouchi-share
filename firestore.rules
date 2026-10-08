@@ -481,6 +481,31 @@ service cloud.firestore {
         allow delete: if isGroupMember();
       }
 
+      // ---- 記念日（毎年くる日。記念日カレンダー） ----
+      match /anniversaries/{annivId} {
+        function isGroupMember() {
+          return signedIn()
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        }
+
+        function isValidAnniv(d) {
+          return d.keys().hasOnly(['title', 'emoji', 'kind', 'month', 'day', 'year', 'milestones', 'members', 'memo', 'createdAt', 'createdBy'])
+            && isNonEmptyString(d.title, 60)
+            && d.emoji is string && d.emoji.size() <= 16
+            && d.kind in ['birthday', 'anniv']
+            && d.month is int && d.month >= 1 && d.month <= 12
+            && d.day is int && d.day >= 1 && d.day <= 31
+            && (d.year == null || (d.year is int && d.year >= 1900 && d.year <= 2200))
+            && d.milestones is bool
+            && d.members is list && d.members.size() <= 100
+            && d.memo is string && d.memo.size() <= 200;
+        }
+
+        allow read: if isGroupMember();
+        allow create, update: if isGroupMember() && isValidAnniv(request.resource.data);
+        allow delete: if isGroupMember();
+      }
+
       // ---- 日記のタグ（自由に作れる） ----
       match /diaryTags/{tagId} {
         function isGroupMember() {

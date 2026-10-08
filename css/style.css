@@ -4305,3 +4305,29 @@ body:has(.cal-multi-bar) .fab-wrap.global {
   font-size: 15px;
   opacity: 0.55;
 }
+
+/* ---- 記念日カレンダー ---- */
+.cal-label.anniv {
+  border-left-color: #d9608a;
+  background: color-mix(in srgb, #d9608a 14%, transparent);
+}
+
+.cal-label.anniv.milestone {
+  border-left-color: #d4a800;
+  background: color-mix(in srgb, #d4a800 16%, transparent);
+}
+
+.anniv-calendar .cal-panel + .cal-panel {
+  margin-top: 12px;
+}
+
+.anniv-delete {
+  color: #d0453c;
+}
+
+/* タブの長押し（記念日カレンダーへの切り替え）で、文字の選択やメニューを出さない */
+.tab {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}

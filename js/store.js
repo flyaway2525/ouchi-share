@@ -159,7 +159,7 @@ export function inviteUrl(group) {
 }
 
 export async function deleteGroup(groupId) {
-  const [lists, events, plans, news, bonus, diary, diaryTags] = await Promise.all([
+  const [lists, events, plans, news, bonus, diary, diaryTags, annivs] = await Promise.all([
     getDocs(listsCol(groupId)),
     getDocs(eventsCol(groupId)),
     getDocs(plansCol(groupId)),
@@ -167,9 +167,10 @@ export async function deleteGroup(groupId) {
     getDocs(collection(db, 'groups', groupId, 'bonus')),
     getDocs(collection(db, 'groups', groupId, 'diary')),
     getDocs(collection(db, 'groups', groupId, 'diaryTags')),
+    getDocs(collection(db, 'groups', groupId, 'anniversaries')),
   ]);
   const batch = writeBatch(db);
-  for (const snap of [lists, events, plans, news, bonus, diary, diaryTags]) snap.forEach((d) => batch.delete(d.ref));
+  for (const snap of [lists, events, plans, news, bonus, diary, diaryTags, annivs]) snap.forEach((d) => batch.delete(d.ref));
   batch.delete(groupRef(groupId));
   await batch.commit();
 }
@@ -890,4 +891,27 @@ export async function renameDiaryTag(groupId, id, name) {
 
 export async function deleteDiaryTag(groupId, id) {
   await deleteDoc(diaryTagRef(groupId, id));
+}
+
+// ---- 記念日 ----
+// groups/{id}/anniversaries：毎年くる日 { title, emoji, kind: 'birthday' | 'anniv', month, day, year（わからなければ null）, milestones, members, memo }
+const annivCol = (groupId) => collection(db, 'groups', groupId, 'anniversaries');
+const annivRef = (groupId, id) => doc(db, 'groups', groupId, 'anniversaries', id);
+
+export function watchAnniversaries(groupId, cb, onError) {
+  return onSnapshot(annivCol(groupId), (snap) => cb(snap.docs.map(withId)), onError);
+}
+
+export async function createAnniversary(groupId, a) {
+  const id = newId();
+  await setDoc(annivRef(groupId, id), { ...a, createdAt: Date.now(), createdBy: uid() });
+  return id;
+}
+
+export async function updateAnniversary(groupId, id, patch) {
+  await updateDoc(annivRef(groupId, id), patch);
+}
+
+export async function deleteAnniversary(groupId, id) {
+  await deleteDoc(annivRef(groupId, id));
 }

@@ -3731,6 +3731,8 @@ function groupView(root, { groupId }) {
   let diary = null;
   let diaryTags = null;
   let diaryFilter = null; // 日記のタグの絞り込み（タグ ID）
+  let annivs = null;
+  const annivState = {}; // 記念日カレンダーの表示中の月・選んでいる日
 
   function renderBody() {
     if (!group || !lists || !events || !plans) return;
@@ -3763,6 +3765,10 @@ function groupView(root, { groupId }) {
     // カレンダー・イベント・リストはタブで切り替える（最後に開いたタブを端末に保存）
     const tabKey = `groupTab:${groupId}`;
     const tab = ['calendar', 'events', 'lists', 'diary'].includes(prefs.get(tabKey)) ? prefs.get(tabKey) : 'calendar';
+    // カレンダーのタブは、長押しで記念日カレンダーと切り替える（グループごとに端末へ保存）
+    const annivKey = `calMode:${groupId}`;
+    const annivMode = prefs.get(annivKey) === 'anniv';
+    let tabLongPressed = false;
     const tabBtn = (id, label, count = 0) =>
       h(
         'button',
@@ -3771,10 +3777,39 @@ function groupView(root, { groupId }) {
           role: 'tab',
           'aria-selected': String(tab === id),
           onClick: () => {
+            if (tabLongPressed) return (tabLongPressed = false);
             if (tab === id) return;
             prefs.set(tabKey, id);
             renderBody();
           },
+          onContextmenu: id === 'calendar' ? (e) => e.preventDefault() : null,
+          onPointerdown:
+            id === 'calendar'
+              ? (e) => {
+                  if (e.pointerType === 'mouse' && e.button !== 0) return;
+                  tabLongPressed = false;
+                  const sx = e.clientX;
+                  const sy = e.clientY;
+                  const timer = setTimeout(() => {
+                    tabLongPressed = true;
+                    navigator.vibrate?.(15);
+                    prefs.set(annivKey, annivMode ? 'normal' : 'anniv');
+                    prefs.set(tabKey, 'calendar');
+                    toast(annivMode ? '📅 ふつうのカレンダーに戻しました' : '🎉 記念日カレンダーにしました（もう一度長押しで戻ります）');
+                    renderBody();
+                  }, 500);
+                  const stop = (ev) => {
+                    if (ev.type === 'pointermove' && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 10) return;
+                    clearTimeout(timer);
+                    window.removeEventListener('pointermove', stop);
+                    window.removeEventListener('pointerup', stop);
+                    window.removeEventListener('pointercancel', stop);
+                  };
+                  window.addEventListener('pointermove', stop);
+                  window.addEventListener('pointerup', stop);
+                  window.addEventListener('pointercancel', stop);
+                }
+              : null,
         },
         // 4 つ並ぶので、絵文字を上・名前を下に分けて幅を詰める
         h('span', { class: 'tab-emoji' }, label.split(' ')[0]),
@@ -3783,7 +3818,7 @@ function groupView(root, { groupId }) {
     const tabs = h(
       'div',
       { class: 'tabs four', role: 'tablist' },
-      tabBtn('calendar', '📅 カレンダー'),
+      tabBtn('calendar', annivMode ? '🎉 記念日' : '📅 カレンダー'),
       tabBtn('events', '✈️ イベント', active.length),
       tabBtn('lists', '📝 リスト', daily.length),
       tabBtn('diary', '📔 日記'),
@@ -3807,7 +3842,13 @@ function groupView(root, { groupId }) {
       return;
     }
     if (tab === 'calendar') {
-      setChildren(body, tabs, calendarSection({ groupId, group, events, lists, plans, rerender: renderBody }));
+      setChildren(
+        body,
+        tabs,
+        annivMode
+          ? annivSection({ groupId, members: memberList(group), annivs: annivs ?? [], state: annivState, rerender: renderBody })
+          : calendarSection({ groupId, group, events, lists, plans, rerender: renderBody }),
+      );
       return;
     }
     if (tab === 'lists') {
@@ -3925,6 +3966,18 @@ function groupView(root, { groupId }) {
       renderBody();
     },
   );
+  // 記念日（読めなくてもほかは使えるように、エラー時は空として扱う）
+  const unwatchAnnivs = store.watchAnniversaries(
+    groupId,
+    (as) => {
+      annivs = as;
+      renderBody();
+    },
+    () => {
+      annivs = [];
+      renderBody();
+    },
+  );
   const unwatchDiaryTags = store.watchDiaryTags(
     groupId,
     (ts) => {
@@ -3947,6 +4000,7 @@ function groupView(root, { groupId }) {
     unwatchPlans();
     unwatchDiary();
     unwatchDiaryTags();
+    unwatchAnnivs();
     unwatchNews();
     clearNewsSource(newsSourceId);
   };
@@ -4010,6 +4064,255 @@ function participantPicker(members, selected = [], { label = '参加者（選ば
     );
   render();
   return { el: box, value: () => [...chosen] };
+}
+
+// ---- 記念日カレンダー ----
+// グループの「📅 カレンダー」タブを長押しすると、記念日カレンダーに切り替わる（もう一度長押しで戻る。グループごとに端末へ保存）。
+// 記念日（groups/{id}/anniversaries）は毎年同じ月日にくる日：誕生日（○歳）・記念日（○周年）。年がわからなくてもよい。
+// 年がわかる記念日は「100 日・1000 日などの日数の記念日」も出せる（1000 日までは 100 日ごと、そのあとは 1000 日ごと）。
+// 2/29 の記念日は、うるう年でない年は 2/28 に出す
+
+const ANNIV_EMOJIS = ['🎂', '💍', '💑', '🎉', '👶', '🐶', '🐱', '🏠', '🌸', '⭐'];
+const ANNIV_KINDS = [
+  ['birthday', '🎂 誕生日（○歳）'],
+  ['anniv', '🎉 記念日（○周年）'],
+];
+const isLeap = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+// その年の、この記念日の日（"YYYY-MM-DD"）
+function annivDateIn(a, year) {
+  const day = a.month === 2 && a.day === 29 && !isLeap(year) ? 28 : a.day;
+  return `${year}-${String(a.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+const annivOrigin = (a) => (a.year ? annivDateIn(a, a.year) : null);
+// その日の「○歳」「○周年」（年がわからない・まだ来ていないときは空）
+function annivCount(a, date) {
+  if (!a.year) return '';
+  const n = Number(date.slice(0, 4)) - a.year;
+  if (n <= 0) return n === 0 && a.kind !== 'birthday' ? '当日' : '';
+  return a.kind === 'birthday' ? `${n}歳` : `${n}周年`;
+}
+const isMilestone = (n) => n > 0 && (n <= 1000 ? n % 100 === 0 : n % 1000 === 0);
+// d の日にくる記念日：[{ a, label }]（毎年の日と、日数の記念日）
+function annivsOn(annivs, d) {
+  const out = [];
+  for (const a of annivs) {
+    if (annivDateIn(a, Number(d.slice(0, 4))) === d) out.push({ a, label: [a.title, annivCount(a, d)].filter(Boolean).join(' ') });
+    if (a.milestones && a.year) {
+      const n = daysBetween(annivOrigin(a), d);
+      if (isMilestone(n)) out.push({ a, label: `${a.title} ${n.toLocaleString()}日`, milestone: true });
+    }
+  }
+  return out;
+}
+// 次にくる日（今日を含む）：{ date, label }。日数の記念日もあればそれと比べて早いほう
+function annivNext(a, today) {
+  const y = Number(today.slice(0, 4));
+  let date = annivDateIn(a, y);
+  if (date < today) date = annivDateIn(a, y + 1);
+  let next = { date, label: [a.title, annivCount(a, date)].filter(Boolean).join(' ') };
+  if (a.milestones && a.year) {
+    const passed = Math.max(0, daysBetween(annivOrigin(a), today));
+    let n = passed <= 1000 ? Math.ceil(passed / 100) * 100 : Math.ceil(passed / 1000) * 1000;
+    if (n === 0) n = 100;
+    const m = addDays(annivOrigin(a), n);
+    if (m < next.date) next = { date: m, label: `${a.title} ${n.toLocaleString()}日`, milestone: true };
+  }
+  return next;
+}
+
+// 記念日カレンダーの画面（カレンダーのタブの中身）
+function annivSection({ groupId, members, annivs, state, rerender }) {
+  const today = todayStr();
+  state.month ??= today.slice(0, 7);
+  state.selected ??= today;
+  const view = monthView(state.month);
+  const sel = state.selected;
+  const shift = (n) => {
+    const d = new Date(`${state.month}-01T00:00:00`);
+    d.setMonth(d.getMonth() + n);
+    state.month = dateStr(d).slice(0, 7);
+    rerender();
+  };
+  const select = (d) => {
+    if (d === state.selected) return addAnniv(d);
+    state.selected = d;
+    rerender();
+  };
+  const addAnniv = async (d = sel) => {
+    const res = await annivSheet(members, { month: Number(d.slice(5, 7)), day: Number(d.slice(8)), year: Number(d.slice(0, 4)) });
+    if (res) store.createAnniversary(groupId, res).then(() => toast(`「${res.title}」を記念日にしました`), showError);
+  };
+  const editAnniv = async (a) => {
+    const res = await annivSheet(members, a, { editing: true });
+    if (res === 'delete') {
+      if (await confirmSheet(`「${a.title}」を削除しますか？`)) store.deleteAnniversary(groupId, a.id).catch(showError);
+    } else if (res) store.updateAnniversary(groupId, a.id, res).catch(showError);
+  };
+
+  const [seasonColor] = SEASONS[Number(state.month.slice(5)) - 1];
+  const week = (ws) => {
+    const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
+    return h(
+      'div',
+      { class: 'cal-week', style: 'grid-template-rows: 26px minmax(14px, auto)' },
+      days.includes(sel) && h('span', { class: 'cal-sel', style: `grid-column: ${days.indexOf(sel) + 1}; grid-row: 1 / -1`, 'aria-hidden': 'true' }),
+      days.map((d, i) =>
+        h(
+          'button',
+          {
+            class: `cal-day${d.slice(0, 7) !== state.month ? ' other' : ''}${d === today ? ' today' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
+            style: `grid-column: ${i + 1}; grid-row: 1 / -1`,
+            'aria-label': fmtDate(d),
+            onClick: () => select(d),
+          },
+          h('span', { class: 'cal-num' }, Number(d.slice(8))),
+        ),
+      ),
+      days.map((d, i) => {
+        const list = annivsOn(annivs, d);
+        return (
+          list.length > 0 &&
+          h(
+            'span',
+            { class: 'cal-labels', style: `grid-column: ${i + 1}; grid-row: 2` },
+            list.map((x) => h('span', { class: `cal-label anniv${x.milestone ? ' milestone' : ''}` }, `${x.a.emoji} ${x.label}`)),
+          )
+        );
+      }),
+    );
+  };
+  const dayList = annivsOn(annivs, sel);
+  const upcoming = annivs
+    .map((a) => ({ a, ...annivNext(a, today) }))
+    .sort((x, y) => x.date.localeCompare(y.date))
+    .slice(0, 10);
+  const until = (date) => {
+    const n = daysBetween(today, date);
+    return n === 0 ? '今日！' : `あと${n}日`;
+  };
+  const row = (a, date, label, sub) =>
+    h(
+      'button',
+      { class: 'cal-row plan', onClick: () => editAnniv(a) },
+      h('span', { class: 'cal-row-time' }, sub),
+      h(
+        'span',
+        { class: 'cal-row-main' },
+        h('span', { class: 'cal-row-title' }, `${a.emoji} ${label}`),
+        h('span', { class: 'cal-row-sub' }, [fmtDate(date), a.members?.length && `👥 ${participantsLabel(members, a.members)}`, a.memo].filter(Boolean).join(' ・ ')),
+      ),
+      h('span', { class: 'sch-more' }, '⋮'),
+    );
+
+  return h(
+    'div',
+    { class: 'calendar anniv-calendar', style: `--season: ${seasonColor}` },
+    h(
+      'div',
+      { class: 'cal-head' },
+      h('button', { class: 'day-nav-btn', 'aria-label': '先月', onClick: () => shift(-1) }, '‹'),
+      h('span', { class: 'cal-title' }, `🎉 ${Number(state.month.slice(0, 4))}年${Number(state.month.slice(5))}月の記念日`),
+      h('button', { class: 'day-nav-btn', 'aria-label': '来月', onClick: () => shift(1) }, '›'),
+      (state.month !== today.slice(0, 7) || sel !== today) &&
+        h(
+          'button',
+          {
+            class: 'cal-today',
+            onClick: () => {
+              state.month = today.slice(0, 7);
+              state.selected = today;
+              rerender();
+            },
+          },
+          '今日',
+        ),
+    ),
+    h('div', { class: 'cal-grid' }, h('div', { class: 'cal-dow' }, '日月火水木金土'.split('').map((w, i) => h('span', { class: i === 0 ? 'sun' : i === 6 ? 'sat' : '' }, w))), Array.from({ length: view.weeks }, (_, i) => week(addDays(view.start, i * 7)))),
+    h('p', { class: 'cal-hint' }, '日付をもう一度タップで記念日を追加 ・ 「カレンダー」のタブを長押しで、ふつうのカレンダーに戻ります'),
+    h(
+      'div',
+      { class: 'cal-panel' },
+      h('div', { class: 'cal-panel-head' }, h('span', {}, fmtDate(sel)), sel === today && h('span', { class: 'event-badge ongoing' }, '今日')),
+      dayList.length === 0 && h('p', { class: 'empty small' }, 'この日の記念日はありません'),
+      dayList.map((x) => row(x.a, sel, x.label, sel >= today ? until(sel) : '')),
+      h('button', { class: 'sch-add', onClick: () => addAnniv() }, '＋ この日を記念日にする'),
+    ),
+    h(
+      'div',
+      { class: 'cal-panel' },
+      h('div', { class: 'cal-panel-head' }, h('span', {}, '🎉 これからの記念日')),
+      upcoming.length === 0 && h('p', { class: 'empty small' }, '誕生日や記念日を入れると、ここに近い順に並びます'),
+      upcoming.map((x) => row(x.a, x.date, x.label, until(x.date))),
+    ),
+  );
+}
+
+// 記念日の追加・編集シート。戻り値 { title, emoji, kind, month, day, year, milestones, members, memo } / 'delete' / null
+function annivSheet(members, initial = {}, { editing = false } = {}) {
+  return openSheet((close) => {
+    let emoji = initial.emoji ?? ANNIV_EMOJIS[0];
+    let kind = initial.kind ?? 'birthday';
+    const title = h('input', { class: 'text-input', value: initial.title ?? '', placeholder: '例：ママの誕生日、結婚記念日', maxlength: 60, 'aria-label': '名前' });
+    const y0 = initial.year ?? Number(todayStr().slice(0, 4));
+    const date = h('input', { class: 'text-input', type: 'date', value: `${y0}-${String(initial.month ?? 1).padStart(2, '0')}-${String(initial.day ?? 1).padStart(2, '0')}`, 'aria-label': '日付' });
+    const noYear = h('input', { type: 'checkbox', checked: editing && !initial.year });
+    const milestones = h('input', { type: 'checkbox', checked: !!initial.milestones });
+    const milestoneRow = h('label', { class: 'check-row' }, milestones, h('span', {}, '100日・1000日などの日数の記念日も出す'));
+    const syncYear = () => (milestoneRow.style.display = noYear.checked ? 'none' : '');
+    noYear.addEventListener('change', syncYear);
+    syncYear();
+    const memo = h('input', { class: 'text-input', value: initial.memo ?? '', placeholder: 'メモ（なくてもOK）', maxlength: 200, 'aria-label': 'メモ' });
+    const people = participantPicker(members, initial.members ?? [], { label: 'だれの記念日？（なくてもOK）', all: false });
+    const chips = (list, get, set) => {
+      const box = h('div', { class: 'people-chips' });
+      const render = () => setChildren(box, list.map(([k, label]) => h('button', { type: 'button', class: `chip${get() === k ? ' on' : ''}`, onClick: () => (set(k), render()) }, label)));
+      render();
+      return box;
+    };
+    return [
+      h('div', { class: 'sheet-title' }, editing ? '記念日を編集' : '記念日を追加'),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            const t = title.value.trim();
+            if (!t) return title.focus();
+            if (!date.value) return toast('日付を入れてください');
+            const [y, m, d] = date.value.split('-').map(Number);
+            close({
+              title: t,
+              emoji,
+              kind,
+              month: m,
+              day: d,
+              year: noYear.checked ? null : y,
+              milestones: !noYear.checked && milestones.checked,
+              members: people.value(),
+              memo: memo.value.trim(),
+            });
+          },
+        },
+        chips(ANNIV_EMOJIS.map((x) => [x, x]), () => emoji, (v) => (emoji = v)),
+        title,
+        chips(ANNIV_KINDS, () => kind, (v) => (kind = v)),
+        date,
+        h('label', { class: 'check-row' }, noYear, h('span', {}, '年はわからない（毎年の月日だけ）')),
+        milestoneRow,
+        people.el,
+        memo,
+        editing && h('button', { type: 'button', class: 'link-add anniv-delete', onClick: () => close('delete') }, '🗑 この記念日を削除'),
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, editing ? '保存' : '追加'),
+        ),
+      ),
+    ];
+  });
 }
 
 // ---- 日記 ----
@@ -4961,7 +5264,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
     pagerEl(),
-    !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定の追加・編集 ・ 長押しで何日も選べます ・ ＋はタップでURLから登録、長押しで予定の追加'),
+    !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定の追加・編集 ・ 長押しで何日も選べます ・ ＋はタップでURLから登録、長押しで予定の追加 ・ 「カレンダー」のタブを長押しで記念日カレンダー'),
     h(
       'div',
       { class: 'cal-panel' },
