@@ -3909,3 +3909,62 @@ a.sch-add {
   display: block;
   text-align: left;
 }
+
+/* テキスト予定表の画面の下のメニュー（入力の補助と、元に戻す・保存） */
+.text-toolbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 15;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 8px 12px calc(8px + var(--safe-bottom));
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.text-tools {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: none;
+}
+
+.text-tools::-webkit-scrollbar {
+  display: none;
+}
+
+.text-tool {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  white-space: nowrap;
+}
+
+.text-actions {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 8px;
+}
+
+/* 日付・時刻を選ぶための、見えない入力欄 */
+.text-plans-picker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.content.with-text-toolbar {
+  padding-bottom: 150px;
+}

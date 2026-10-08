@@ -1380,9 +1380,10 @@ function parsePlanLine(raw, today = todayStr()) {
     }
     rest = t[5];
   }
-  const at = rest.search(/\s@/);
+  // 「@」のあとは場所（前に空白がなくてもよい）
+  const at = rest.indexOf('@');
   const title = (at >= 0 ? rest.slice(0, at) : rest).trim().slice(0, 100);
-  const place = at >= 0 ? rest.slice(at + 2).trim().slice(0, 100) : '';
+  const place = at >= 0 ? rest.slice(at + 1).trim().slice(0, 100) : '';
   if (!title) return { error: '予定の名前を書いてください' };
   return { date, endDate, start, duration, title, place };
 }
@@ -1501,12 +1502,64 @@ function textPlansView(root, { groupId }) {
           ),
         ),
         area,
-        h('div', { class: 'sheet-buttons' }, h('button', { class: 'btn', onClick: () => (reload(), toast('今のカレンダーの内容に戻しました')) }, '元に戻す'), h('button', { class: 'btn primary', onClick: save }, '保存してカレンダーに反映')),
         h('p', { class: 'section-label' }, '読み取り結果'),
         result,
       );
     }
   }
+
+  // ---- 画面の下のメニュー（入力の補助と、元に戻す・保存）。キーボードが出ているときはそのすぐ上に付いていく ----
+  // カーソルの位置に文字を入れる（前が行の途中なら、間に空白を入れる）
+  const insert = (text, { space = true } = {}) => {
+    const a = area.selectionStart ?? area.value.length;
+    const b = area.selectionEnd ?? a;
+    const before = area.value.slice(0, a);
+    const sep = space && before && !/\s$/.test(before) ? ' ' : '';
+    area.setRangeText(sep + text, a, b, 'end');
+    area.focus();
+    renderResult();
+  };
+  const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
+  const datePicker = h('input', { type: 'date', class: 'text-plans-picker', tabindex: -1, 'aria-hidden': 'true' });
+  datePicker.addEventListener('change', () => datePicker.value && insert(md(datePicker.value) + ' '));
+  const timePicker = h('input', { type: 'time', class: 'text-plans-picker', step: 300, tabindex: -1, 'aria-hidden': 'true' });
+  timePicker.addEventListener('change', () => timePicker.value && insert(timePicker.value + ' '));
+  const openPicker = (input) => (input.showPicker ? input.showPicker() : input.click());
+  // ボタンを押してもキーボードが閉じないように、押した瞬間のフォーカス移動を止める
+  const tool = (label, onClick, cls = '') => h('button', { type: 'button', class: `text-tool${cls}`, onPointerdown: (e) => e.preventDefault(), onClick }, label);
+  const toolbar = h(
+    'div',
+    { class: 'text-toolbar' },
+    h(
+      'div',
+      { class: 'text-tools' },
+      tool('今日', () => insert(md(todayStr()) + ' ')),
+      tool('明日', () => insert(md(addDays(todayStr(), 1)) + ' ')),
+      tool('📅 日付', () => openPicker(datePicker)),
+      tool('🕐 時刻', () => openPicker(timePicker)),
+      tool('〜 期間', () => insert('-', { space: false })),
+      tool('@ 場所', () => insert('@')),
+      tool('未定', () => insert('未定 ')),
+      tool('↵ 次の行', () => insert('\n', { space: false })),
+      datePicker,
+      timePicker,
+    ),
+    h(
+      'div',
+      { class: 'text-actions' },
+      h('button', { type: 'button', class: 'btn', onClick: () => (reload(), toast('今のカレンダーの内容に戻しました')) }, '元に戻す'),
+      h('button', { type: 'button', class: 'btn primary', onClick: save }, '💾 保存'),
+    ),
+  );
+  root.append(toolbar);
+  body.classList.add('with-text-toolbar');
+  const followKeyboard = () => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    toolbar.style.bottom = `${Math.max(0, innerHeight - vv.height - vv.offsetTop)}px`;
+  };
+  window.visualViewport?.addEventListener('resize', followKeyboard);
+  window.visualViewport?.addEventListener('scroll', followKeyboard);
 
   const onError = (e) => {
     showError(e);
@@ -1515,6 +1568,8 @@ function textPlansView(root, { groupId }) {
   const unwatchGroup = store.watchGroup(groupId, (g) => ((group = g), render()), onError);
   const unwatchPlans = store.watchPlans(groupId, (list) => ((plans = list), render()), onError);
   return () => {
+    window.visualViewport?.removeEventListener('resize', followKeyboard);
+    window.visualViewport?.removeEventListener('scroll', followKeyboard);
     unwatchGroup();
     unwatchPlans();
   };
