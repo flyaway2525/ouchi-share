@@ -4563,11 +4563,12 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     const dow = new Date(`${d}T00:00:00`).getDay();
     return ['picked', dow > 0 && picked.includes(addDays(d, -1)) && 'pick-l', dow < 6 && picked.includes(addDays(d, 1)) && 'pick-r'].filter(Boolean);
   };
-  // タップ：選んでいる日をもう一度タップすると、その日の予定の追加へ。複数選択中は選ぶ・外す
+  // タップ：選んでいる日をもう一度タップすると、予定がない日は予定の追加、ある日はその日のメニュー（追加・編集）。
+  // 複数選択中は選ぶ・外す
   const tapDay = (d) => {
     if (Date.now() < calPick.ignoreTapUntil) return;
     if (state.multi) return toggleMulti(d);
-    if (d === state.selected) return addPlan();
+    if (d === state.selected) return empty ? addPlan() : dayMenu();
     select(d);
   };
   const monthOf = (n) => {
@@ -4687,6 +4688,22 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     ]);
 
   const empty = !dayEvents.length && !daySched.length && !dayPlans.length;
+
+  // 選んでいる日をもう一度タップしたとき（その日に予定があるとき）のメニュー：
+  // 「＋ この日に予定を追加」と、その日の予定。普段の予定はその場で編集、イベント・旅程はその画面へ
+  const dayMenu = () =>
+    actionSheet(`${fmtDate(sel)}の予定`, [
+      { label: '＋ この日に予定を追加', onClick: () => addPlan() },
+      ...dayPlans.map((plan) => ({
+        label: `✏️ ${isSpan(plan) ? `${fmtDate(plan.date)}〜${fmtDate(plan.endDate)}` : timeText(plan)}　${plan.title}`,
+        onClick: async () => {
+          const res = await planSheet(members, plan, { editing: true });
+          if (res) store.updatePlan(groupId, plan.id, res).catch(showError);
+        },
+      })),
+      ...dayEvents.map((ev) => ({ label: `${ev.emoji} ${ev.title}（イベントを開く）`, onClick: () => (location.hash = eventHref(ev, sel)) })),
+      ...daySched.map(({ ev, item }) => ({ label: `🗓 ${item.start ? fmtTime(toMin(item.start)) : '時間未定'}　${item.title}（${ev.title}の旅程を開く）`, onClick: () => (location.hash = eventHref(ev, sel)) })),
+    ]);
   const undated = ps.filter((p) => !p.date).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
 
   // 予定を追加（右下の ＋、その日の一覧の「＋ この日に予定を追加」、日付の 2 回タップ、複数選択で共通。日付は選んでいる日が初期値）
@@ -4944,7 +4961,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       (today < state.start || today > viewEnd || state.selected !== today) && h('button', { class: 'cal-today', onClick: goToday }, '今日'),
     ),
     pagerEl(),
-    !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定を追加 ・ 長押しで何日も選べます ・ ＋はタップでURLから登録、長押しで予定の追加'),
+    !state.multi && h('p', { class: 'cal-hint' }, '日付をもう一度タップで予定の追加・編集 ・ 長押しで何日も選べます ・ ＋はタップでURLから登録、長押しで予定の追加'),
     h(
       'div',
       { class: 'cal-panel' },
