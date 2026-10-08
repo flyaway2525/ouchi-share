@@ -1300,6 +1300,226 @@ function profileSheet({ group = null } = {}) {
   });
 }
 
+// ---- テキスト予定表（グループの普段の予定を、1 行 1 件の文章で書く） ----
+// 書き方：「10/9 10:00 歯医者 @〇〇歯科」「10/9 14:00-15:30 面談」「10/12 運動会」「10/20-10/22 帰省」「未定 車検の予約」
+// - 開くと、これから先の予定と日付未定の予定がこの書き方で並ぶ（過ぎた予定は出さない。カレンダーには残る）
+// - 保存すると、行の追加・書き換え・削除をカレンダーの予定に反映する（書き換えは参加者・メモ・リンクを残す）
+// - 年は省略できる（今日より前の月日は来年）。今日より前から続いている予定などは、年付きで書き出す
+
+const WEEK = '日月火水木金土';
+const mdText = (d, withYear) => {
+  const [y, m, day] = d.split('-').map(Number);
+  return `${withYear ? `${y}/` : ''}${m}/${day}(${WEEK[new Date(y, m - 1, day).getDay()]})`;
+};
+
+// 予定 → 1 行
+function planToLine(p, today = todayStr()) {
+  const year = today.slice(0, 4);
+  const place = p.place ? ` @${p.place}` : '';
+  if (!p.date) return `未定 ${p.title}${place}`;
+  const withYear = (d) => d < today || d.slice(0, 4) !== year;
+  if (p.endDate && p.endDate > p.date) return `${mdText(p.date, withYear(p.date))}-${mdText(p.endDate, withYear(p.endDate))} ${p.title}${place}`;
+  const time = p.start ? ` ${p.start}${(p.duration ?? DEFAULT_DURATION) !== DEFAULT_DURATION ? `-${toHHMM(toMin(p.start) + p.duration)}` : ''}` : '';
+  return `${mdText(p.date, withYear(p.date))}${time} ${p.title}${place}`;
+}
+
+// これから先（と日付未定）の予定を、日付・時刻の順に
+function upcomingPlans(plans, today = todayStr()) {
+  return plans
+    .filter((p) => !p.date || (p.endDate && p.endDate > p.date ? p.endDate : p.date) >= today)
+    .sort((a, b) => (a.date ?? '9999').localeCompare(b.date ?? '9999') || (a.start ?? '').localeCompare(b.start ?? '') || (a.createdAt ?? 0) - (b.createdAt ?? 0));
+}
+
+// 「2026/10/9」「10/9」「10/9(木)」→ "YYYY-MM-DD"（年がなければ、今日より前なら来年）。読めなければ null
+function parseMD(text, today, after = null) {
+  const m = text.match(/^(?:(\d{4})\/)?(\d{1,2})\/(\d{1,2})(?:\([^)]*\))?$/);
+  if (!m) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  const mon = Number(m[2]);
+  const day = Number(m[3]);
+  if (mon < 1 || mon > 12 || day < 1 || day > 31) return null;
+  let y = m[1] ? Number(m[1]) : Number(today.slice(0, 4));
+  let d = `${y}-${pad(mon)}-${pad(day)}`;
+  if (!m[1] && d < (after ?? today)) d = `${++y}-${pad(mon)}-${pad(day)}`;
+  // 2/30 のような日付はだめ
+  const check = new Date(`${d}T00:00:00`);
+  if (check.getMonth() + 1 !== mon || check.getDate() !== day) return null;
+  return d;
+}
+
+// 1 行 → { date, endDate, start, duration, title, place }。読めなければ { error }
+function parsePlanLine(raw, today = todayStr()) {
+  const line = raw.normalize('NFKC').trim();
+  const m = line.match(/^(\S+?)(?:\s*[-〜~]\s*(\S+))?\s+(.+)$/);
+  if (!m) return { error: '「日付 予定の名前」の形で書いてください' };
+  let date = null;
+  let endDate = null;
+  let rest = m[3];
+  if (m[1] === '未定') {
+    if (m[2]) rest = `${m[2]} ${rest}`;
+  } else {
+    date = parseMD(m[1], today);
+    if (!date) return { error: `日付「${m[1]}」が読み取れません（例：10/9）` };
+    if (m[2]) {
+      endDate = parseMD(m[2], today, date);
+      if (!endDate) return { error: `終わりの日「${m[2]}」が読み取れません（例：10/9-10/12）` };
+      if (endDate === date) endDate = null;
+    }
+  }
+  let start = null;
+  let duration = DEFAULT_DURATION;
+  const t = rest.match(/^(\d{1,2}):(\d{2})(?:\s*[-〜~]\s*(\d{1,2}):(\d{2}))?\s+(.+)$/);
+  if (t && date && !endDate) {
+    const s = Number(t[1]) * 60 + Number(t[2]);
+    if (s >= 24 * 60 || Number(t[2]) > 59) return { error: `時刻「${t[1]}:${t[2]}」が読み取れません` };
+    start = toHHMM(s);
+    if (t[3]) {
+      const e = Number(t[3]) * 60 + Number(t[4]);
+      if (e <= s) return { error: '終わりの時刻は、始まりより後にしてください' };
+      duration = e - s;
+    }
+    rest = t[5];
+  }
+  const at = rest.search(/\s@/);
+  const title = (at >= 0 ? rest.slice(0, at) : rest).trim().slice(0, 100);
+  const place = at >= 0 ? rest.slice(at + 2).trim().slice(0, 100) : '';
+  if (!title) return { error: '予定の名前を書いてください' };
+  return { date, endDate, start, duration, title, place };
+}
+
+// 開いたときのテキスト（行 → 予定）と、書き換えたテキストを比べて、追加・変更・削除を出す
+function diffTextPlans(original, text, today = todayStr()) {
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  const parsed = lines.map((l) => ({ line: l, ...parsePlanLine(l, today) }));
+  const errors = parsed.filter((p) => p.error);
+  const unused = [...original]; // [{ line, plan }]
+  const keep = [];
+  const fresh = [];
+  for (const p of parsed) {
+    if (p.error) continue;
+    const i = unused.findIndex((o) => o.line === p.line);
+    if (i >= 0) keep.push(unused.splice(i, 1)[0]);
+    else fresh.push(p);
+  }
+  // 書き換え：同じ名前の、なくなった行と組にする（参加者・メモ・リンクを残すため）
+  const updates = [];
+  const adds = [];
+  for (const p of fresh) {
+    const i = unused.findIndex((o) => o.plan.title === p.title);
+    if (i >= 0) updates.push({ plan: unused.splice(i, 1)[0].plan, next: p });
+    else adds.push(p);
+  }
+  return { parsed, errors, keep, updates, adds, deletes: unused.map((o) => o.plan) };
+}
+
+// ---- 画面：テキスト予定表 ----
+function textPlansView(root, { groupId }) {
+  const top = h('div', { class: 'topbar-wrap' }, header({ title: '📝 テキスト予定表', back: `#/g/${groupId}` }));
+  const body = h('main', { class: 'content' }, h('p', { class: 'empty small' }, '読み込み中…'));
+  root.append(top, body);
+  let group = null;
+  let plans = null;
+  let original = null; // 開いたときの [{ line, plan }]
+  let started = false;
+  const area = h('textarea', { class: 'text-input text-plans', rows: 12, spellcheck: 'false', 'aria-label': 'テキスト予定表' });
+  const result = h('ul', { class: 'text-plans-result' });
+  const renderResult = () => {
+    const d = diffTextPlans(original ?? [], area.value);
+    setChildren(
+      result,
+      d.parsed.map((p) =>
+        h(
+          'li',
+          { class: p.error ? 'bad' : 'ok' },
+          p.error
+            ? [h('b', {}, '⚠️ '), p.line, h('small', {}, p.error)]
+            : [
+                h('b', {}, '✅ '),
+                !p.date ? '日付未定' : p.endDate ? `${fmtDate(p.date)}〜${fmtDate(p.endDate)}` : `${fmtDate(p.date)}${p.start ? ` ${p.start}〜${toHHMM(toMin(p.start) + p.duration)}` : ' 終日'}`,
+                ` ${p.title}`,
+                p.place && h('small', {}, `📍${p.place}`),
+              ],
+        ),
+      ),
+    );
+  };
+  area.addEventListener('input', renderResult);
+
+  const reload = () => {
+    original = upcomingPlans(plans).map((plan) => ({ line: planToLine(plan), plan }));
+    area.value = original.map((o) => o.line).join('\n') + (original.length ? '\n' : '');
+    renderResult();
+  };
+
+  const save = async () => {
+    const d = diffTextPlans(original, area.value);
+    if (d.errors.length) return toast(`読み取れない行が ${d.errors.length} 行あります（⚠️ の行を直してください）`);
+    if (!d.adds.length && !d.updates.length && !d.deletes.length) return toast('変更はありません');
+    const summary = [d.adds.length && `追加 ${d.adds.length}件`, d.updates.length && `変更 ${d.updates.length}件`, d.deletes.length && `削除 ${d.deletes.length}件`].filter(Boolean).join('・');
+    const detail = d.deletes.length ? `（削除する予定：${d.deletes.map((p) => p.title).join('、')}）` : '';
+    if (!(await confirmSheet(`カレンダーに反映します：${summary}${detail}`, '反映する'))) return;
+    const fields = (p) => ({ title: p.title, date: p.date, endDate: p.endDate, start: p.start, duration: p.duration, place: p.place });
+    try {
+      await Promise.all([
+        ...d.adds.map((p) => store.createPlan(groupId, { ...fields(p), memo: '', links: [], participants: [] })),
+        ...d.updates.map(({ plan, next }) => store.updatePlan(groupId, plan.id, fields(next))),
+        ...d.deletes.map((p) => store.deletePlan(groupId, p.id)),
+      ]);
+    } catch (e) {
+      return showError(e);
+    }
+    toast(`カレンダーに反映しました（${summary}）`);
+    if (d.adds.length) {
+      requestNotify({
+        groupId,
+        kind: 'plan',
+        title: `📅 ${group?.name ?? ''}`,
+        body: `${auth.displayName()}さんが予定を追加しました：${d.adds.map((p) => `${p.date ? fmtDate(p.date) : '日付未定'} ${p.title}`).join('、')}`.slice(0, 280),
+        url: `#/g/${groupId}`,
+      });
+    }
+    started = false; // 保存後のデータで書き直す
+  };
+
+  function render() {
+    if (!group || !plans) return;
+    setChildren(top, header({ title: `📝 ${group.name}のテキスト予定表`, back: `#/g/${groupId}` }));
+    // 書いている途中にほかの人の変更が届いても、入力欄は書き換えない（保存したあとや開き直したときに反映）
+    if (!started) {
+      started = true;
+      reload();
+      setChildren(
+        body,
+        h(
+          'details',
+          { class: 'text-plans-help' },
+          h('summary', {}, '書き方（1 行に 1 つ）'),
+          h(
+            'pre',
+            {},
+            '10/9 10:00 歯医者 @〇〇歯科\n10/9 14:00-15:30 面談\n10/12 運動会\n10/20-10/22 帰省\n未定 車検の予約\n\n・時刻を書かなければ終日、「@」のあとは場所\n・年は省略できます（過ぎた日付は来年）\n・行を消すとカレンダーからも消えます\n・過ぎた予定はここには出ません（カレンダーには残ります）',
+          ),
+        ),
+        area,
+        h('div', { class: 'sheet-buttons' }, h('button', { class: 'btn', onClick: () => (reload(), toast('今のカレンダーの内容に戻しました')) }, '元に戻す'), h('button', { class: 'btn primary', onClick: save }, '保存してカレンダーに反映')),
+        h('p', { class: 'section-label' }, '読み取り結果'),
+        result,
+      );
+    }
+  }
+
+  const onError = (e) => {
+    showError(e);
+    location.hash = `#/g/${groupId}`;
+  };
+  const unwatchGroup = store.watchGroup(groupId, (g) => ((group = g), render()), onError);
+  const unwatchPlans = store.watchPlans(groupId, (list) => ((plans = list), render()), onError);
+  return () => {
+    unwatchGroup();
+    unwatchPlans();
+  };
+}
+
 // ---- 通知の設定 ----
 // 通知のコード（Firebase Messaging）は使うときだけ読み込む（対応していないブラウザで余計な読み込みをしない）
 const loadPush = () => import('./push.js');
@@ -3079,6 +3299,7 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
       onClick: () => (location.hash = `#/g/${groupId}/news`),
     },
     { label: '🎟 チケット・ごほうび', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
+    { label: '📝 テキスト予定表', onClick: () => (location.hash = `#/g/${groupId}/text`) },
     { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
     { label: '👥 メンバー ＞', onClick: () => groupMembersMenu(group, recoveryCodes, { ...options, back: () => groupMenu(group, recoveryCodes, options) }) },
     { label: '👤 このグループでのプロフィール', onClick: () => profileSheet({ group }) },
@@ -4092,6 +4313,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
       ),
       dayPlans.map(planRow),
       h('button', { class: 'sch-add', onClick: () => addPlan() }, '＋ この日に予定を追加'),
+      h('a', { class: 'sch-add', href: `#/g/${groupId}/text` }, '📝 テキストでまとめて書く'),
     ),
     undated.length > 0 &&
       h(
@@ -6163,6 +6385,7 @@ const routes = [
   [/^#\/news$/, () => [newsListView, {}]],
   [/^#\/g\/([\w-]+)\/stamps$/, (m) => [stampsView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/tickets$/, (m) => [ticketsView, { groupId: m[1] }]],
+  [/^#\/g\/([\w-]+)\/text$/, (m) => [textPlansView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/news$/, (m) => [newsListView, { groupId: m[1] }]],
 ];
 

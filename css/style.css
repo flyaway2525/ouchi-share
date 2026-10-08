@@ -3850,3 +3850,62 @@ select.text-input {
   border-color: #f5a623;
   color: #c27d00;
 }
+
+/* テキスト予定表 */
+.text-plans {
+  min-height: 260px;
+  margin: 8px 0;
+  padding: 12px 14px;
+  line-height: 1.7;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Hiragino Sans', monospace;
+  font-size: 16px;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.text-plans-help summary {
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.text-plans-help pre {
+  margin: 6px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.text-plans-result {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.text-plans-result li {
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.text-plans-result li.bad {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+}
+
+.text-plans-result small {
+  display: block;
+  margin-left: 1.5em;
+  color: var(--muted);
+}
+
+a.sch-add {
+  display: block;
+  text-align: left;
+}
