@@ -3687,6 +3687,9 @@ function groupView(root, { groupId }) {
   let events = null;
   let plans = null;
   let showPast = false;
+  let diary = null;
+  let diaryTags = null;
+  let diaryFilter = null; // 日記のタグの絞り込み（タグ ID）
 
   function renderBody() {
     if (!group || !lists || !events || !plans) return;
@@ -3718,7 +3721,7 @@ function groupView(root, { groupId }) {
     };
     // カレンダー・イベント・リストはタブで切り替える（最後に開いたタブを端末に保存）
     const tabKey = `groupTab:${groupId}`;
-    const tab = ['calendar', 'events', 'lists'].includes(prefs.get(tabKey)) ? prefs.get(tabKey) : 'calendar';
+    const tab = ['calendar', 'events', 'lists', 'diary'].includes(prefs.get(tabKey)) ? prefs.get(tabKey) : 'calendar';
     const tabBtn = (id, label, count = 0) =>
       h(
         'button',
@@ -3732,16 +3735,36 @@ function groupView(root, { groupId }) {
             renderBody();
           },
         },
-        label,
-        count > 0 && h('span', { class: 'tab-count' }, count),
+        // 4 つ並ぶので、絵文字を上・名前を下に分けて幅を詰める
+        h('span', { class: 'tab-emoji' }, label.split(' ')[0]),
+        h('span', { class: 'tab-label' }, label.split(' ').slice(1).join(' '), count > 0 && h('span', { class: 'tab-count' }, count)),
       );
     const tabs = h(
       'div',
-      { class: 'tabs', role: 'tablist' },
+      { class: 'tabs four', role: 'tablist' },
       tabBtn('calendar', '📅 カレンダー'),
       tabBtn('events', '✈️ イベント', active.length),
       tabBtn('lists', '📝 リスト', daily.length),
+      tabBtn('diary', '📔 日記'),
     );
+    if (tab === 'diary') {
+      setChildren(
+        body,
+        tabs,
+        diarySection({
+          groupId,
+          members: memberList(group),
+          diary: diary ?? [],
+          tags: diaryTags ?? [],
+          filter: diaryFilter,
+          setFilter: (id) => {
+            diaryFilter = id;
+            renderBody();
+          },
+        }),
+      );
+      return;
+    }
     if (tab === 'calendar') {
       setChildren(body, tabs, calendarSection({ groupId, group, events, lists, plans, rerender: renderBody }));
       return;
@@ -3848,6 +3871,32 @@ function groupView(root, { groupId }) {
     },
   );
 
+  // 日記とタグ（読めなくてもほかは使えるように、エラー時は空として扱う）
+  const unwatchDiary = store.watchDiary(
+    groupId,
+    (ds) => {
+      diary = ds;
+      renderBody();
+    },
+    (e) => {
+      console.warn('日記を読み込めませんでした', e);
+      diary = [];
+      renderBody();
+    },
+  );
+  const unwatchDiaryTags = store.watchDiaryTags(
+    groupId,
+    (ts) => {
+      diaryTags = ts;
+      if (diaryFilter && !ts.some((t) => t.id === diaryFilter)) diaryFilter = null;
+      renderBody();
+    },
+    () => {
+      diaryTags = [];
+      renderBody();
+    },
+  );
+
   return () => {
     clearInterval(ticker);
     unwatchRecovery?.();
@@ -3855,6 +3904,8 @@ function groupView(root, { groupId }) {
     unwatchLists();
     unwatchEvents();
     unwatchPlans();
+    unwatchDiary();
+    unwatchDiaryTags();
     unwatchNews();
     clearNewsSource(newsSourceId);
   };
@@ -3874,16 +3925,18 @@ function participantsLabel(members, participants) {
   return participants.map((u) => members.find((m) => m.uid === u)?.name ?? '（退出したメンバー）').join('、');
 }
 
-function participantPicker(members, selected = []) {
+// options.all = false：「全員」を出さない（日記のメンバーなど、選ばなければ「なし」のとき）
+function participantPicker(members, selected = [], { label = '参加者（選ばなければ全員）', all = true } = {}) {
   const chosen = new Set(selected.filter((u) => members.some((m) => m.uid === u)));
   const box = h('div', { class: 'people-picker' });
   const render = () =>
     setChildren(
       box,
-      h('span', { class: 'links-label' }, '参加者（選ばなければ全員）'),
+      h('span', { class: 'links-label' }, label),
       h(
         'div',
         { class: 'people-chips' },
+        all &&
         h(
           'button',
           {
@@ -3916,6 +3969,326 @@ function participantPicker(members, selected = []) {
     );
   render();
   return { el: box, value: () => [...chosen] };
+}
+
+// ---- 日記 ----
+// グループの「📔 日記」タブ。メンバー全員の日記を、日時の新しい順に並べる（日時がなければ書いた日時で並べる）。
+// 1 件ごとに、タイトル・日時（0.01 秒まで）・メンバー・タグ・内容をどれも好きなだけ入れられる（全部空は保存しない）。
+// タグは誰でも自由に作れる（日記を書く画面の「＋ タグを作る」、タブの「🏷 タグの管理」で名前の変更・削除）
+
+const p2 = (n) => String(n).padStart(2, '0');
+// いまの日時を 0.01 秒まで（「YYYY-MM-DDTHH:MM:SS.ss」）
+function diaryNow() {
+  const d = new Date();
+  return `${dateStr(d)}T${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}.${p2(Math.floor(d.getMilliseconds() / 10))}`;
+}
+
+// at → { date, time（HH:MM）, sec（SS.ss など。なければ ''）}
+function splitDiaryAt(at = '') {
+  const [date = '', rest = ''] = (at ?? '').split('T');
+  return { date, time: rest.slice(0, 5), sec: rest.slice(6) };
+}
+
+// 並べる順の基準：日時。なければ書いた日時
+function diarySortKey(e) {
+  if (e.at) return e.at;
+  const d = new Date(e.createdAt ?? 0);
+  return `${dateStr(d)}T${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+
+function fmtDiaryAt(at) {
+  if (!at) return '';
+  const { date, time, sec } = splitDiaryAt(at);
+  const [y] = date.split('-');
+  const head = `${y !== String(new Date().getFullYear()) ? `${y}/` : ''}${fmtDate(date)}`;
+  if (!time) return head;
+  return `${head} ${time}${sec ? `:${sec}` : ''}`;
+}
+
+function diarySection({ groupId, members, diary, tags, filter, setFilter }) {
+  const tagName = (id) => tags.find((t) => t.id === id)?.name;
+  const shown = diary.filter((e) => !filter || e.tags?.includes(filter)).sort((a, b) => diarySortKey(b).localeCompare(diarySortKey(a)));
+  const card = (e) => {
+    const people = (e.members ?? []).map((u) => members.find((m) => m.uid === u)).filter(Boolean);
+    const tagNames = (e.tags ?? []).map(tagName).filter(Boolean);
+    const writer = members.find((m) => m.uid === e.createdBy);
+    return h(
+      'button',
+      { class: 'diary-card', onClick: () => diaryDetailSheet(groupId, members, tags, e) },
+      h(
+        'span',
+        { class: 'diary-card-head' },
+        h('span', { class: 'diary-at' }, e.at ? fmtDiaryAt(e.at) : '日時なし'),
+        writer && h('span', { class: 'diary-writer' }, avatar(writer, 16), writer.name),
+      ),
+      e.title && h('span', { class: 'diary-title' }, e.title),
+      e.body && h('span', { class: 'diary-body' }, e.body),
+      (people.length > 0 || tagNames.length > 0) &&
+        h(
+          'span',
+          { class: 'diary-meta' },
+          people.map((m) => h('span', { class: 'diary-person' }, avatar(m, 16), m.name)),
+          tagNames.map((t) => h('span', { class: 'diary-tag' }, `#${t}`)),
+        ),
+    );
+  };
+  return [
+    tags.length > 0 &&
+      h(
+        'div',
+        { class: 'people-chips diary-filter' },
+        h('button', { type: 'button', class: `chip${!filter ? ' on' : ''}`, onClick: () => setFilter(null) }, 'すべて'),
+        tags.map((t) => h('button', { type: 'button', class: `chip${filter === t.id ? ' on' : ''}`, onClick: () => setFilter(filter === t.id ? null : t.id) }, `#${t.name}`)),
+      ),
+    shown.length === 0 && h('p', { class: 'empty small' }, filter ? 'このタグの日記はまだありません' : 'メンバーみんなの日記がここに並びます。最初の 1 つを書いてみましょう'),
+    h('div', { class: 'diary-list' }, shown.map(card)),
+    h('button', { class: 'add-card', onClick: () => writeDiary(groupId, members, tags) }, '＋ 日記を書く'),
+    h('button', { class: 'past-toggle', onClick: () => diaryTagsMenu(groupId, tags) }, `🏷 タグの管理（${tags.length}）`),
+  ];
+}
+
+async function writeDiary(groupId, members, tags, entry = null) {
+  const res = await diarySheet(groupId, members, tags, entry ?? { at: diaryNow() });
+  if (!res) return;
+  try {
+    if (entry) await store.updateDiary(groupId, entry.id, res);
+    else await store.createDiary(groupId, res);
+    toast(entry ? '日記を保存しました' : '日記を書きました');
+  } catch (e) {
+    showError(e);
+  }
+}
+
+function diaryDetailSheet(groupId, members, tags, e) {
+  const people = (e.members ?? []).map((u) => members.find((m) => m.uid === u)).filter(Boolean);
+  const tagNames = (e.tags ?? []).map((id) => tags.find((t) => t.id === id)?.name).filter(Boolean);
+  const writer = members.find((m) => m.uid === e.createdBy);
+  openSheet((close) => [
+    h('div', { class: 'sheet-title' }, e.title || '日記'),
+    h(
+      'div',
+      { class: 'diary-detail' },
+      h('div', { class: 'diary-at' }, e.at ? `🕐 ${fmtDiaryAt(e.at)}` : '🕐 日時なし'),
+      people.length > 0 && h('div', { class: 'diary-meta' }, people.map((m) => h('span', { class: 'diary-person' }, avatar(m, 16), m.name))),
+      tagNames.length > 0 && h('div', { class: 'diary-meta' }, tagNames.map((t) => h('span', { class: 'diary-tag' }, `#${t}`))),
+      e.body && h('div', { class: 'diary-body full' }, e.body),
+      h('div', { class: 'diary-by' }, `書いた人：${writer?.name ?? '（退出したメンバー）'} ・ ${fmtDateTime(e.updatedAt ?? e.createdAt)}`),
+    ),
+    h('button', { class: 'sheet-action', onClick: () => (close(true), writeDiary(groupId, members, tags, e)) }, '✏️ 編集'),
+    h(
+      'button',
+      {
+        class: 'sheet-action danger',
+        onClick: async () => {
+          close(undefined);
+          if (!(await confirmSheet('この日記を削除しますか？'))) return;
+          store.deleteDiary(groupId, e.id).then(() => toast('削除しました'), showError);
+        },
+      },
+      '削除',
+    ),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
+  ]);
+}
+
+// 日記を書く・直す画面。戻り値 { title, at, members, tags, body } / null
+function diarySheet(groupId, members, tags, initial = {}) {
+  const editing = !!initial.id;
+  return openSheet((close) => {
+    const title = h('input', { class: 'text-input', value: initial.title ?? '', placeholder: 'タイトル（なくてもOK）', maxlength: 100, 'aria-label': 'タイトル' });
+    // 日時：日付・時刻（時:分）・秒（0.01 秒まで）。どこまで入れるかは自由
+    const parts = splitDiaryAt(initial.at);
+    const date = h('input', { class: 'text-input', type: 'date', value: parts.date, 'aria-label': '日付' });
+    const time = h('input', { class: 'text-input', type: 'time', value: parts.time, 'aria-label': '時刻' });
+    const sec = h('input', { class: 'text-input', type: 'text', inputmode: 'decimal', value: parts.sec, placeholder: '秒', maxlength: 5, 'aria-label': '秒（0.01 秒まで）' });
+    const setAt = (at) => {
+      const p = splitDiaryAt(at);
+      date.value = p.date;
+      time.value = p.time;
+      sec.value = p.sec;
+    };
+    const whenRow = h(
+      'div',
+      { class: 'diary-when' },
+      h('span', { class: 'links-label' }, '日時（秒は 0.01 秒まで。なくてもOK）'),
+      h('div', { class: 'diary-when-inputs' }, date, time, sec),
+      h(
+        'div',
+        { class: 'people-chips' },
+        h('button', { type: 'button', class: 'chip', onClick: () => setAt(diaryNow()) }, '🕐 いま'),
+        h('button', { type: 'button', class: 'chip', onClick: () => setAt('') }, '日時なし'),
+      ),
+    );
+    const people = participantPicker(members, initial.members ?? [], { label: 'メンバー（なくてもOK）', all: false });
+    // タグ：選ぶ・その場で作る
+    const chosenTags = new Set(initial.tags ?? []);
+    let tagList = [...tags];
+    const tagBox = h('div', { class: 'people-picker' });
+    const renderTags = () =>
+      setChildren(
+        tagBox,
+        h('span', { class: 'links-label' }, 'タグ（なくてもOK）'),
+        h(
+          'div',
+          { class: 'people-chips' },
+          tagList.map((t) =>
+            h(
+              'button',
+              {
+                type: 'button',
+                class: `chip${chosenTags.has(t.id) ? ' on' : ''}`,
+                onClick: () => {
+                  if (chosenTags.has(t.id)) chosenTags.delete(t.id);
+                  else chosenTags.add(t.id);
+                  renderTags();
+                },
+              },
+              `#${t.name}`,
+            ),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'chip add',
+              onClick: async () => {
+                const name = await askInline('新しいタグ', '例：おでかけ、ごはん、成長');
+                if (!name) return;
+                const same = tagList.find((t) => t.name === name);
+                if (same) {
+                  chosenTags.add(same.id);
+                  return renderTags();
+                }
+                try {
+                  const id = await store.createDiaryTag(groupId, name);
+                  tagList = [...tagList, { id, name }];
+                  chosenTags.add(id);
+                  renderTags();
+                } catch (e) {
+                  showError(e);
+                }
+              },
+            },
+            '＋ タグを作る',
+          ),
+        ),
+      );
+    // タグの名前を、この画面の中（タグの下）で聞く（別のポップアップにすると書きかけの内容が消えるので）
+    function askInline(label, placeholder) {
+      return new Promise((resolve) => {
+        const input = h('input', { class: 'text-input', placeholder, maxlength: 30, enterkeyhint: 'done', 'aria-label': label });
+        const box = h('div', { class: 'diary-tag-new' });
+        const done = (v) => {
+          box.remove();
+          resolve(v ? cleanTagName(v) : null);
+        };
+        setChildren(
+          box,
+          input,
+          h('button', { type: 'button', class: 'btn', onClick: () => done(null) }, 'やめる'),
+          h('button', { type: 'button', class: 'btn primary', onClick: () => done(input.value) }, '作る'),
+        );
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.isComposing) {
+            e.preventDefault();
+            done(input.value);
+          }
+        });
+        tagBox.after(box);
+        input.focus();
+      });
+    }
+    renderTags();
+    const body = h('textarea', { class: 'text-input memo-input diary-input', placeholder: '日記の内容', maxlength: 10000, rows: 6, 'aria-label': '日記の内容' }, initial.body ?? '');
+    return [
+      h('div', { class: 'sheet-title' }, editing ? '日記を編集' : '日記を書く'),
+      h(
+        'form',
+        {
+          class: 'sheet-form',
+          onSubmit: (e) => {
+            e.preventDefault();
+            let at = '';
+            const s = sec.value.trim().replace(/[,，．]/, '.');
+            if (time.value && !date.value) return toast('時刻を入れるときは、日付も入れてください');
+            if (s && !time.value) return toast('秒を入れるときは、時刻も入れてください');
+            if (date.value) at = date.value;
+            if (time.value) at += `T${time.value.slice(0, 5)}`;
+            if (s) {
+              const m = s.match(/^(\d{1,2})(?:\.(\d{1,2}))?$/);
+              if (!m || Number(m[1]) > 59) return toast('秒は 0〜59.99 で入れてください（0.01 秒まで）');
+              at += `:${p2(m[1])}${m[2] ? `.${m[2].padEnd(2, '0')}` : ''}`;
+            }
+            const res = {
+              title: title.value.trim(),
+              at,
+              members: people.value(),
+              tags: [...chosenTags].filter((id) => tagList.some((t) => t.id === id)),
+              body: body.value.trim(),
+            };
+            if (!res.title && !res.body && !res.at && !res.members.length && !res.tags.length) return toast('どれか 1 つは入れてください');
+            close(res);
+          },
+        },
+        title,
+        whenRow,
+        people.el,
+        tagBox,
+        body,
+        h(
+          'div',
+          { class: 'sheet-buttons' },
+          h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+          h('button', { type: 'submit', class: 'btn primary' }, editing ? '保存' : '書く'),
+        ),
+      ),
+    ];
+  });
+}
+
+// タグの名前（# は付けなくてよい。付けても外す）
+function cleanTagName(v) {
+  return v.replace(/^[#＃]+/, '').trim().slice(0, 30) || null;
+}
+
+async function askTagName(value = '') {
+  const name = await askText({ title: value ? 'タグの名前を変える' : '新しいタグ', value, placeholder: '例：おでかけ、ごはん、成長', okLabel: value ? '変更' : '作る' });
+  return name ? cleanTagName(name) : null;
+}
+
+function diaryTagsMenu(groupId, tags) {
+  actionSheet('🏷 日記のタグ', [
+    {
+      label: '＋ タグを作る',
+      onClick: async () => {
+        const name = await askTagName();
+        if (!name) return;
+        if (tags.some((t) => t.name === name)) return toast('同じ名前のタグがあります');
+        store.createDiaryTag(groupId, name).then(() => toast(`「#${name}」を作りました`), showError);
+      },
+    },
+    ...tags.map((t) => ({
+      label: `#${t.name}`,
+      onClick: () =>
+        actionSheet(`#${t.name}`, [
+          {
+            label: '✏️ 名前を変える',
+            onClick: async () => {
+              const name = await askTagName(t.name);
+              if (name && name !== t.name) store.renameDiaryTag(groupId, t.id, name).then(() => toast('変更しました'), showError);
+            },
+          },
+          {
+            label: '削除',
+            danger: true,
+            onClick: async () => {
+              if (!(await confirmSheet(`「#${t.name}」を削除しますか？（日記は消えず、このタグが外れます）`))) return;
+              store.deleteDiaryTag(groupId, t.id).then(() => toast('削除しました'), showError);
+            },
+          },
+        ]),
+    })),
+  ]);
 }
 
 // ---- 普段の予定（歯医者など）の追加・編集シート ----

@@ -4234,3 +4234,161 @@ body:has(.cal-multi-bar) .fab-wrap.global {
   border-radius: 12px;
   border: 1px solid var(--border);
 }
+
+/* ---- 日記 ---- */
+/* タブが 4 つになったので少し詰める */
+.tabs.four {
+  gap: 2px;
+}
+
+.tabs.four .tab {
+  flex-direction: column;
+  gap: 0;
+  min-height: 48px;
+  padding: 4px 2px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.tabs.four .tab-emoji {
+  font-size: 18px;
+}
+
+.tabs.four .tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.tabs.four .tab-count {
+  min-width: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+}
+
+.diary-filter {
+  margin-bottom: 12px;
+}
+
+.diary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.diary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.diary-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.diary-at {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.diary-writer,
+.diary-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.diary-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.diary-body {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.diary-body.full {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.diary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.diary-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.diary-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.diary-by {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.diary-when {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diary-when-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.7fr);
+  gap: 6px;
+}
+
+.diary-when-inputs .text-input {
+  min-width: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.diary-tag-new {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.diary-input {
+  min-height: 140px;
+}
+
+.chip.add {
+  border-style: dashed;
+  color: var(--accent);
+}

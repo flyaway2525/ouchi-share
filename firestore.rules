@@ -456,6 +456,44 @@ service cloud.firestore {
         allow create, update: if isGroupMember() && isValidPlan(request.resource.data);
         allow delete: if isGroupMember();
       }
+
+      // ---- 日記（どの項目も空でよい。メンバーなら誰でも読み書きできる） ----
+      match /diary/{entryId} {
+        function isGroupMember() {
+          return signedIn()
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        }
+
+        function isValidDiary(d) {
+          return d.keys().hasOnly(['title', 'at', 'members', 'tags', 'body', 'createdAt', 'createdBy', 'updatedAt'])
+            && d.title is string && d.title.size() <= 100
+            // 日付だけ・時刻まで・0.01 秒まで（空ならなし）
+            && d.at is string
+            && (d.at == '' || d.at.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]{1,2})?)?)?$'))
+            && d.members is list && d.members.size() <= 100
+            && d.tags is list && d.tags.size() <= 50
+            && d.body is string && d.body.size() <= 10000;
+        }
+
+        allow read: if isGroupMember();
+        allow create: if isGroupMember() && isValidDiary(request.resource.data) && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isGroupMember() && isValidDiary(request.resource.data) && request.resource.data.createdBy == resource.data.createdBy;
+        allow delete: if isGroupMember();
+      }
+
+      // ---- 日記のタグ（自由に作れる） ----
+      match /diaryTags/{tagId} {
+        function isGroupMember() {
+          return signedIn()
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        }
+
+        allow read: if isGroupMember();
+        allow create, update: if isGroupMember()
+          && request.resource.data.keys().hasOnly(['name', 'createdAt', 'createdBy'])
+          && isNonEmptyString(request.resource.data.name, 30);
+        allow delete: if isGroupMember();
+      }
     }
   }
 }

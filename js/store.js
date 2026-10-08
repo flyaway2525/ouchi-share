@@ -159,15 +159,17 @@ export function inviteUrl(group) {
 }
 
 export async function deleteGroup(groupId) {
-  const [lists, events, plans, news, bonus] = await Promise.all([
+  const [lists, events, plans, news, bonus, diary, diaryTags] = await Promise.all([
     getDocs(listsCol(groupId)),
     getDocs(eventsCol(groupId)),
     getDocs(plansCol(groupId)),
     getDocs(groupNewsCol(groupId)),
     getDocs(collection(db, 'groups', groupId, 'bonus')),
+    getDocs(collection(db, 'groups', groupId, 'diary')),
+    getDocs(collection(db, 'groups', groupId, 'diaryTags')),
   ]);
   const batch = writeBatch(db);
-  for (const snap of [lists, events, plans, news, bonus]) snap.forEach((d) => batch.delete(d.ref));
+  for (const snap of [lists, events, plans, news, bonus, diary, diaryTags]) snap.forEach((d) => batch.delete(d.ref));
   batch.delete(groupRef(groupId));
   await batch.commit();
 }
@@ -854,4 +856,49 @@ export async function getBonus(groupId, userId = uid()) {
 export async function getGroupBonus(groupId) {
   const snap = await getDocs(collection(db, 'groups', groupId, 'bonus'));
   return Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]));
+}
+
+// ---- 日記 ----
+// groups/{id}/diary：タイトル・日時（at）・メンバー（uid の配列）・タグ（タグ ID の配列）・本文。どれも空でよい（全部空は画面で止める）。
+// at は「YYYY-MM-DD」「YYYY-MM-DDTHH:MM」「YYYY-MM-DDTHH:MM:SS.ss」（0.01 秒まで）の文字列。文字列のまま並べ替えられる。
+// groups/{id}/diaryTags：自由に作れるタグ（名前だけ）。メンバーなら誰でも書く・直す・消すことができる
+const diaryCol = (groupId) => collection(db, 'groups', groupId, 'diary');
+const diaryRef = (groupId, id) => doc(db, 'groups', groupId, 'diary', id);
+const diaryTagsCol = (groupId) => collection(db, 'groups', groupId, 'diaryTags');
+const diaryTagRef = (groupId, id) => doc(db, 'groups', groupId, 'diaryTags', id);
+
+export function watchDiary(groupId, cb, onError) {
+  return onSnapshot(diaryCol(groupId), (snap) => cb(snap.docs.map(withId)), onError);
+}
+
+export async function createDiary(groupId, entry) {
+  const id = newId();
+  await setDoc(diaryRef(groupId, id), { ...entry, createdAt: Date.now(), createdBy: uid(), updatedAt: Date.now() });
+  return id;
+}
+
+export async function updateDiary(groupId, id, patch) {
+  await updateDoc(diaryRef(groupId, id), { ...patch, updatedAt: Date.now() });
+}
+
+export async function deleteDiary(groupId, id) {
+  await deleteDoc(diaryRef(groupId, id));
+}
+
+export function watchDiaryTags(groupId, cb, onError) {
+  return onSnapshot(diaryTagsCol(groupId), (snap) => cb(snap.docs.map(withId).sort(byCreatedAt)), onError);
+}
+
+export async function createDiaryTag(groupId, name) {
+  const id = newId();
+  await setDoc(diaryTagRef(groupId, id), { name, createdAt: Date.now(), createdBy: uid() });
+  return id;
+}
+
+export async function renameDiaryTag(groupId, id, name) {
+  await updateDoc(diaryTagRef(groupId, id), { name });
+}
+
+export async function deleteDiaryTag(groupId, id) {
+  await deleteDoc(diaryTagRef(groupId, id));
 }
