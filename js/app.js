@@ -2988,13 +2988,22 @@ function membersSheet(group, recoveryCodes = {}) {
 
 // グループのメニュー（グループの画面の ⋯ と、ホームのグループのカードで共通）。
 // options.asWindow で、下から出るシートではなく画面の真ん中に浮かぶウィンドウとして出す（ホームのカードから）
-// グループの管理（オーナー・管理者だけの機能をまとめたメニュー）。メンバー系・報酬系はもう 1 段下のメニューにまとめる。
+// グループの管理（メンバー全員が開ける。グループ名の変更は全員、それ以外はオーナー・管理者だけ）。
+// メンバー系・報酬系はもう 1 段下のメニューにまとめる。
 // 下の段で「‹ 戻る」を押すとひとつ上の段へ（options.back）
 function groupAdminMenu(group, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
+  const manager = isManager(group);
   actionSheet(`🛠 ${group.name}の管理`, [
     {
+      label: '✏️ グループ名を変更',
+      onClick: async () => {
+        const name = await askText({ title: 'グループ名を変更', value: group.name, okLabel: '保存' });
+        if (name) store.renameGroup(groupId, name).catch(showError);
+      },
+    },
+    manager && {
       label: '📢 管理者お知らせを書く',
       onClick: () => {
         location.hash = `#/g/${groupId}/news`;
@@ -3002,8 +3011,8 @@ function groupAdminMenu(group, options = {}) {
         setTimeout(() => groupNewsWriter?.(true), 300);
       },
     },
-    { label: '👥 メンバーの管理 ＞', onClick: () => groupMembersAdminMenu(group, { ...options, back: () => groupAdminMenu(group, options) }) },
-    { label: '🎁 報酬の管理 ＞', onClick: () => groupRewardsAdminMenu(group, { ...options, back: () => groupAdminMenu(group, options) }) },
+    manager && { label: '👥 メンバーの管理 ＞', onClick: () => groupMembersAdminMenu(group, { ...options, back: () => groupAdminMenu(group, options) }) },
+    manager && { label: '🎁 報酬の管理 ＞', onClick: () => groupRewardsAdminMenu(group, { ...options, back: () => groupAdminMenu(group, options) }) },
     owner && {
       label: 'グループを削除（オーナーだけ）',
       danger: true,
@@ -3064,7 +3073,7 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
   actionSheet(group.name, [
-    isManager(group) && { label: '🛠 グループの管理（オーナー・管理者だけ）', onClick: () => groupAdminMenu(group, { ...options, back: () => groupMenu(group, recoveryCodes, options) }) },
+    { label: '🛠 グループの管理 ＞', onClick: () => groupAdminMenu(group, { ...options, back: () => groupMenu(group, recoveryCodes, options) }) },
     {
       label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
       onClick: () => (location.hash = `#/g/${groupId}/news`),
@@ -3073,13 +3082,6 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
     { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
     { label: '👥 メンバー ＞', onClick: () => groupMembersMenu(group, recoveryCodes, { ...options, back: () => groupMenu(group, recoveryCodes, options) }) },
     { label: '👤 このグループでのプロフィール', onClick: () => profileSheet({ group }) },
-    {
-      label: 'グループ名を変更',
-      onClick: async () => {
-        const name = await askText({ title: 'グループ名を変更', value: group.name, okLabel: '保存' });
-        if (name) store.renameGroup(groupId, name).catch(showError);
-      },
-    },
     !owner && { label: 'グループから退出', danger: true, onClick: () => leaveGroup(group) },
   ].filter(Boolean), options);
 }
