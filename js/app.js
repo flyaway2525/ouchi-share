@@ -9,7 +9,7 @@ const EVENT_EMOJIS = ['✈️', '🏕️', '🚗', '🏖️', '♨️', '🎿', 
 
 let user; // undefined = 確認中, null = 未ログイン
 let isAdmin = false; // グループを作れる人（許可リスト admins/{uid}）
-let isDeveloper = false; // アプリ開発者（admins/{uid} に developer: true）。管理者ダッシュボードはこの人だけ
+let isDeveloper = false; // アプリ開発者（いつもの開発者 DEVELOPER_UIDS か、admins/{uid} に developer: true）。管理者ダッシュボードはこの人だけ
 let unwatchAdmin = null;
 // ログイン処理の途中（名前の設定など）で画面が切り替わらないようにする
 let authBusy = false;
@@ -7857,9 +7857,10 @@ auth.watchUser((u) => {
   unwatchAdmin?.();
   unwatchAdmin = null;
   isAdmin = false;
-  isDeveloper = false;
+  isDeveloper = !!u && store.DEVELOPER_UIDS.includes(u.uid);
   if (u && !u.isAnonymous) {
     unwatchAdmin = store.watchIsAdmin(u.uid, ({ admin, developer }) => {
+      developer ||= store.DEVELOPER_UIDS.includes(u.uid);
       if (admin === isAdmin && developer === isDeveloper) return;
       isAdmin = admin;
       isDeveloper = developer;

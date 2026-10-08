@@ -24,9 +24,11 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
-    // アプリ開発者（admins/{uid} に developer: true）。管理者ダッシュボード・アプリからのお知らせ・利用状況・アプリ共通の設定
+    // アプリ開発者：いつもの開発者（たくと。js/firebase.js の DEVELOPER_UIDS と同じ）か、admins/{uid} に developer: true の人。
+    // 管理者ダッシュボード・アプリからのお知らせ・利用状況・アプリ共通の設定
     function isDeveloper() {
-      return isAdmin() && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.get('developer', false) == true;
+      return signedIn() && (request.auth.uid in ['byvX0eZcw2NfH89fzU5DalXqKGk1']
+        || (isAdmin() && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.get('developer', false) == true));
     }
 
     function isNonEmptyString(v, max) {

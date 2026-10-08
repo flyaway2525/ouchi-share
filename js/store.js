@@ -36,9 +36,9 @@ import {
   where,
   writeBatch,
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
-import { db, WEB_URL } from './firebase.js';
+import { db, WEB_URL, DEVELOPER_UIDS } from './firebase.js';
 
-export { WEB_URL };
+export { WEB_URL, DEVELOPER_UIDS };
 import { currentUser, displayName, isGuest } from './auth.js';
 
 const groupRef = (groupId) => doc(db, 'groups', groupId);

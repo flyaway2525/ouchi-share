@@ -24,6 +24,9 @@ const firebaseConfig = {
 // NOTIFY_URL：通知を送る Cloudflare Workers の URL（worker/ を公開すると決まる）
 // どちらかが空のあいだは、通知の設定画面に「準備中」と出て、通知は送らない
 export const VAPID_KEY = 'BCwRG2xTpB5gK3gFr-LwrmWhSPfuW5X65XyYh3rK_8qAUnxlIXGQ4nPsS_rJDfqKKfkzF4iPFrlNu3Bfz531NJU';
+// いつものアプリ開発者（管理者ダッシュボードなど。ルール・Workers にも同じ uid を書いている）。
+// ほかの人を足すときは、Firestore の admins/{uid} に developer: true を付ける
+export const DEVELOPER_UIDS = ['byvX0eZcw2NfH89fzU5DalXqKGk1'];
 export const NOTIFY_URL = 'https://ouchi-share-notify.flyaway2525.workers.dev/';
 
 // iPhone アプリ版（Capacitor）の中で動いているか。アプリの中では window.Capacitor が用意される

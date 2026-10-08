@@ -20,6 +20,8 @@
 const PROJECT_ID = 'ouchi-share';
 const FIRESTORE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const ALLOWED_ORIGINS = ['https://flyaway2525.github.io', 'http://localhost:5173', 'capacitor://localhost', 'ionic://localhost'];
+// いつものアプリ開発者（アプリの js/firebase.js の DEVELOPER_UIDS と同じ）
+const DEVELOPER_UIDS = ['byvX0eZcw2NfH89fzU5DalXqKGk1'];
 const PREF_FOR_KIND = { news: 'news', appnews: 'news', plan: 'plans', reward: 'news', reminder: 'reminders', test: null };
 
 export default {
@@ -93,8 +95,8 @@ async function handleNotify(env, sender, req) {
 
   let recipients;
   if (kind === 'appnews') {
-    // アプリからのお知らせ：アプリ開発者（admins/{uid} に developer: true）だけが、全員に送れる
-    if ((await getDoc(token, `admins/${sender}`))?.developer !== true) throw fail(403, 'not-developer');
+    // アプリからのお知らせ：アプリ開発者（いつもの開発者か、admins/{uid} に developer: true）だけが、全員に送れる
+    if (!DEVELOPER_UIDS.includes(sender) && (await getDoc(token, `admins/${sender}`))?.developer !== true) throw fail(403, 'not-developer');
     recipients = (await listDocs(token, 'push')).map((d) => d.id);
   } else {
     const group = await getDoc(token, `groups/${String(req.groupId ?? '')}`);

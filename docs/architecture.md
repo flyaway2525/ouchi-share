@@ -57,7 +57,7 @@ flowchart LR
 |---|---|---|
 | Firebase の設定値（apiKey など）・VAPID の公開鍵 | よい（ルールで守る前提の値） | `js/firebase.js` |
 | Firebase のサービスアカウントキー | **だめ** | Cloudflare の秘密の値 `FIREBASE_SERVICE_ACCOUNT`（`npx wrangler secret put`）だけ。リポジトリ・会話には出さない。登録はユーザーが行う |
-| 管理者の許可リスト | uid だけ（メールアドレスは載せない） | Firestore の `admins/{uid}`（コンソールから手で追加）。`developer: true` ならアプリ開発者 |
+| 管理者の許可リスト | uid だけ（メールアドレスは載せない） | Firestore の `admins/{uid}`（コンソールから手で追加）。`developer: true` ならアプリ開発者。いつもの開発者の uid は `DEVELOPER_UIDS`（js/firebase.js・firestore.rules・worker/src/index.js） |
 
 ## 公開・反映のしかた
 
