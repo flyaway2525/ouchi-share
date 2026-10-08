@@ -692,10 +692,11 @@ export async function updateMoneyEntry(groupId, listId, itemId, patch) {
 // ---- アイテム ----
 // アイテムごとにフィールド単位で更新するので、別の人が同時に別のアイテムを触っても上書きし合わない
 
-export async function addItem(groupId, listId, text) {
+// url：リンク付きのアイテム（なくてもよい）
+export async function addItem(groupId, listId, text, url = '') {
   const id = newId();
   await updateDoc(listRef(groupId, listId), {
-    [`items.${id}`]: { text, checked: false, createdAt: Date.now() },
+    [`items.${id}`]: { text, checked: false, createdAt: Date.now(), ...(url ? { url } : {}) },
   });
   return id;
 }

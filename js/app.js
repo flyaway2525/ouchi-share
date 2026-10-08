@@ -5206,7 +5206,7 @@ function listCard(groupId, l) {
                       checked: item.checked,
                       onChange: (e) => store.setItemChecked(groupId, l.id, item.id, e.target.checked).catch(showError),
                     }),
-                    h('span', { class: 'item-text' }, item.text),
+                    h('span', { class: 'item-text' }, item.url ? `🔗 ${itemTitle(item)}` : item.text),
                   ),
                 ),
               ),
@@ -5877,7 +5877,12 @@ function enableRepeatPress(btn, step) {
   });
 }
 const WISH_STATUS = Object.fromEntries(Object.values(WISH_KINDS).flatMap((k) => k.statuses.map(([id, label]) => [id, label])));
-const wishKind = (list) => WISH_KINDS[list?.variant] ?? WISH_KINDS.buy;
+// 通常のリスト（チェックリスト）も「📋 リンクを登録」の登録先になる（名前と URL だけ。写真・場所はなし）
+const CHECK_KIND = { placeholder: 'アイテム名（例：電池）', noPhoto: true, statuses: [] };
+const isChecklist = (list) => (list?.type ?? 'checklist') === 'checklist';
+const wishKind = (list) => (list && isChecklist(list) ? CHECK_KIND : (WISH_KINDS[list?.variant] ?? WISH_KINDS.buy));
+// チェックリストのアイテムの表示名（URL だけでタイトルがまだ取れていないときは、サイト名）
+const itemTitle = (item) => item.text || (item.url ? shopLabel(item.url) : '');
 // 「＋ リストを追加」のひな形
 const WISH_TEMPLATES = [
   { variant: 'place', emoji: '📍', title: '行きたいところ' },
@@ -6003,7 +6008,7 @@ function wishSheet(groupId, initial = {}, { editing = false, list = null, target
         text.value = info.title;
         filled = true;
       }
-      if (info?.image && !hasPhoto()) {
+      if (info?.image && !hasPhoto() && !wishKind(target).noPhoto) {
         photo = { action: 'new', data: info.image };
         renderPhoto();
         filled = true;
@@ -6021,6 +6026,7 @@ function wishSheet(groupId, initial = {}, { editing = false, list = null, target
       text.placeholder = kind.placeholder;
       place.style.display = kind.place ? '' : 'none';
       howChips.style.display = kind.how ? '' : 'none';
+      photoBox.style.display = kind.noPhoto ? 'none' : '';
       title.textContent = editing ? `「${wishTitle(initial)}」を編集` : targets ? '📋 リンクを登録' : `${target.emoji} ${target.title}に追加`;
       if (targets) {
         setChildren(
@@ -6054,13 +6060,13 @@ function wishSheet(groupId, initial = {}, { editing = false, list = null, target
             e.preventDefault();
             const u = url.value.trim() ? normalizeUrl(url.value) : '';
             if (u === null) return toast('http:// か https:// で始まるリンクを入れてください');
-            if (!text.value.trim() && !u && !hasPhoto()) return toast('名前・URL・写真のどれかを入れてください');
             const kind = wishKind(target);
+            if (!text.value.trim() && !u && (kind.noPhoto || !hasPhoto())) return toast(kind.noPhoto ? '名前か URL を入れてください' : '名前・URL・写真のどれかを入れてください');
             close({
               listId: target?.id ?? null,
               text: text.value.trim(),
               url: u,
-              photo,
+              photo: kind.noPhoto ? { action: 'keep', data: null } : photo,
               place: kind.place ? place.value.trim() : (initial.place ?? ''),
               how: kind.how ? how : (initial.how ?? ''),
             });
@@ -6212,10 +6218,11 @@ async function registerLink(groupId) {
   } catch (e) {
     return showError(e);
   }
+  // 登録先：欲しいもの系のリストと通常のリスト（チェックリスト）。イベントのリストは後ろ、同じなら欲しいもの系が先
   const targets = lists
-    .filter((l) => l.type === 'wish')
+    .filter((l) => l.type === 'wish' || isChecklist(l))
     .map((l) => ({ ...l, eventTitle: l.eventId ? events.find((e) => e.id === l.eventId)?.title ?? '' : '' }))
-    .sort((a, b) => Number(!!a.eventId) - Number(!!b.eventId));
+    .sort((a, b) => Number(!!a.eventId) - Number(!!b.eventId) || Number(isChecklist(a)) - Number(isChecklist(b)));
   if (!targets.length) {
     toast('先に「行きたいところ」などのリストを作りましょう');
     return addListMenu(groupId);
@@ -6228,7 +6235,8 @@ async function registerLink(groupId) {
   prefs.set(lastKey, res.listId);
   const dest = targets.find((l) => l.id === res.listId);
   try {
-    await saveNewWish(groupId, res.listId, res);
+    if (isChecklist(dest)) await store.addItem(groupId, res.listId, res.text, res.url);
+    else await saveNewWish(groupId, res.listId, res);
     toast(`「${dest.title}」に登録しました`);
   } catch (e) {
     showError(e);
@@ -6964,7 +6972,12 @@ function moneyView(root, { groupId, listId }) {
 function checklistView(root, { groupId, listId }) {
   const top = h('div', { class: 'topbar-wrap' });
   const body = h('main', { class: 'content with-footer' });
-  const input = h('input', { class: 'text-input', placeholder: 'アイテムを追加', maxlength: 100, enterkeyhint: 'enter', 'aria-label': 'アイテムを追加' });
+  const input = h('input', { class: 'text-input', placeholder: 'アイテム・URL を追加', maxlength: 2100, enterkeyhint: 'enter', 'aria-label': 'アイテムを追加' });
+  // URL だけで追加したら、あとからリンクのタイトルを名前に入れる
+  const fillTitle = async (itemId, url) => {
+    const info = await fetchLinkInfo(groupId, url);
+    if (info?.title) store.patchListItem(groupId, listId, itemId, { text: info.title.slice(0, 100) }).catch(() => {});
+  };
   // 入力欄は再描画しない（連続入力中にフォーカスが外れないように）
   const footer = h(
     'form',
@@ -6972,12 +6985,14 @@ function checklistView(root, { groupId, listId }) {
       class: 'add-bar',
       onSubmit: (e) => {
         e.preventDefault();
-        const text = input.value.trim();
-        if (!text) return;
+        const raw = input.value.trim();
+        if (!raw) return;
+        // URL が入っていればリンク付きのアイテムに（URL 以外の文字が名前）
+        const { text, url } = splitUrl(raw);
         input.value = '';
         input.focus();
         // オフラインでも手元にはすぐ反映されるので、完了を待たない
-        store.addItem(groupId, listId, text).catch(showError);
+        store.addItem(groupId, listId, text.slice(0, 100), url).then((id) => url && !text && fillTitle(id, url), showError);
       },
     },
     input,
@@ -7062,11 +7077,12 @@ function checklistView(root, { groupId, listId }) {
                   checked: item.checked,
                   onChange: (e) => store.setItemChecked(groupId, listId, item.id, e.target.checked).catch(showError),
                 }),
-                h('span', { class: 'item-text' }, item.text),
+                h('span', { class: 'item-text' }, itemTitle(item)),
               ),
+              item.url && h('a', { class: 'item-link', href: item.url, target: '_blank', rel: 'noopener noreferrer', 'data-nodrag': '' }, shopLabel(item.url)),
               h(
                 'button',
-                { class: 'item-delete', 'data-nodrag': '', 'aria-label': `${item.text} を削除`, onClick: () => store.deleteItem(groupId, listId, item.id).catch(showError) },
+                { class: 'item-delete', 'data-nodrag': '', 'aria-label': `${itemTitle(item)} を削除`, onClick: () => store.deleteItem(groupId, listId, item.id).catch(showError) },
                 '×',
               ),
             ),
