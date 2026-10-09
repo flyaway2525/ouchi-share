@@ -4843,3 +4843,32 @@ a.btn.wide {
   color: var(--accent);
   text-decoration: none;
 }
+
+/* メンバー一覧：左にフリックすると「🎒 アイテム」（ホームのカードと同じ動き） */
+.member-list li.member-swipe {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+}
+
+.member-swipe > .member-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.member-swipe > .member-row.snap {
+  transition: transform 0.28s cubic-bezier(0.25, 0.9, 0.3, 1.05);
+}
+
+.swipe-action.items {
+  background: #d4a800;
+}

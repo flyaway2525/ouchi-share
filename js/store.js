@@ -749,8 +749,9 @@ export async function claimDailyBonus(groupId, today, yesterday, pick, schedule 
   });
 }
 
-export function watchBonus(groupId, cb, onError) {
-  return onSnapshot(bonusRef(groupId, uid()), (snap) => cb(snap.exists() ? snap.data() : null), onError);
+// userId を渡すとその人の記録（メンバーはみんなの記録を読める）
+export function watchBonus(groupId, cb, onError, userId = uid()) {
+  return onSnapshot(bonusRef(groupId, userId), (snap) => cb(snap.exists() ? snap.data() : null), onError);
 }
 
 // ---- チケットの配布表（グループごと。オーナー・管理者が決める） ----

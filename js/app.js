@@ -598,17 +598,26 @@ function itemSheet(item, count) {
   ]);
 }
 
-function itemsView(root, { groupId }) {
+// uid を渡すと、その人のアイテムボックス（見るだけ。ほかの人の持ち物も見られる）
+function itemsView(root, { groupId, uid = null }) {
+  const other = uid && uid !== user.uid;
   const top = h('div', { class: 'topbar-wrap' }, header({ title: '🎒 アイテムボックス', back: `#/g/${groupId}` }));
   const body = h('main', { class: 'content' }, h('p', { class: 'empty small' }, '読み込み中…'));
   root.append(top, body);
   let inv;
+  // ほかの人のときは、見出しにその人の名前（グループのデータから）
+  if (other) {
+    store.fetchGroup(groupId).then((g) => {
+      const name = g?.members?.[uid]?.name;
+      if (name) setChildren(top, header({ title: `🎒 ${name} さんのアイテム`, back: `#/g/${groupId}` }));
+    }, () => {});
+  }
   const render = () => {
     if (inv === undefined) return;
     const owned = ITEMS.filter((i) => (inv[i.id] ?? 0) > 0);
     setChildren(
       body,
-      h('p', { class: 'sch-hint' }, `持っているアイテム ${owned.length} / ${ITEMS.length} 種類。押すと説明が見られます`),
+      h('p', { class: 'sch-hint' }, `${other ? 'この人が' : ''}持っているアイテム ${owned.length} / ${ITEMS.length} 種類。押すと説明が見られます`),
       h(
         'div',
         { class: 'item-grid' },
@@ -626,7 +635,7 @@ function itemsView(root, { groupId }) {
             );
           }),
       ),
-      h('a', { class: 'btn wide', href: `#/g/${groupId}/tickets` }, '🎟 チケットをごほうびと交換する'),
+      !other && h('a', { class: 'btn wide', href: `#/g/${groupId}/tickets` }, '🎟 チケットをごほうびと交換する'),
     );
   };
   return store.watchBonus(
@@ -639,6 +648,7 @@ function itemsView(root, { groupId }) {
       showError(e);
       location.hash = `#/g/${groupId}`;
     },
+    uid ?? user.uid,
   );
 }
 
@@ -1807,6 +1817,7 @@ function memberView(root, { groupId, uid }) {
                 h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, fmtDate(p.date)), h('span', { class: 'pv-text' }, `${p.start ? `${p.start} ` : ''}${p.title}${p.participants?.length ? '' : '（全員）'}`)),
               ),
             ),
+      h('a', { class: 'btn wide', href: `#/g/${groupId}/items/${uid}` }, '🎒 持っているアイテムを見る'),
       self && h('a', { class: 'btn primary wide', href: `#/g/${groupId}/profile` }, '✏️ このグループでのプロフィールを編集'),
       self && h('a', { class: 'btn wide', href: '#/profile' }, '🌐 全体の設定'),
       owner && !self && m.role !== 'owner' && h('button', { class: 'btn wide', onClick: () => memberMenu(group, uid, m) }, '🛠 メンバーの管理（管理者にする・外す）'),
@@ -2853,8 +2864,9 @@ document.addEventListener(
   true,
 );
 
-function enableCardGestures(wrap, onLongPress) {
-  const card = wrap.querySelector('.card');
+// target：左に動かす要素（ホームのカードは .card、メンバー一覧は .member-row）。onLongPress がなければ長押しは何もしない
+function enableCardGestures(wrap, onLongPress = null, { target = '.card' } = {}) {
+  const card = wrap.querySelector(target);
   const actions = wrap.querySelector('.swipe-actions');
   const width = () => actions.offsetWidth;
   const setX = (x, animate) => {
@@ -2897,7 +2909,7 @@ function enableCardGestures(wrap, onLongPress) {
     let swiping = false;
     let pressed = false;
     let dx = 0;
-    const timer = wasOpen
+    const timer = wasOpen || !onLongPress
       ? null
       : setTimeout(() => {
           pressed = true;
@@ -3967,11 +3979,21 @@ function membersSheet(group, recoveryCodes = {}) {
     h(
       'ul',
       { class: 'member-list' },
+      // 左にフリックすると「🎒 アイテム」（その人の持っているアイテム。ほかの人のも見られる）
       members.map(([id, m]) =>
+        enableCardGestures(
+          h(
+            'li',
+            { class: 'swipe-wrap member-swipe' },
+            h(
+              'div',
+              { class: 'swipe-actions' },
+              h('button', { class: 'swipe-action items', onClick: () => (close(null), (location.hash = `#/g/${group.id}/items/${id}`)) }, h('span', {}, '🎒'), 'アイテム'),
+            ),
         h(
-          'li',
+          'div',
           // 押すとメンバーの確認画面（管理はそこから）
-          { class: `is-tappable${id === user.uid ? ' is-me' : ''}`, onClick: () => (close(null), (location.hash = `#/g/${group.id}/m/${id}`)) },
+          { class: `member-row is-tappable${id === user.uid ? ' is-me' : ''}`, onClick: () => (close(null), (location.hash = `#/g/${group.id}/m/${id}`)) },
           h('span', { class: 'avatar-wrap' }, avatar({ uid: id, ...m }, 34), onlineDot(store.isOnline(m.lastSeen))),
           h(
             'span',
@@ -4007,6 +4029,10 @@ function membersSheet(group, recoveryCodes = {}) {
               },
               recoveryCodes[id] ? '復旧ID' : '復旧IDを発行',
             ),
+        ),
+          ),
+          null,
+          { target: '.member-row' },
         ),
       ),
     ),
@@ -8483,6 +8509,7 @@ const routes = [
   [/^#\/g\/([\w-]+)\/stamps$/, (m) => [stampsView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/tickets$/, (m) => [ticketsView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/items$/, (m) => [itemsView, { groupId: m[1] }]],
+  [/^#\/g\/([\w-]+)\/items\/([\w-]+)$/, (m) => [itemsView, { groupId: m[1], uid: m[2] }]],
   [/^#\/g\/([\w-]+)\/text$/, (m) => [textPlansView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/news$/, (m) => [newsListView, { groupId: m[1] }]],
 ];
