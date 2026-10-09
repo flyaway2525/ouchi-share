@@ -2,6 +2,7 @@ import * as store from './store.js';
 import * as auth from './auth.js';
 import { h, setChildren, header, progressBar, actionSheet, confirmSheet, askText, openSheet, toast, qrCode } from './ui.js';
 import { APP_VERSION, APP_BUILT_AT } from './version.js';
+import * as analytics from './analytics.js';
 
 const app = document.getElementById('app');
 const LIST_EMOJIS = ['📝', '🧳', '🧻', '🧊', '🛒', '💊', '🎒', '🏕️', '🎁', '🐶'];
@@ -8226,6 +8227,8 @@ function route() {
   applyTheme(themeForHash(hash));
 
   if (user === undefined) return loadingView(app);
+  // アクセスの計測（GA4。画面の種類だけ。ブラウザ版・ホーム画面版のみ）
+  analytics.logScreen(hash);
 
   const join = hash.match(/^#\/join\/([\w-]+)\/([\w-]+)$/);
   if (join) return joinView(app, { groupId: join[1], code: join[2] });

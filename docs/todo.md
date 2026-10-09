@@ -43,6 +43,7 @@
   - アプリから App Group の共有スペースに予定の行を書き込む小さなプラグイン → ウィジェットが読んで表示、変わったら再読み込み
   - ウィジェットには文字を入力できない（Apple の仕組み）。入力はアプリのテキスト予定表で
   - App Group を使うので、Apple Developer Program の更新が先
+- [ ] アクセスの計測（GA4）をアプリ版にも：@capacitor-firebase/analytics を入れて、js/analytics.js でアプリ版のときはプラグインから送る。App Store の「App のプライバシー」に分析データの収集を記入する
 - [ ] TestFlight で家族に配る（ビルドは 90 日で期限切れ → それまでに Mac から再アップロード）
 
 ## 実機確認

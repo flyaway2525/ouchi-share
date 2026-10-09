@@ -298,6 +298,15 @@ groups/{groupId}
 - 設定画面：ホームの ⋯ →「🔔 通知の設定」（この端末でオン・オフ、受け取る種類）
 - 準備（Cloudflare のアカウント・サービスアカウントキー・VAPID キー）は `worker/README.md`。`js/firebase.js` の `VAPID_KEY` と `NOTIFY_URL` が空のあいだは「準備中」
 
+## アクセスの計測（GA4）
+
+- Google Analytics for Firebase（GA4）。`js/analytics.js`。ルーターが画面を開くたびに `logScreen(hash)` で page_view / screen_view を送る
+- 送るのは画面の種類（`#/g/abc/l/def` → `group/list`。ID は消す）と、ユーザーの属性 app_form（browser / home_screen）だけ。グループ ID・ユーザー ID・名前は送らない。自動の page_view は切ってある（URL の # にグループ ID が入るため）
+- ブラウザ版・ホーム画面版だけ。アプリ版（Capacitor）は Web の計測が動かないので送らない（@capacitor-firebase/analytics を入れるのは todo）
+- localhost では送らない。確かめるときは localStorage の `ouchi-share:gaDebug` を `true` にすると送る（GA の DebugView に出る）
+- 測定 ID は firebaseConfig に書かず、Firebase のプロジェクトで Google Analytics を有効にすると SDK が自動で取ってくる
+- 計測の部品は最初の画面のあとで読み込む（起動を遅くしない）。Firestore の読み書きは増えない
+
 ## 役割（アプリ開発者・グループを作れる人・グループの管理者）
 
 | 役割 | だれ | できること |
