@@ -1,5 +1,5 @@
 {
-  "version": 111,
-  "builtAt": "2026-10-09 12:33",
-  "note": "アクセスの計測（GA4）の測定IDを設定に書いて、計測を始めた"
+  "version": 112,
+  "builtAt": "2026-10-09 13:01",
+  "note": "管理者ダッシュボードの利用状況に、管理用のダッシュボード（Google アナリティクス・Firebase・Cloudflare・GitHub）へのリンクを足した"
 }

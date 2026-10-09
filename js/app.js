@@ -6189,6 +6189,26 @@ function adminView(root) {
     }, showError);
   };
 
+  // 管理用の外部のダッシュボード（新しいタブで開く）
+  const ADMIN_LINKS = [
+    ['📈', 'アクセス解析（Google アナリティクス）', 'https://analytics.google.com/'],
+    ['📊', 'Firebase の Analytics', 'https://console.firebase.google.com/project/ouchi-share/analytics'],
+    ['🗄️', 'Firestore の使用量（読み書きの回数）', 'https://console.firebase.google.com/project/ouchi-share/firestore/databases/-default-/usage'],
+    ['🔐', 'ログインのユーザー（Authentication）', 'https://console.firebase.google.com/project/ouchi-share/authentication/users'],
+    ['☁️', 'Cloudflare Workers（通知・リンク取得）', 'https://dash.cloudflare.com/?to=/:account/workers/services/view/ouchi-share-notify'],
+    ['🐙', 'GitHub のリポジトリ', 'https://github.com/flyaway2525/ouchi-share'],
+  ];
+  const linksBlock = () => [
+    h('p', { class: 'section-label' }, '🔗 管理用のダッシュボード'),
+    h(
+      'div',
+      { class: 'card-list' },
+      ADMIN_LINKS.map(([icon, label, url]) =>
+        h('a', { class: 'card', href: url, target: '_blank', rel: 'noopener noreferrer' }, h('span', { class: 'card-icon' }, icon), h('span', { class: 'card-main' }, h('span', { class: 'card-title' }, label)), h('span', { class: 'chevron' }, '↗')),
+      ),
+    ),
+  ];
+
   const usagePanel = () => {
     if (!users) return h('p', { class: 'empty small' }, '読み込み中…');
     const now = Date.now();
@@ -6226,6 +6246,7 @@ function adminView(root) {
         ),
       ),
       h('p', { class: 'welcome-note' }, 'この機能を追加した後にアプリを開いた人が対象です。'),
+      ...linksBlock(),
     ];
   };
 
