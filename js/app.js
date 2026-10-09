@@ -6,6 +6,7 @@ import * as analytics from './analytics.js';
 import { holidayName } from './holidays.js';
 import { ITEMS, RARITIES } from './items.js';
 import * as fx from './fx.js';
+import * as wallpaper from './wallpaper.js';
 
 const app = document.getElementById('app');
 const LIST_EMOJIS = ['📝', '🧳', '🧻', '🧊', '🛒', '💊', '🎒', '🏕️', '🎁', '🐶'];
@@ -1594,6 +1595,124 @@ function profileSheet({ group = null, focus = null } = {}) {
   });
 }
 
+// ---- 壁紙の設定（自分の画面だけ。js/wallpaper.js） ----
+const WALLPAPER_TYPES = [
+  ['none', 'なし'],
+  ['season', '🍂 季節で自動'],
+  ['photo', '📷 自分の写真'],
+];
+const CLARITY = [
+  [1, '壁紙をはっきり'],
+  [2, 'ふつう'],
+  [3, '文字を読みやすく'],
+];
+function wallpaperText(s) {
+  if (!s) return '全体の設定と同じ';
+  if (s.type === 'season') return '季節で自動（月ごとに変わる）';
+  if (s.type === 'photo') return '自分の写真';
+  return 'なし';
+}
+
+// scope：'global'（全体）か 'g:<グループ ID>'（このグループだけ）。グループのときは「全体の設定と同じ」も選べる
+function wallpaperSheet(scope, title) {
+  const isGroup = scope !== 'global';
+  const saved = wallpaper.getSetting(scope);
+  let type = saved?.type ?? (isGroup ? 'inherit' : 'none');
+  let clarity = saved?.clarity ?? 2;
+  let newPhoto = null; // 選んだ写真（保存するまでは端末に書かない）
+  return openSheet((close) => {
+    const box = h('div', { class: 'wallpaper-edit' });
+    const preview = h('div', { class: 'wallpaper-preview' });
+    const renderPreview = async () => {
+      let bg = null;
+      if (type === 'season') bg = wallpaper.seasonBackground();
+      else if (type === 'photo') {
+        const url = newPhoto ? URL.createObjectURL(newPhoto) : await wallpaper.photoUrl(scope);
+        if (url) bg = `url("${url}")`;
+      }
+      preview.style.setProperty('--wallpaper', bg ?? 'none');
+      preview.style.setProperty('--wallpaper-veil', String([0, 0.35, 0.55, 0.75][clarity]));
+      preview.classList.toggle('photo', type === 'photo');
+      setChildren(preview, h('div', { class: 'wallpaper-preview-card' }, h('b', {}, 'こんな感じ'), h('span', {}, '予定やリストのカードはこう見えます')), type === 'photo' && !bg && h('p', { class: 'wallpaper-preview-empty' }, '下の「写真を選ぶ」から選んでください'));
+    };
+    const render = () => {
+      setChildren(
+        box,
+        h('span', { class: 'links-label' }, '壁紙'),
+        h(
+          'div',
+          { class: 'people-chips' },
+          [...(isGroup ? [['inherit', '全体の設定と同じ']] : []), ...WALLPAPER_TYPES].map(([k, label]) =>
+            h('button', { type: 'button', class: `chip${type === k ? ' on' : ''}`, onClick: () => ((type = k), render()) }, label),
+          ),
+        ),
+        type === 'photo' &&
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn',
+              onClick: async () => {
+                const file = await pickImageFile();
+                if (!file) return;
+                try {
+                  newPhoto = await wallpaper.resizeForWallpaper(file);
+                } catch (e) {
+                  return toast(e.message);
+                }
+                render();
+              },
+            },
+            '📷 写真を選ぶ',
+          ),
+        type !== 'none' &&
+          type !== 'inherit' && [
+            h('span', { class: 'links-label' }, '見やすさ（壁紙の上にかける膜の濃さ）'),
+            h(
+              'div',
+              { class: 'people-chips' },
+              CLARITY.map(([k, label]) => h('button', { type: 'button', class: `chip${clarity === k ? ' on' : ''}`, onClick: () => ((clarity = k), render()) }, label)),
+            ),
+          ],
+        preview,
+        h('p', { class: 'sch-hint' }, '壁紙はこの端末のこのアプリだけに保存されます（写真もサーバーには送りません）。別のスマホや、Safari とホーム画面のアプリでは、それぞれで設定してください。'),
+      );
+      renderPreview();
+    };
+    render();
+    return [
+      h('div', { class: 'sheet-title' }, title),
+      box,
+      h(
+        'div',
+        { class: 'sheet-buttons' },
+        h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn primary',
+            onClick: async () => {
+              try {
+                if (type === 'photo') {
+                  if (newPhoto) await wallpaper.savePhoto(scope, newPhoto);
+                  else if (!(await wallpaper.photoUrl(scope))) return toast('写真を選んでください');
+                } else await wallpaper.deletePhoto(scope);
+                wallpaper.setSetting(scope, type === 'inherit' ? null : { type, clarity });
+              } catch (e) {
+                return showError(e);
+              }
+              close(true);
+              await wallpaper.apply(location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);
+              toast('壁紙を変えました');
+            },
+          },
+          '保存',
+        ),
+      ),
+    ];
+  });
+}
 // ---- 画面：プロフィール（全体の設定と、グループごとの設定） ----
 // 全体の設定（profiles/{uid}）は、すべてのグループの基本。グループごとに、変えたい項目だけ上書きできる（members.{uid}.custom）。
 //   #/profile            … 全体の設定の確認・編集と、グループごとの上書きの一覧
@@ -1659,6 +1778,8 @@ function profileView(root) {
         PROFILE_ITEMS.map(([f, label]) => h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, label), profileValue(f, g))),
       ),
       h('button', { class: 'btn primary wide', onClick: () => profileSheet().then(render) }, '✏️ 全体の設定を編集'),
+      h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting('global') ?? { type: 'none' })))),
+      h('button', { class: 'btn wide', onClick: () => wallpaperSheet('global', '🖼 壁紙（全体の設定）').then(render) }, '🖼 壁紙を変える'),
       h(
         'div',
         { class: 'notice profile-explain' },
@@ -1774,6 +1895,8 @@ function groupProfileView(root, { groupId }) {
         ),
       ),
       h('button', { class: 'btn primary wide', onClick: () => profileSheet({ group }) }, '✏️ このグループでのプロフィールを編集'),
+      h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting(`g:${groupId}`))))),
+      h('button', { class: 'btn wide', onClick: () => wallpaperSheet(`g:${groupId}`, `🖼 「${group.name}」の壁紙`).then(() => render(group)) }, '🖼 このグループの壁紙を変える'),
       h('p', { class: 'sch-hint' }, '「このグループだけ」にした項目は、全体の設定を変えてもこのグループでは変わりません。「全体と同じ」の項目は、全体の設定を変えると一緒に変わります。'),
       h('a', { class: 'btn wide', href: '#/profile' }, '🌐 全体の設定を見る'),
       h('a', { class: 'btn wide', href: `#/g/${groupId}/m/${user.uid}` }, '👀 メンバーの画面で自分を見る'),
@@ -8576,6 +8699,8 @@ function route() {
   app.replaceChildren();
   const hash = location.hash;
   applyTheme(themeForHash(hash));
+  // 壁紙（グループの中ならグループの設定、なければ全体の設定）
+  wallpaper.apply(hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);
 
   if (user === undefined) return loadingView(app);
   // アクセスの計測（GA4。画面の種類だけ。ブラウザ版・ホーム画面版のみ）

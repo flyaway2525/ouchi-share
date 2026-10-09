@@ -369,6 +369,14 @@ groups/{groupId}
   `announcedAt` より前に読んだ人は未読に戻り、またポップアップが出る（再アナウンスした本人は既読あつかい）。一覧ではいちばん上に移る。
   ルールで、更新できるのはこの 3 つの項目だけ
 
+## 壁紙（js/wallpaper.js。自分の画面だけ）
+
+- プロフィールの画面の「🖼 壁紙を変える」（全体の設定）と、グループでのプロフィールの画面の「🖼 このグループの壁紙を変える」（このグループだけ。「全体の設定と同じ」も選べる）
+- 種類：なし ／ 🍂 季節で自動（その月の色と絵文字の模様。SVG で描く。カレンダーの季節と同じ）／ 📷 自分の写真（長い辺 1600px の JPEG に縮小）
+- 見やすさ 3 段階（壁紙の上にかける膜の濃さ：壁紙をはっきり 0.35 ／ ふつう 0.55 ／ 文字を読みやすく 0.75）。シートで見本を見ながら選べる
+- 保存は端末の中だけ：設定は localStorage（ouchi-share:wallpaper:global / g:<id>）、写真は IndexedDB（ouchi-share-wallpaper）。Firebase に送らない（通信・費用なし）。別のスマホや、Safari とホーム画面版では、それぞれで設定する
+- ルーターが画面ごとに apply（グループの中ならグループの設定、なければ全体）。html.has-wallpaper のとき body::before に壁紙、body::after に膜（var(--bg) の不透明度）
+
 ## 演出（js/fx.js）
 
 - 部品：confetti（紙吹雪。colors に gold / silver / bronze / party）、burst（要素から絵文字が飛び散る）、pop（ぽよん）、countUp（数字のカウントアップ）、haptic（Android のブラウザだけ振動）。canvas と Web Animations API だけ（ライブラリ・通信なし）
