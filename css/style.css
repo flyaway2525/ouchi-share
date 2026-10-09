@@ -4714,3 +4714,33 @@ a.btn.wide {
   color: var(--accent-text);
   font-weight: 700;
 }
+
+/* 報酬が付いた予定：カレンダーの名前・帯の右上に、いちばん価値の高いメダルの色の小さな三角（文字の幅は使わない） */
+.cal-label[class*='reward-'],
+.cal-bar[class*='reward-'] {
+  position: relative;
+}
+
+.cal-label[class*='reward-']::after,
+.cal-bar[class*='reward-']::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-top: 7px solid var(--medal);
+  border-left: 7px solid transparent;
+  border-top-right-radius: 2px;
+  pointer-events: none;
+}
+
+.reward-gold {
+  --medal: #e0b100;
+}
+
+.reward-silver {
+  --medal: #9aa6b2;
+}
+
+.reward-bronze {
+  --medal: #b8733a;
+}

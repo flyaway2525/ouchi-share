@@ -356,6 +356,8 @@ const PLAN_REWARD_PRESETS = [
   ['特別なイベント', { gold: 1 }],
 ];
 const hasReward = (r) => !!r && TICKETS.some(([t]) => r[t] > 0);
+// 報酬のいちばん価値の高いチケット（'gold' / 'silver' / 'bronze'。なければ null）。カレンダーの小さな印の色に使う
+const rewardTier = (r) => (r?.gold > 0 ? 'gold' : r?.silver > 0 ? 'silver' : r?.bronze > 0 ? 'bronze' : null);
 
 // 予定が終わる時刻（ミリ秒）。日付のない予定は終わらない
 function planEndMs(p) {
@@ -5441,7 +5443,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     ...ps
       .filter((p) => p.date === d && !isSpan(p))
       .sort((a, b) => (a.start ?? '').localeCompare(b.start ?? '') || (a.createdAt ?? 0) - (b.createdAt ?? 0))
-      .map((p) => ({ title: p.title, kind: 'plan', color: planColor(p) })),
+      .map((p) => ({ title: p.title, kind: 'plan', color: planColor(p), tier: rewardTier(p.reward) })),
     ...schedItems.filter((x) => x.item.date === d).sort((a, b) => bySeq(a.item, b.item)).map((x) => ({ title: x.item.title, kind: 'sched' })),
   ];
 
@@ -5499,7 +5501,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     const we = addDays(ws, 6);
     const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
     // 帯：週と重なるイベントを、空いている段に順に置く
-    const bars = [...evs.map((e) => ({ ...e, kind: 'event' })), ...spanPlans.map((p) => ({ startDate: p.date, endDate: p.endDate, emoji: '📅', title: p.title, kind: 'plan', color: planColor(p) }))];
+    const bars = [...evs.map((e) => ({ ...e, kind: 'event' })), ...spanPlans.map((p) => ({ startDate: p.date, endDate: p.endDate, emoji: '📅', title: p.title, kind: 'plan', color: planColor(p), tier: rewardTier(p.reward) }))];
     const segs = bars
       .filter((e) => e.startDate <= we && e.endDate >= ws)
       .sort((a, b) => a.startDate.localeCompare(b.startDate) || b.endDate.localeCompare(a.endDate))
@@ -5541,7 +5543,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           h(
             'span',
             {
-              class: `cal-bar${seg.e.kind === 'plan' ? ' plan' : ''}${seg.e.startDate >= ws ? ' head' : ''}${seg.e.endDate <= we ? ' tail' : ''}`,
+              class: `cal-bar${seg.e.kind === 'plan' ? ' plan' : ''}${seg.e.tier ? ` reward-${seg.e.tier}` : ''}${seg.e.startDate >= ws ? ' head' : ''}${seg.e.endDate <= we ? ' tail' : ''}`,
               style: `grid-column: ${seg.s + 1} / ${seg.t + 2}; grid-row: ${seg.lane + 2}${seg.e.color ? `; --who: ${seg.e.color}` : ''}`,
             },
             // 前の週から続いている帯は、絵文字を省いて名前を見えやすくする
@@ -5557,7 +5559,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           h(
             'span',
             { class: 'cal-labels', style: `grid-column: ${i + 1}; grid-row: ${lanes + 2}` },
-            shown.map((x) => h('span', { class: `cal-label ${x.kind}`, style: x.color ? `--who: ${x.color}` : null }, x.title)),
+            shown.map((x) => h('span', { class: `cal-label ${x.kind}${x.tier ? ` reward-${x.tier}` : ''}`, style: x.color ? `--who: ${x.color}` : null, title: x.tier ? '報酬あり' : null }, x.title)),
             more > 0 && h('b', { class: 'cal-more' }, `+${more}`),
           )
         );
@@ -5780,7 +5782,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           { class: 'cal-row-sub' },
           [isSpan(plan) && `${fmtDate(plan.date)} 〜 ${fmtDate(plan.endDate)}`, plan.place && `📍${plan.place}`, `👥 ${participantsLabel(members, plan.participants)}`].filter(Boolean).join(' ・ '),
         ),
-        hasReward(plan.reward) && h('span', { class: 'plan-reward' }, `🎁 ${ticketText(plan.reward)}${plan.rewardLabel ? `（${plan.rewardLabel}）` : ''}`),
+        hasReward(plan.reward) && h('span', { class: 'plan-reward' }, `🎁 ${ticketText(plan.reward)}`),
         plan.memo && h('span', { class: 'cal-row-sub' }, plan.memo),
         linkChips(plan.links),
       ),
