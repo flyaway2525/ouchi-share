@@ -3,6 +3,7 @@ import * as auth from './auth.js';
 import { h, setChildren, header, progressBar, actionSheet, confirmSheet, askText, openSheet, toast, qrCode } from './ui.js';
 import { APP_VERSION, APP_BUILT_AT } from './version.js';
 import * as analytics from './analytics.js';
+import { holidayName } from './holidays.js';
 
 const app = document.getElementById('app');
 const LIST_EMOJIS = ['📝', '🧳', '🧻', '🧊', '🛒', '💊', '🎒', '🏕️', '🎁', '🐶'];
@@ -4522,7 +4523,7 @@ function annivSection({ groupId, members, annivs, rerender }) {
         h(
           'button',
           {
-            class: `cal-day${d.slice(0, 7) !== vm ? ' other' : ''}${d === today ? ' today' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
+            class: `cal-day${d.slice(0, 7) !== vm ? ' other' : ''}${d === today ? ' today' : ''}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}${holidayName(d) ? ' holiday' : ''}`,
             style: `grid-column: ${i + 1}; grid-row: 1 / -1`,
             'aria-label': fmtDate(d),
             onClick: () => select(d),
@@ -4602,7 +4603,7 @@ function annivSection({ groupId, members, annivs, rerender }) {
     h(
       'div',
       { class: 'cal-panel' },
-      h('div', { class: 'cal-panel-head' }, h('span', {}, fmtDate(sel)), sel === today && h('span', { class: 'event-badge ongoing' }, '今日')),
+      h('div', { class: 'cal-panel-head' }, h('span', {}, fmtDate(sel)), holidayName(sel) && h('span', { class: 'holiday-badge' }, `🎌 ${holidayName(sel)}`), sel === today && h('span', { class: 'event-badge ongoing' }, '今日')),
       dayList.length === 0 && h('p', { class: 'empty small' }, 'この日の記念日はありません'),
       dayList.map((x) => row(x.a, sel, x.label, sel >= today ? until(sel) : '')),
       h('button', { class: 'sch-add', onClick: () => addAnniv() }, '＋ この日を記念日にする'),
@@ -5270,6 +5271,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
   // その日のマスに名前を出す予定（普段の予定は時刻順、旅程の予定はあと）
   const MAX_LABELS = 3;
   const labelsOn = (d) => [
+    ...(holidayName(d) ? [{ title: holidayName(d), kind: 'holiday' }] : []),
     ...ps
       .filter((p) => p.date === d && !isSpan(p))
       .sort((a, b) => (a.start ?? '').localeCompare(b.start ?? '') || (a.createdAt ?? 0) - (b.createdAt ?? 0))
@@ -5358,7 +5360,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
         h(
           'button',
           {
-            class: `cal-day${d.slice(0, 7) !== vm ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected && !state.multi ? ' selected' : ''}${pickClasses(d).map((c) => ` ${c}`).join('')}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`,
+            class: `cal-day${d.slice(0, 7) !== vm ? ' other' : ''}${d === today ? ' today' : ''}${d === state.selected && !state.multi ? ' selected' : ''}${pickClasses(d).map((c) => ` ${c}`).join('')}${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}${holidayName(d) ? ' holiday' : ''}`,
             style: `grid-column: ${i + 1}; grid-row: 1 / -1`,
             'aria-label': fmtDate(d),
             'data-date': d,
@@ -5654,7 +5656,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
     h(
       'div',
       { class: 'cal-panel' },
-      h('div', { class: 'cal-panel-head' }, h('span', {}, fmtDate(sel)), sel === today && h('span', { class: 'event-badge ongoing' }, '今日')),
+      h('div', { class: 'cal-panel-head' }, h('span', {}, fmtDate(sel)), holidayName(sel) && h('span', { class: 'holiday-badge' }, `🎌 ${holidayName(sel)}`), sel === today && h('span', { class: 'event-badge ongoing' }, '今日')),
       empty && h('p', { class: 'empty small' }, filter === 'all' ? 'この日の予定はありません' : 'この人の予定はありません'),
       dayEvents.map((ev) =>
         h(

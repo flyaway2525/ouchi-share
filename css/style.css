@@ -1819,6 +1819,43 @@ select.text-input {
   color: #3b7ddd;
 }
 
+/* 土日・祝日：マス全体にうすい色（日曜・祝日は赤、土曜は青）。祝日は数字も赤 */
+.cal-day.sun,
+.cal-day.holiday {
+  background: color-mix(in srgb, #e0483e 7%, transparent);
+}
+
+.cal-day.sat:not(.holiday) {
+  background: color-mix(in srgb, #3b7ddd 7%, transparent);
+}
+
+.cal-day.holiday .cal-num {
+  color: #e0483e;
+}
+
+.cal-day.today.holiday .cal-num,
+.cal-day.today.sun .cal-num,
+.cal-day.today.sat .cal-num {
+  color: var(--accent-text);
+}
+
+/* 祝日の名前（マスの中・下の欄の見出し） */
+.cal-label.holiday {
+  border-left-color: #e0483e;
+  background: none;
+  color: #e0483e;
+  font-weight: 700;
+}
+
+.holiday-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #e0483e 12%, transparent);
+  color: #e0483e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .cal-num {
   display: grid;
   place-items: center;
