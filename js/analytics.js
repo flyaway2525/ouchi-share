@@ -3,7 +3,7 @@
 // - 手元の開発（localhost など）では送らない（自分のテストで数字が増えないように）。localStorage の ouchi-share:gaDebug を true にすると送る（DebugView で確かめる用）
 // - 送るのは画面の種類（「group/list」など）と、アプリの形（browser / home_screen）だけ。グループ ID やユーザー ID は送らない
 // - 計測の部品は、最初の画面が出てからあとで読み込む（起動を遅くしない）
-// 測定 ID は firebaseConfig に書かなくても、Firebase のプロジェクトで Google Analytics を有効にしていれば自動で取ってくる
+// 測定 ID は js/firebase.js の firebaseConfig.measurementId（公開してよい値）
 import { app, isNativeApp } from './firebase.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/12.19.0/firebase-analytics.js';

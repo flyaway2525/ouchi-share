@@ -17,6 +17,7 @@ const firebaseConfig = {
   storageBucket: 'ouchi-share.firebasestorage.app',
   messagingSenderId: '510809098274',
   appId: '1:510809098274:web:9122327a17b63d6179227b',
+  measurementId: 'G-LSK0WCFGSK', // GA4（アクセスの計測。js/analytics.js）
 };
 
 // ---- 通知 ----

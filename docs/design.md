@@ -304,7 +304,7 @@ groups/{groupId}
 - 送るのは画面の種類（`#/g/abc/l/def` → `group/list`。ID は消す）と、ユーザーの属性 app_form（browser / home_screen）だけ。グループ ID・ユーザー ID・名前は送らない。自動の page_view は切ってある（URL の # にグループ ID が入るため）
 - ブラウザ版・ホーム画面版だけ。アプリ版（Capacitor）は Web の計測が動かないので送らない（@capacitor-firebase/analytics を入れるのは todo）
 - localhost では送らない。確かめるときは localStorage の `ouchi-share:gaDebug` を `true` にすると送る（GA の DebugView に出る）
-- 測定 ID は firebaseConfig に書かず、Firebase のプロジェクトで Google Analytics を有効にすると SDK が自動で取ってくる
+- 測定 ID は firebaseConfig の measurementId（G-LSK0WCFGSK。公開してよい値）。Firebase のプロジェクトで Google Analytics を有効にしてある（2026-10-09）
 - 計測の部品は最初の画面のあとで読み込む（起動を遅くしない）。Firestore の読み書きは増えない
 
 ## 役割（アプリ開発者・グループを作れる人・グループの管理者）
