@@ -532,7 +532,8 @@ a {
   border-radius: 20px 20px 0 0;
   background: var(--bg);
   transform: translateY(100%);
-  transition: transform 0.2s ease;
+  /* ポップアップは少しだけ弾んで出てくる */
+  transition: transform 0.34s cubic-bezier(0.2, 1.15, 0.35, 1);
 }
 
 .sheet-backdrop.open .sheet {
@@ -771,6 +772,8 @@ a {
 .toast.show {
   opacity: 1;
   transform: translate(-50%, 0);
+  /* 下からぴょこっと */
+  transition: opacity 0.2s, transform 0.35s cubic-bezier(0.3, 1.6, 0.5, 1);
 }
 
 /* ---- オンライン表示 ---- */
@@ -4871,4 +4874,147 @@ a.btn.wide {
 
 .swipe-action.items {
   background: #d4a800;
+}
+
+/* ---- 演出（js/fx.js） ---- */
+.fx-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+.fx-spark {
+  position: fixed;
+  z-index: 9999;
+  font-size: 22px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* チェック：ぽよんと弾む */
+.item-check:checked {
+  animation: fx-check 0.35s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+@keyframes fx-check {
+  0% { transform: scale(0.7); }
+  60% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+.item.checked .item-text {
+  transition: color 0.3s;
+}
+
+/* アイテム：レア以上は枠がゆっくり光る。レジェンドはきらめきが流れる */
+.item-cell.r3:not(.missing),
+.item-cell.r4:not(.missing),
+.item-cell.r5:not(.missing) {
+  animation: fx-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes fx-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--rarity) 0%, transparent); }
+  50% { box-shadow: 0 0 14px 2px color-mix(in srgb, var(--rarity) 55%, transparent); }
+}
+
+.item-cell.r5:not(.missing),
+.item-detail-img.r5 {
+  background-image: linear-gradient(110deg, transparent 35%, rgb(255 255 255 / 0.55) 50%, transparent 65%), linear-gradient(160deg, color-mix(in srgb, var(--rarity) 16%, var(--surface)), var(--surface) 70%);
+  background-size: 250% 100%, 100% 100%;
+  animation: fx-glow 2.4s ease-in-out infinite, fx-shimmer 2.8s linear infinite;
+}
+
+@keyframes fx-shimmer {
+  from { background-position: 150% 0, 0 0; }
+  to { background-position: -50% 0, 0 0; }
+}
+
+.item-detail-img.r4,
+.item-detail-img.r5 {
+  animation: fx-glow 2.4s ease-in-out infinite;
+}
+
+/* 動きを減らす設定の人には、繰り返しの動きを止める */
+@media (prefers-reduced-motion: reduce) {
+  .item-check:checked,
+  .item-cell,
+  .item-detail-img {
+    animation: none !important;
+  }
+}
+
+/* 画面の切り替え：進むときは右から、戻るときは左から、同じ深さはふわっと（app.js の animateNav） */
+#app.nav-forward > main {
+  animation: fx-in-right 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#app.nav-back > main {
+  animation: fx-in-left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#app.nav-fade > main {
+  animation: fx-fade 0.25s ease;
+}
+
+@keyframes fx-in-right {
+  from { transform: translateX(36px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes fx-in-left {
+  from { transform: translateX(-36px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes fx-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ふだんの手ざわり：押すと少し沈む */
+.btn,
+.sheet-action,
+.chip,
+.add-card,
+.item-cell,
+.reward-preset,
+.tab,
+.icon-chip,
+.swatch,
+.color-set,
+.topbar-btn,
+.day-nav-btn,
+.cal-today {
+  transition: transform 0.12s ease;
+}
+
+.btn:active:not(:disabled),
+.sheet-action:active,
+.chip:active,
+.add-card:active,
+.item-cell:active,
+.reward-preset:active,
+.tab:active,
+.icon-chip:active,
+.swatch:active,
+.color-set:active,
+.topbar-btn:active,
+.day-nav-btn:active,
+.cal-today:active {
+  transform: scale(0.95);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #app > main {
+    animation: none !important;
+  }
+
+  .sheet,
+  .toast {
+    transition-duration: 0.01s !important;
+  }
 }

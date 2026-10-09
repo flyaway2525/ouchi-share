@@ -5,6 +5,7 @@ import { APP_VERSION, APP_BUILT_AT } from './version.js';
 import * as analytics from './analytics.js';
 import { holidayName } from './holidays.js';
 import { ITEMS, RARITIES } from './items.js';
+import * as fx from './fx.js';
 
 const app = document.getElementById('app');
 const LIST_EMOJIS = ['📝', '🧳', '🧻', '🧊', '🛒', '💊', '🎒', '🏕️', '🎁', '🐶'];
@@ -223,22 +224,42 @@ function bonusPopup(res, group, schedule) {
   const got = TICKETS.filter(([t]) => res.reward?.[t] > 0);
   const best = got.at(-1)?.[0];
   const next = nextSpecial(schedule, res.monthDays);
+  // 演出：チケットが順に「ぽよん」→ いちばん良いチケットから ✨（金は紙吹雪も）、連続日数のカウントアップ、スタンプのぽよん（レアは🌈）
+  const ticketsBox = got.length
+    ? h('div', { class: `bonus-tickets${best ? ` best-${best}` : ''}` }, got.map(([t]) => ticketChip(t, res.reward[t], ' big')))
+    : h('p', { class: 'bonus-count' }, '今日はチケットなし');
+  const streakEl = h('b', {}, `🔥 ${res.streak}日連続`);
+  const stampEl = h('span', { class: `bonus-stamp-mini${rare ? ' rare' : ''}` }, main);
+  setTimeout(() => {
+    const chips = [...ticketsBox.querySelectorAll('.ticket')];
+    chips.forEach((el, i) => fx.pop(el, { delay: i * 150 }));
+    setTimeout(() => {
+      const bestEl = ticketsBox.querySelector(`.ticket-${best}`);
+      if (best === 'gold') {
+        fx.confetti({ colors: 'gold' });
+        fx.burst(bestEl, ['✨', '🥇'], { count: 12 });
+      } else if (best === 'silver') fx.burst(bestEl, ['✨', '🥈'], { count: 9 });
+      else if (best) fx.burst(bestEl, ['✨'], { count: 6, distance: 60 });
+      if (best) fx.haptic(20);
+    }, chips.length * 150 + 250);
+    fx.countUp(streakEl, res.streak, { from: Math.max(0, res.streak - 1), delay: 350, format: (n) => `🔥 ${n}日連続` });
+    fx.pop(stampEl, { delay: 600, scale: 1.6 });
+    if (rare) setTimeout(() => fx.burst(stampEl, ['🌈', '✨'], { count: 10, distance: 70 }), 800);
+  }, 260);
   return openSheet((close) => [
     h('div', { class: 'sheet-title' }, `🎁 ${group.name}のログインボーナス`),
     h(
       'div',
       { class: 'bonus-card' },
       h('p', { class: 'bonus-day-label' }, `今月 ${res.monthDays}回目のログイン`),
-      got.length
-        ? h('div', { class: `bonus-tickets${best ? ` best-${best}` : ''}` }, got.map(([t]) => ticketChip(t, res.reward[t], ' big')))
-        : h('p', { class: 'bonus-count' }, '今日はチケットなし'),
+      ticketsBox,
       next && h('p', { class: 'bonus-next' }, `あと ${next.n - res.monthDays}回で ${ticketInfo(next.t)[2]} ${ticketInfo(next.t)[1]}チケット！`),
-      h('p', { class: 'bonus-streak' }, h('b', {}, `🔥 ${res.streak}日連続`), ` ・ 合計 ${res.total}日`),
+      h('p', { class: 'bonus-streak' }, streakEl, ` ・ 合計 ${res.total}日`),
       h(
         'p',
         { class: 'bonus-omake' },
         'おまけスタンプ ',
-        h('span', { class: `bonus-stamp-mini${rare ? ' rare' : ''}` }, main),
+        stampEl,
         rare && h('span', { class: 'bonus-tag rare' }, '✨ レア'),
         isNew(main) && h('span', { class: 'bonus-tag' }, 'NEW'),
       ),
@@ -463,16 +484,23 @@ function planRewardPopup(group, pending) {
   let left = [...pending];
   return openSheet((close) => {
     const list = h('div', { class: 'reward-claims' });
-    const decide = async (items, got) => {
+    // src：押したボタン（受け取ったら、そこからメダルが飛び散る）
+    const decide = async (items, got, src = null) => {
       try {
         const res = await store.decidePlanRewards(
           group.id,
           items.map((p) => ({ planId: p.id, reward: p.reward, got })),
         );
         left = left.filter((p) => !items.includes(p));
-        if (got && hasReward(res.added)) toast(`🎁 ${ticketText(res.added)} を受け取りました`);
-        else if (!got) toast('辞退しました');
-        if (!left.length) close(true);
+        if (got && hasReward(res.added)) {
+          toast(`🎁 ${ticketText(res.added)} を受け取りました`);
+          const icons = TICKETS.filter(([t]) => res.added[t] > 0).map(([, , icon]) => icon);
+          fx.burst(src, [...icons, '✨'], { count: 10 });
+          fx.haptic(20);
+          // まとめて受け取ったとき・最後の 1 件を受け取ったときは紙吹雪（いちばん良いメダルの色）
+          if (items.length > 1 || !left.length) fx.confetti({ colors: rewardTier(res.added) === 'gold' ? 'gold' : 'party' });
+        } else if (!got) toast('辞退しました');
+        if (!left.length) setTimeout(() => close(true), got ? 450 : 0);
         else render();
       } catch (e) {
         showError(e);
@@ -486,7 +514,7 @@ function planRewardPopup(group, pending) {
             'div',
             { class: 'reward-claim' },
             h('div', { class: 'reward-claim-main' }, h('b', {}, p.title), h('small', {}, `${fmtDate(p.date)}${p.rewardLabel ? ` ・ ${p.rewardLabel}` : ''}`), h('span', { class: 'reward-claim-tickets' }, ticketText(p.reward))),
-            h('div', { class: 'reward-claim-buttons' }, h('button', { type: 'button', class: 'btn primary', onClick: () => decide([p], true) }, '受け取る'), h('button', { type: 'button', class: 'btn', onClick: () => decide([p], false) }, '辞退')),
+            h('div', { class: 'reward-claim-buttons' }, h('button', { type: 'button', class: 'btn primary', onClick: (e) => decide([p], true, e.currentTarget) }, '受け取る'), h('button', { type: 'button', class: 'btn', onClick: () => decide([p], false) }, '辞退')),
           ),
         ),
       );
@@ -500,7 +528,7 @@ function planRewardPopup(group, pending) {
       h('div', { class: 'sheet-title' }, `🎁 ${group.name}：予定の報酬`),
       h('p', { class: 'sch-hint' }, 'おつかれさまでした！終わった予定の報酬です。受け取るか、辞退するかを選んでください'),
       list,
-      h('button', { class: 'sheet-action primary-action', onClick: () => decide([...left], true) }, `🎁 まとめて受け取る`),
+      h('button', { class: 'sheet-action primary-action', onClick: (e) => decide([...left], true, e.currentTarget) }, `🎁 まとめて受け取る`),
       h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'あとで（次に開いたときにもう一度）'),
     ];
   });
@@ -584,11 +612,19 @@ function itemImage(item, size) {
 
 function itemSheet(item, count) {
   const r = RARITIES[item.rarity] ?? RARITIES[1];
+  // 演出：画像がぽよん。エピック以上は ✨ が飛び散る
+  const img = h('div', { class: `item-detail-img r${item.rarity}` }, itemImage(item, 96));
+  if (count > 0) {
+    setTimeout(() => {
+      fx.pop(img, { scale: 1.15 });
+      if (item.rarity >= 4) setTimeout(() => fx.burst(img, ['✨', item.icon], { count: 10 }), 250);
+    }, 220);
+  }
   openSheet((close) => [
     h(
       'div',
       { class: 'item-detail', style: `--rarity: ${r.color}` },
-      h('div', { class: 'item-detail-img' }, itemImage(item, 96)),
+      img,
       h('b', { class: 'item-detail-name' }, item.name),
       h('span', { class: 'item-rarity' }, `${'★'.repeat(item.rarity)}${'☆'.repeat(5 - item.rarity)} ${r.name}`),
       h('p', { class: 'item-desc' }, item.description),
@@ -628,7 +664,7 @@ function itemsView(root, { groupId, uid = null }) {
             const r = RARITIES[item.rarity] ?? RARITIES[1];
             return h(
               'button',
-              { class: `item-cell${n > 0 ? '' : ' missing'}`, style: `--rarity: ${r.color}`, onClick: () => itemSheet(item, n), 'aria-label': `${item.name} ${n}個` },
+              { class: `item-cell r${item.rarity}${n > 0 ? '' : ' missing'}`, style: `--rarity: ${r.color}`, onClick: () => itemSheet(item, n), 'aria-label': `${item.name} ${n}個` },
               itemImage(item, 40),
               h('span', { class: 'item-name' }, item.name),
               h('span', { class: 'item-count' }, n > 0 ? `×${n.toLocaleString('ja-JP')}` : '—'),
@@ -4401,6 +4437,14 @@ function groupView(root, { groupId }) {
             if (tab === id) return;
             prefs.set(tabKey, id);
             renderBody();
+            // 演出：右のタブへは右から、左のタブへは左から中身がすべり込む
+            if (!fx.reduced()) {
+              const order = ['calendar', 'events', 'lists', 'diary'];
+              const dir = order.indexOf(id) > order.indexOf(tab) ? 1 : -1;
+              [...body.children].slice(1).forEach((el) =>
+                el.animate([{ transform: `translateX(${dir * 28}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }),
+              );
+            }
           },
           onContextmenu: id === 'calendar' ? (e) => e.preventDefault() : null,
           onPointerdown:
@@ -8335,7 +8379,16 @@ function checklistView(root, { groupId, listId }) {
                   type: 'checkbox',
                   class: 'item-check',
                   checked: item.checked,
-                  onChange: (e) => store.setItemChecked(groupId, listId, item.id, e.target.checked).catch(showError),
+                  onChange: (e) => {
+                    store.setItemChecked(groupId, listId, item.id, e.target.checked).catch(showError);
+                    if (!e.target.checked) return;
+                    fx.haptic(10);
+                    // 最後の 1 つをチェックしたら、ぜんぶ完了の紙吹雪
+                    if (done + 1 === items.length) {
+                      fx.confetti();
+                      setTimeout(() => fx.pop(document.querySelector('.summary-done'), { scale: 1.4 }), 300);
+                    }
+                  },
                 }),
                 h('span', { class: 'item-main' }, h('span', { class: 'item-text' }, itemTitle(item)), itemLinkChips(itemLinks(item))),
               ),
@@ -8559,8 +8612,25 @@ function route() {
   unmount = homeView(app);
 }
 
+// 画面の切り替えの演出：深い画面へ進むときは右から、戻るときは左から、同じ深さはふわっと（# の区切りの数で決める）
+let prevHash = location.hash;
+let navTimer = null;
+const hashDepth = (h) => h.replace(/^#\/?/, '').split('/').filter(Boolean).length;
+function animateNav(prev, next) {
+  if (fx.reduced()) return;
+  const d = hashDepth(next) - hashDepth(prev);
+  const cls = d > 0 ? 'nav-forward' : d < 0 ? 'nav-back' : 'nav-fade';
+  app.classList.remove('nav-forward', 'nav-back', 'nav-fade');
+  void app.offsetWidth; // アニメーションを最初からやり直す
+  app.classList.add(cls);
+  clearTimeout(navTimer);
+  navTimer = setTimeout(() => app.classList.remove(cls), 450);
+}
+
 window.addEventListener('hashchange', () => {
   route();
+  animateNav(prevHash, location.hash);
+  prevHash = location.hash;
   heartbeat();
 });
 
