@@ -5245,3 +5245,9 @@ html.swipe-tabs body {
   font-weight: 700;
   text-align: center;
 }
+
+.pv-uid {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}

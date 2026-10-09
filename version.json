@@ -1,5 +1,5 @@
 {
-  "version": 127,
-  "builtAt": "2026-10-09 20:50",
-  "note": "ごほうびの交換を承認制にした（承認する人を指定・ポップアップで承認／却下・結果のお知らせ・却下と取り消しはチケットを戻す・承認の履歴）"
+  "version": 128,
+  "builtAt": "2026-10-09 22:20",
+  "note": "Rename admin dashboard to developer dashboard and profile to settings; user ID copy and login linking in settings"
 }

@@ -14,7 +14,7 @@ const EVENT_EMOJIS = ['✈️', '🏕️', '🚗', '🏖️', '♨️', '🎿', 
 
 let user; // undefined = 確認中, null = 未ログイン
 let isAdmin = false; // グループを作れる人（許可リスト admins/{uid}）
-let isDeveloper = false; // アプリ開発者（いつもの開発者 DEVELOPER_UIDS か、admins/{uid} に developer: true）。管理者ダッシュボードはこの人だけ
+let isDeveloper = false; // アプリ開発者（いつもの開発者 DEVELOPER_UIDS か、admins/{uid} に developer: true）。開発者ダッシュボードはこの人だけ
 let unwatchAdmin = null;
 // ログイン処理の途中（名前の設定など）で画面が切り替わらないようにする
 let authBusy = false;
@@ -2123,7 +2123,7 @@ function profileCard(p, extra = null) {
 }
 
 function profileView(root) {
-  const top = h('div', { class: 'topbar-wrap' }, header({ title: '👤 プロフィール', back: '#/' }));
+  const top = h('div', { class: 'topbar-wrap' }, header({ title: '⚙️ 設定', back: '#/' }));
   const body = h('main', { class: 'content' });
   root.append(top, body);
   let groups = null;
@@ -2189,9 +2189,25 @@ function profileView(root) {
         'div',
         { class: 'pv-table' },
         h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, 'ログイン'), h('span', { class: 'pv-text' }, guest ? 'ゲスト（この端末だけ）' : linked.join('・') || '—')),
+        h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, 'ユーザーID'), h('span', { class: 'pv-text pv-uid' }, user.uid)),
         isDeveloper && h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '役割'), h('span', { class: 'pv-text' }, '🛠 アプリ開発者')),
       ),
       h('button', { class: 'btn wide', onClick: linkAccountsSheet }, guest ? '🔗 アカウントを連携（ゲストから引き継ぐ）' : '🔗 ログイン方法の連携'),
+      h(
+        'button',
+        {
+          class: 'btn wide',
+          onClick: async () => {
+            try {
+              await navigator.clipboard.writeText(user.uid);
+              toast('ユーザーIDをコピーしました');
+            } catch {
+              toast('コピーできませんでした');
+            }
+          },
+        },
+        '🪪 ユーザーIDをコピー',
+      ),
       guest && h('button', { class: 'btn wide', onClick: myRecoverySheet }, '🆘 復旧IDを確認'),
     );
   };
@@ -2835,18 +2851,10 @@ function accountMenu() {
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
     { label: `📢 アプリからのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
     { label: '🔔 通知の設定', onClick: pushSettingsSheet },
-    isDeveloper && { label: '🛠 管理者ダッシュボード（アプリ開発者だけ）', onClick: () => (location.hash = '#/admin') },
-    { label: '👤 プロフィール（全体の設定・グループごとの設定）', onClick: () => (location.hash = '#/profile') },
+    isDeveloper && { label: '🛠 開発者ダッシュボード', onClick: () => (location.hash = '#/admin') },
+    { label: '⚙️ 設定（プロフィール・壁紙・アカウント）', onClick: () => (location.hash = '#/profile') },
     canSuggestInstall() && { label: '📲 ホーム画面に追加する（やり方）', onClick: installGuideSheet },
     guest && { label: '復旧IDを確認', onClick: myRecoverySheet },
-    { label: guest ? '🔗 アカウントを連携（ゲストから引き継ぐ）' : '🔗 ログイン方法の連携', onClick: linkAccountsSheet },
-    {
-      label: 'ユーザーIDをコピー',
-      onClick: async () => {
-        await navigator.clipboard.writeText(auth.currentUser().uid).catch(() => {});
-        toast('コピーしました');
-      },
-    },
     {
       label: 'ログアウト',
       danger: true,
@@ -3312,7 +3320,7 @@ function homeView(root) {
       !prefs.get('installHintHidden') && installCard,
       h(
         'button',
-        { class: 'greeting', onClick: () => (location.hash = '#/profile'), 'aria-label': 'プロフィール' },
+        { class: 'greeting', onClick: () => (location.hash = '#/profile'), 'aria-label': '設定' },
         avatar({ uid: user.uid, name: auth.displayName(), icon: myProfile.icon, photo: myProfile.photo, colors: myProfile.colors }, 32),
         h('span', {}, `${auth.displayName()} さん`, myProfile.title && h('small', { class: 'profile-title' }, myProfile.title)),
         auth.isGuest() && h('span', { class: 'badge muted' }, 'ゲスト'),
@@ -7009,17 +7017,17 @@ function eventView(root, { groupId, eventId, date = null }) {
   };
 }
 
-// ---- 画面：管理者ダッシュボード ----
+// ---- 画面：開発者ダッシュボード ----
 
 // 管理者だけの機能は、ここにまとめる（タブ：利用状況 / お知らせ / ログボ / グループ）
 // - アプリからのお知らせ（announcements。アプリを使う全員に届く）を書く・再通知する・消すのは、ここからだけ（ルールでも管理者だけ）
-// 管理者ダッシュボードはアプリ開発者だけ。それ以外の人が開いたら、ホームに戻す
+// 開発者ダッシュボードはアプリ開発者だけ。それ以外の人が開いたら、ホームに戻す
 function notDeveloperView(root) {
-  root.append(header({ title: '管理者ダッシュボード', back: '#/' }), h('main', { class: 'content' }, h('p', { class: 'empty' }, 'このページはアプリ開発者だけが使えます')));
+  root.append(header({ title: '開発者ダッシュボード', back: '#/' }), h('main', { class: 'content' }, h('p', { class: 'empty' }, 'このページはアプリ開発者だけが使えます')));
 }
 
 function adminView(root) {
-  const top = h('div', { class: 'topbar-wrap' }, header({ title: '管理者ダッシュボード', back: '#/' }));
+  const top = h('div', { class: 'topbar-wrap' }, header({ title: '開発者ダッシュボード', back: '#/' }));
   const body = h('main', { class: 'content' });
   root.append(top, body);
   let users = null;
@@ -8994,7 +9002,7 @@ function checklistView(root, { groupId, listId }) {
 }
 
 // ---- 画面：お知らせ一覧（groupId があればグループのお知らせ、なければアプリからのお知らせ） ----
-// アプリからのお知らせは、ここでは読むだけ（書く・再通知・削除は管理者ダッシュボードから）。
+// アプリからのお知らせは、ここでは読むだけ（書く・再通知・削除は開発者ダッシュボードから）。
 // グループのお知らせは、メンバーなら誰でも書ける「ふつうのお知らせ」と、オーナー・管理者だけが書ける「管理者お知らせ」（official）がある
 
 function newsListView(root, { groupId = null }) {
@@ -9048,7 +9056,7 @@ function newsListView(root, { groupId = null }) {
       body,
       canWrite() && h('button', { class: 'add-card news-add', onClick: () => write() }, '＋ お知らせを書く'),
       canWrite() && isManager(group) && h('button', { class: 'add-card news-add official', onClick: () => write(true) }, '📢 管理者お知らせを書く（オーナー・管理者だけ）'),
-      !groupId && isDeveloper && h('a', { class: 'add-card news-add', href: '#/admin' }, '🛠 管理者ダッシュボードで書く・再通知・削除'),
+      !groupId && isDeveloper && h('a', { class: 'add-card news-add', href: '#/admin' }, '🛠 開発者ダッシュボードで書く・再通知・削除'),
       sorted.length === 0 && h('p', { class: 'empty' }, 'お知らせはまだありません'),
       h(
         'div',

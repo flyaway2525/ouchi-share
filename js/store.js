@@ -100,7 +100,7 @@ function toList(snap) {
 
 // ---- 許可リスト ----
 
-// 許可リスト admins/{uid}：あればグループを作れる。developer: true ならアプリ開発者（管理者ダッシュボード）
+// 許可リスト admins/{uid}：あればグループを作れる。developer: true ならアプリ開発者（開発者ダッシュボード）
 // cb({ admin, developer })
 export function watchIsAdmin(userId, cb) {
   return onSnapshot(
