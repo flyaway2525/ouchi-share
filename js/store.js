@@ -40,6 +40,7 @@ import { db, WEB_URL, DEVELOPER_UIDS } from './firebase.js';
 
 export { WEB_URL, DEVELOPER_UIDS };
 import { currentUser, displayName, isGuest } from './auth.js';
+import { addToInventory, ITEM_MAX } from './items.js';
 
 const groupRef = (groupId) => doc(db, 'groups', groupId);
 const listsCol = (groupId) => collection(db, 'groups', groupId, 'lists');
@@ -742,8 +743,7 @@ export async function claimDailyBonus(groupId, today, yesterday, pick, schedule 
     const month = today.slice(0, 7);
     const monthDays = cur.month === month ? (cur.monthDays ?? 0) + 1 : 1;
     const reward = schedule[monthDays] ?? {};
-    const tickets = { ...(cur.tickets ?? {}) };
-    for (const [t, n] of Object.entries(reward)) if (n > 0) tickets[t] = (tickets[t] ?? 0) + n;
+    const tickets = addToInventory(cur.tickets, reward); // アイテム（チケット）の持っている数。上限 ITEM_MAX
     tx.set(ref, { lastDate: today, streak, total, stamps, lastStamp: got[0], month, monthDays, tickets, ...(cur.planRewards ? { planRewards: cur.planRewards } : {}), updatedAt: Date.now() });
     return { streak, total, got, stamps, before, monthDays, reward, tickets };
   });
@@ -824,7 +824,7 @@ export async function exchangeTickets(groupId, from, fromCount, to, toCount) {
     const tickets = { ...(snap.exists() ? snap.data().tickets ?? {} : {}) };
     if ((tickets[from] ?? 0) < fromCount) throw new Error('not-enough');
     tickets[from] -= fromCount;
-    tickets[to] = (tickets[to] ?? 0) + toCount;
+    tickets[to] = Math.min(ITEM_MAX, (tickets[to] ?? 0) + toCount);
     tx.update(ref, { tickets, updatedAt: Date.now() });
   });
 }
@@ -960,19 +960,13 @@ export async function decidePlanRewards(groupId, decisions) {
     const snap = await tx.get(ref);
     const cur = snap.exists() ? snap.data() : {};
     const planRewards = { ...(cur.planRewards ?? {}) };
-    const tickets = { ...(cur.tickets ?? {}) };
-    const added = {};
+    let added = {};
     for (const d of decisions) {
       if (planRewards[d.planId]) continue;
       planRewards[d.planId] = d.got ? 'got' : 'declined';
-      if (!d.got) continue;
-      for (const [t, n] of Object.entries(d.reward ?? {})) {
-        if (n > 0) {
-          tickets[t] = (tickets[t] ?? 0) + n;
-          added[t] = (added[t] ?? 0) + n;
-        }
-      }
+      if (d.got) added = addToInventory(added, d.reward);
     }
+    const tickets = addToInventory(cur.tickets, added); // 上限 ITEM_MAX
     // 記録がまだない人（ログボをまだ受け取っていない人）は、最低限の項目を入れて作る
     const base = snap.exists() ? cur : { lastDate: '1970-01-01', streak: 0, total: 0, stamps: {} };
     tx.set(ref, { ...base, tickets, planRewards, updatedAt: Date.now() });

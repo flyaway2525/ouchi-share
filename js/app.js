@@ -4,6 +4,7 @@ import { h, setChildren, header, progressBar, actionSheet, confirmSheet, askText
 import { APP_VERSION, APP_BUILT_AT } from './version.js';
 import * as analytics from './analytics.js';
 import { holidayName } from './holidays.js';
+import { ITEMS, RARITIES } from './items.js';
 
 const app = document.getElementById('app');
 const LIST_EMOJIS = ['📝', '🧳', '🧻', '🧊', '🛒', '💊', '🎒', '🏕️', '🎁', '🐶'];
@@ -315,11 +316,8 @@ const isManager = (group, uid = user.uid) => ['owner', 'admin'].includes(group?.
 // 配布表（その月の何回目のログインで、どのチケットを何枚）は、グループのオーナー・管理者が決める（groups/{id}/settings/bonus）。
 // グループで決めていなければ前のアプリ共通の配布表、それもなければ DEFAULT_SCHEDULE。チケットはグループごとに貯まる。
 
-const TICKETS = [
-  ['bronze', 'ブロンズ', '🥉'],
-  ['silver', 'シルバー', '🥈'],
-  ['gold', 'ゴールド', '🥇'],
-];
+// チケット（金銀銅）はアイテムの一部（js/items.js の kind: 'ticket'）。[id, 短い名前, 絵文字]
+const TICKETS = ITEMS.filter((i) => i.kind === 'ticket').map((i) => [i.id, i.short, i.icon]);
 const ticketInfo = (id) => TICKETS.find(([t]) => t === id) ?? TICKETS[0];
 // 毎回ブロンズ 1 枚、7・14・21 回目はシルバー 1 枚、28 回目はゴールド 1 枚
 const DEFAULT_SCHEDULE = Object.fromEntries(
@@ -575,6 +573,75 @@ function rewardSheet(initial = {}) {
   });
 }
 
+// ---- 画面：アイテムボックス（グループごと） ----
+// アイテムの一覧は js/items.js（ITEMS）。持っている数は groups/{id}/bonus/{uid}.tickets（金銀銅のチケットと同じ場所）。
+// 持っているものはレアリティの色の枠で、まだ持っていないものは薄く出す。押すと詳しく（大きな画像・名前・レアリティ・説明・持っている数）
+function itemImage(item, size) {
+  return item.image
+    ? h('img', { class: 'item-img', src: item.image, alt: '', style: `width: ${size}px; height: ${size}px` })
+    : h('span', { class: 'item-emoji', style: `font-size: ${Math.round(size * 0.8)}px`, 'aria-hidden': 'true' }, item.icon);
+}
+
+function itemSheet(item, count) {
+  const r = RARITIES[item.rarity] ?? RARITIES[1];
+  openSheet((close) => [
+    h(
+      'div',
+      { class: 'item-detail', style: `--rarity: ${r.color}` },
+      h('div', { class: 'item-detail-img' }, itemImage(item, 96)),
+      h('b', { class: 'item-detail-name' }, item.name),
+      h('span', { class: 'item-rarity' }, `${'★'.repeat(item.rarity)}${'☆'.repeat(5 - item.rarity)} ${r.name}`),
+      h('p', { class: 'item-desc' }, item.description),
+      h('span', { class: 'item-detail-count' }, count > 0 ? `持っている数：${count.toLocaleString('ja-JP')}` : 'まだ持っていません'),
+    ),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
+  ]);
+}
+
+function itemsView(root, { groupId }) {
+  const top = h('div', { class: 'topbar-wrap' }, header({ title: '🎒 アイテムボックス', back: `#/g/${groupId}` }));
+  const body = h('main', { class: 'content' }, h('p', { class: 'empty small' }, '読み込み中…'));
+  root.append(top, body);
+  let inv;
+  const render = () => {
+    if (inv === undefined) return;
+    const owned = ITEMS.filter((i) => (inv[i.id] ?? 0) > 0);
+    setChildren(
+      body,
+      h('p', { class: 'sch-hint' }, `持っているアイテム ${owned.length} / ${ITEMS.length} 種類。押すと説明が見られます`),
+      h(
+        'div',
+        { class: 'item-grid' },
+        [...ITEMS]
+          .sort((a, b) => Number((inv[b.id] ?? 0) > 0) - Number((inv[a.id] ?? 0) > 0) || b.rarity - a.rarity)
+          .map((item) => {
+            const n = inv[item.id] ?? 0;
+            const r = RARITIES[item.rarity] ?? RARITIES[1];
+            return h(
+              'button',
+              { class: `item-cell${n > 0 ? '' : ' missing'}`, style: `--rarity: ${r.color}`, onClick: () => itemSheet(item, n), 'aria-label': `${item.name} ${n}個` },
+              itemImage(item, 40),
+              h('span', { class: 'item-name' }, item.name),
+              h('span', { class: 'item-count' }, n > 0 ? `×${n.toLocaleString('ja-JP')}` : '—'),
+            );
+          }),
+      ),
+      h('a', { class: 'btn wide', href: `#/g/${groupId}/tickets` }, '🎟 チケットをごほうびと交換する'),
+    );
+  };
+  return store.watchBonus(
+    groupId,
+    (b) => {
+      inv = b?.tickets ?? {};
+      render();
+    },
+    (e) => {
+      showError(e);
+      location.hash = `#/g/${groupId}`;
+    },
+  );
+}
+
 // ---- 画面：チケット・ごほうび（グループごと） ----
 function ticketsView(root, { groupId }) {
   const top = h('div', { class: 'topbar-wrap' }, header({ title: '🎟 チケット・ごほうび', back: `#/g/${groupId}` }));
@@ -764,7 +831,7 @@ function ticketsView(root, { groupId }) {
     const next = nextSpecial(schedule, done);
     setChildren(
       body,
-      h('p', { class: 'section-label' }, '持っているチケット'),
+      h('p', { class: 'section-label' }, '持っているチケット', h('a', { class: 'section-link', href: `#/g/${groupId}/items` }, '🎒 アイテムボックス ›')),
       h('div', { class: 'ticket-wallet' }, TICKETS.map(([t]) => ticketChip(t, tickets[t] ?? 0))),
       (() => {
         const ups = [['silver', 'bronze'], ['gold', 'silver']].filter(([t]) => rates?.upgrade?.[t] > 0).map(([t, low]) => `${ticketInfo(t)[2]}1 ＝ ${ticketInfo(low)[2]}${rates.upgrade[t]}`);
@@ -4098,6 +4165,7 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
       label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
       onClick: () => (location.hash = `#/g/${groupId}/news`),
     },
+    { label: '🎒 アイテムボックス', onClick: () => (location.hash = `#/g/${groupId}/items`) },
     { label: '🎟 チケット・ごほうび', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
     { label: '📝 テキスト予定表', onClick: () => (location.hash = `#/g/${groupId}/text`) },
     { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
@@ -8414,6 +8482,7 @@ const routes = [
   [/^#\/news$/, () => [newsListView, {}]],
   [/^#\/g\/([\w-]+)\/stamps$/, (m) => [stampsView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/tickets$/, (m) => [ticketsView, { groupId: m[1] }]],
+  [/^#\/g\/([\w-]+)\/items$/, (m) => [itemsView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/text$/, (m) => [textPlansView, { groupId: m[1] }]],
   [/^#\/g\/([\w-]+)\/news$/, (m) => [newsListView, { groupId: m[1] }]],
 ];
