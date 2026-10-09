@@ -4729,11 +4729,13 @@ function groupView(root, { groupId }) {
     }
   }
 
-  // 中身を左右にスワイプしてタブを切り替える（指・ペンだけ）。
-  // カレンダーの月の表（月の切り替え）・フリックで開く行・入力欄の上から始めたとき、並べ替えや日付の範囲選択の最中は何もしない
-  body.addEventListener('pointerdown', (e) => {
+  // 画面を左右にスワイプしてタブを切り替える（指・ペンだけ）。中身が短くても、画面のどこで払ってもよい（document で受け取る）。
+  // ヘッダー・タブ・ポップアップ・＋ボタン・カレンダーの月の表（月の切り替え）・フリックで開く行・入力欄の上から始めたとき、
+  // 並べ替えや日付の範囲選択の最中は何もしない
+  document.documentElement.classList.add('swipe-tabs');
+  const onSwipeDown = (e) => {
     if (e.pointerType === 'mouse' || !e.isPrimary) return;
-    if (e.target.closest?.('.cal-pager, .swipe-wrap, input, textarea, select, [contenteditable], [data-noswipe], .tabs')) return;
+    if (e.target.closest?.('.topbar-wrap, .tabs, .sheet-backdrop, .fab-wrap, .cal-pager, .swipe-wrap, input, textarea, select, [contenteditable], [data-noswipe]')) return;
     const id = e.pointerId;
     const sx = e.clientX;
     const sy = e.clientY;
@@ -4760,7 +4762,8 @@ function groupView(root, { groupId }) {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', cleanup);
     window.addEventListener('pointercancel', cleanup);
-  });
+  };
+  document.addEventListener('pointerdown', onSwipeDown);
 
   function renderBody() {
     if (!group || !lists || !events || !plans) return;
@@ -5030,6 +5033,8 @@ function groupView(root, { groupId }) {
     unwatchDiary();
     unwatchDiaryTags();
     unwatchAnnivs();
+    document.removeEventListener('pointerdown', onSwipeDown);
+    document.documentElement.classList.remove('swipe-tabs');
     unwatchNews();
     clearNewsSource(newsSourceId);
   };

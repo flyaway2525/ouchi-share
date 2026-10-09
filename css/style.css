@@ -5214,7 +5214,12 @@ html.has-wallpaper body {
   font-size: 12px;
 }
 
-/* グループの画面：左右のスワイプでタブを切り替えるので、ブラウザには縦のスクロールだけを任せる */
-.group-body {
+/* グループの画面：左右のスワイプでタブを切り替えるので、画面全体でブラウザには縦のスクロールだけを任せる。
+   中身が短くても画面の下まで払えるように、中身の部分を画面の高さいっぱいにする */
+html.swipe-tabs body {
   touch-action: pan-y;
+}
+
+.group-body {
+  min-height: calc(100dvh - 130px);
 }
