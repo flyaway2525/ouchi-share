@@ -4635,7 +4635,7 @@ async function shareInvite(group) {
 
 function groupView(root, { groupId }) {
   const top = h('div', { class: 'topbar-wrap' });
-  const body = h('main', { class: 'content' });
+  const body = h('main', { class: 'content group-body' });
   root.append(top, body);
   let group;
 
@@ -4713,6 +4713,55 @@ function groupView(root, { groupId }) {
   let diaryFilter = null; // 日記のタグの絞り込み（タグ ID）
   let annivs = null;
 
+  // タブを切り替える（タブを押したとき・左右にスワイプしたとき）。右のタブへは右から、左のタブへは左から中身がすべり込む
+  const TAB_ORDER = ['calendar', 'events', 'lists', 'diary'];
+  const currentTab = () => (TAB_ORDER.includes(prefs.get(`groupTab:${groupId}`)) ? prefs.get(`groupTab:${groupId}`) : 'calendar');
+  function goTab(id) {
+    const from = currentTab();
+    if (from === id || !group) return;
+    prefs.set(`groupTab:${groupId}`, id);
+    renderBody();
+    if (!fx.reduced()) {
+      const dir = TAB_ORDER.indexOf(id) > TAB_ORDER.indexOf(from) ? 1 : -1;
+      [...body.children].slice(1).forEach((el) =>
+        el.animate([{ transform: `translateX(${dir * 28}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 400, easing: 'cubic-bezier(0.25, 0.7, 0.25, 1)' }),
+      );
+    }
+  }
+
+  // 中身を左右にスワイプしてタブを切り替える（指・ペンだけ）。
+  // カレンダーの月の表（月の切り替え）・フリックで開く行・入力欄の上から始めたとき、並べ替えや日付の範囲選択の最中は何もしない
+  body.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' || !e.isPrimary) return;
+    if (e.target.closest?.('.cal-pager, .swipe-wrap, input, textarea, select, [contenteditable], [data-noswipe], .tabs')) return;
+    const id = e.pointerId;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let decided = false;
+    const move = (ev) => {
+      if (ev.pointerId !== id || decided) return;
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      if (Math.abs(dy) > 14 && Math.abs(dy) > Math.abs(dx)) return cleanup(); // 縦のスクロール
+      if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+      if (calPick.active || sortDrag.active || scheduleDrag.active) return cleanup();
+      decided = true;
+      cleanup();
+      const i = TAB_ORDER.indexOf(currentTab()) + (dx < 0 ? 1 : -1); // 左へ払うと右のタブ
+      if (i < 0 || i >= TAB_ORDER.length) return;
+      fx.haptic(8);
+      goTab(TAB_ORDER[i]);
+    };
+    function cleanup() {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', cleanup);
+      window.removeEventListener('pointercancel', cleanup);
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', cleanup);
+    window.addEventListener('pointercancel', cleanup);
+  });
+
   function renderBody() {
     if (!group || !lists || !events || !plans) return;
     if (deferWhileSorting(renderBody)) return;
@@ -4759,17 +4808,7 @@ function groupView(root, { groupId }) {
           'aria-selected': String(tab === id),
           onClick: () => {
             if (tabLongPressed) return (tabLongPressed = false);
-            if (tab === id) return;
-            prefs.set(tabKey, id);
-            renderBody();
-            // 演出：右のタブへは右から、左のタブへは左から中身がすべり込む
-            if (!fx.reduced()) {
-              const order = ['calendar', 'events', 'lists', 'diary'];
-              const dir = order.indexOf(id) > order.indexOf(tab) ? 1 : -1;
-              [...body.children].slice(1).forEach((el) =>
-                el.animate([{ transform: `translateX(${dir * 28}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 400, easing: 'cubic-bezier(0.25, 0.7, 0.25, 1)' }),
-              );
-            }
+            goTab(id);
           },
           onContextmenu: id === 'calendar' ? (e) => e.preventDefault() : null,
           onPointerdown:
