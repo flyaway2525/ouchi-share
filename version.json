@@ -1,5 +1,5 @@
 {
-  "version": 128,
-  "builtAt": "2026-10-09 22:20",
-  "note": "Rename admin dashboard to developer dashboard and profile to settings; user ID copy and login linking in settings"
+  "version": 129,
+  "builtAt": "2026-10-10 02:23",
+  "note": "Official themes (wallpaper, colors, icons, font, effects) with live preview; group managers can set an official theme"
 }

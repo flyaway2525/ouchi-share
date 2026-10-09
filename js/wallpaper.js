@@ -253,14 +253,25 @@ function ensureHost() {
   return host;
 }
 
+// 着せ替え（skins.js）の壁紙。自分の壁紙（写真・季節）を設定していないときに出す
+let fallback = null; // { id, layers }
+export function setFallback(id, layers) {
+  fallback = layers ? { id, layers } : null;
+}
+
 // 画面に壁紙を反映する（ルーターから呼ぶ）
 let applySeq = 0;
 let shown = '';
 export async function apply(groupId) {
   const seq = ++applySeq;
-  const { s, scope } = effective(groupId);
-  const layers = await resolveLayers(s, scope);
+  let { s, scope } = effective(groupId);
+  let layers = await resolveLayers(s, scope);
   if (seq !== applySeq) return; // 読み込んでいる間に別の画面に移った
+  if (!layers.some(Boolean) && fallback) {
+    layers = fallback.layers;
+    s = { type: 'skin', id: fallback.id, clarity: 2 };
+    scope = 'skin';
+  }
   const on = layers.some(Boolean);
   document.documentElement.classList.toggle('has-wallpaper', on);
   if (!on) {

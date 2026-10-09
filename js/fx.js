@@ -16,10 +16,16 @@ const MEDAL_COLORS = {
   party: ['#f08a4b', '#ffd36e', '#3b7ddd', '#e57fa3', '#43a047', '#9b6bd6'],
 };
 
+// 着せ替え（skins.js）の演出：ふだんの紙吹雪の色と、✨ の代わりに飛び散る絵文字
+let skin = { confetti: null, sparkle: null };
+export function setSkin(s) {
+  skin = s;
+}
+
 // 紙吹雪（画面の上の方から舞い落ちる）。colors は MEDAL_COLORS の名前か色の配列
 export function confetti({ colors = 'party', count = 90, duration = 2000 } = {}) {
   if (reduced()) return;
-  const palette = Array.isArray(colors) ? colors : MEDAL_COLORS[colors] ?? MEDAL_COLORS.party;
+  const palette = Array.isArray(colors) ? colors : (colors === 'party' && skin.confetti) || MEDAL_COLORS[colors] || MEDAL_COLORS.party;
   const canvas = document.createElement('canvas');
   canvas.className = 'fx-canvas';
   const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -69,7 +75,7 @@ export function burst(el, emojis = ['✨'], { count = 10, distance = 90 } = {}) 
   const r = el.getBoundingClientRect();
   const cx = r.left + r.width / 2;
   const cy = r.top + r.height / 2;
-  const list = Array.isArray(emojis) ? emojis : [emojis];
+  const list = (Array.isArray(emojis) ? emojis : [emojis]).map((e) => (e === '✨' && skin.sparkle) || e);
   for (let i = 0; i < count; i++) {
     const s = document.createElement('span');
     s.className = 'fx-spark';

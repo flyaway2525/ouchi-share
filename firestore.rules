@@ -278,7 +278,11 @@ service cloud.firestore {
           && d.inviteCode is string && d.inviteCode.size() >= 16;
       }
 
-      // アプリ開発者は、すべてのグループを見られる（管理者ダッシュボードのグループの一覧）
+      function isGroupManager() {
+        return isMember() && resource.data.members[request.auth.uid].role in ['owner', 'admin'];
+      }
+
+      // アプリ開発者は、すべてのグループを見られる（開発者ダッシュボードのグループの一覧）
       allow get, list: if isMember() || isDeveloper();
       allow create: if isAdmin() && isValidNewGroup();
       // グループ名と「全員の予定の色」（allColor）はメンバーなら誰でも変えられる
@@ -288,6 +292,9 @@ service cloud.firestore {
         || (isMember() && changed().hasOnly(['name', 'allColor']) && isNonEmptyString(request.resource.data.name, 40)
           && (!('allColor' in request.resource.data) || request.resource.data.allColor.matches('^#[0-9a-fA-F]{6}$')))
         || (isOwner() && changed().hasOnly(['inviteCode']) && request.resource.data.inviteCode.size() >= 16)
+        // グループの公式の着せ替え（js/skins.js の id）は、オーナー・管理者が決める
+        || (isGroupManager() && changed().hasOnly(['theme'])
+          && (!('theme' in request.resource.data) || request.resource.data.theme.matches('^[a-z0-9-]{1,32}$')))
         || (isMember() && isOwnProfileUpdate())
         || (isMember() && isStaleRemoval())
         || (isMember() && isMemberRemoval())

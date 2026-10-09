@@ -157,6 +157,11 @@ export async function setGroupAllColor(groupId, color) {
   await updateDoc(groupRef(groupId), { allColor: color ?? deleteField() });
 }
 
+// グループの公式の着せ替え（js/skins.js の id）。オーナー・管理者だけ。null でなし
+export async function setGroupSkin(groupId, id) {
+  await updateDoc(groupRef(groupId), { theme: id || deleteField() });
+}
+
 // 招待リンクを作り直す（古いリンクでは参加できなくなる）
 export async function regenerateInvite(groupId) {
   await updateDoc(groupRef(groupId), { inviteCode: randomCode() });

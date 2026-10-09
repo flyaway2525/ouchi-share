@@ -51,6 +51,7 @@ flowchart LR
 | `www.gstatic.com/firebasejs/12.19.0/` | Firebase の SDK | `js/firebase.js`・`js/store.js`・`js/auth.js`・`js/push.js` |
 | `www.gstatic.com/firebasejs/12.19.0/firebase-analytics.js`・`www.googletagmanager.com` | GA4 の計測（最初の画面のあとで読み込む） | `js/analytics.js` |
 | `cdn.jsdelivr.net`（qrcode-generator 2.0.4） | QR コードを作るライブラリ（必要なときだけ） | `js/ui.js` の `qrCode` |
+| `fonts.googleapis.com`・`fonts.gstatic.com`（Google Fonts） | 着せ替えのフォント（その着せ替えを使うとき・見本を出すときだけ） | `js/skins.js` の `loadFont` |
 | TikTok・YouTube の oEmbed、各サイトのページ | リンクのタイトル・画像 | Cloudflare Workers の `/preview`（アプリから直接は読まない） |
 
 ## 秘密の値・公開してよい値
@@ -84,3 +85,4 @@ flowchart LR
 
 - かかるのは **Apple Developer Program の年 99 ドルだけ**。ほかに有料のサービス・プランは使わない（Firebase は Blaze にしない）
 - 有料のものが必要になりそうなときは、先にユーザーに相談する
+- 有料プラン（グループ単位のサブスク・公式の着せ替え）の方針を 2026-10-10 に決めた（docs/design.md の「有料プランの方針」）。まだ作っていない。課金を入れるときは、App Store のアプリ内課金（Small Business Program で手数料 15%）と、使う人が増えたときの Firebase の Blaze（予算の上限付き）・Cloudflare Pages への移動を、あらためて相談する

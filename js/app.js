@@ -7,6 +7,7 @@ import { holidayName } from './holidays.js';
 import { ITEMS, RARITIES } from './items.js';
 import * as fx from './fx.js';
 import * as wallpaper from './wallpaper.js';
+import * as skins from './skins.js';
 
 const app = document.getElementById('app');
 const LIST_EMOJIS = ['📝', '🧳', '🧻', '🧊', '🛒', '💊', '🎒', '🏕️', '🎁', '🐶'];
@@ -1442,6 +1443,7 @@ function readableOn(hex) {
 
 // メインカラー・サブカラーをアプリの見た目に反映する（決めていなければアプリの色のまま）
 function applyTheme(colors) {
+  if (skins.hasColors()) colors = null; // 着せ替えの色を使っているときは、着せ替えの色を優先する
   const root = document.documentElement.style;
   if (colors?.main) {
     root.setProperty('--accent', colors.main);
@@ -1452,6 +1454,14 @@ function applyTheme(colors) {
   }
   if (colors?.sub) root.setProperty('--accent-soft', `color-mix(in srgb, ${colors.sub} 32%, var(--surface))`);
   else root.removeProperty('--accent-soft');
+}
+
+// 着せ替え（色・フォント・演出・壁紙）と自分の色を、開いている画面に合わせて反映する。壁紙は呼んだ側で wallpaper.apply
+function applyLook(hash = location.hash) {
+  const { skin } = skins.resolve(hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);
+  skins.apply(skin);
+  wallpaper.setFallback(skin.id, skins.wallpaperLayers(skin));
+  applyTheme(themeForHash(hash));
 }
 
 // 開いている画面に合う色（グループの中ならそのグループでの設定、外なら全体の設定）
@@ -1997,6 +2007,125 @@ async function shareWallpaper(scope, groupId) {
   }
 }
 
+// ---- 公式の着せ替え（壁紙・色・アイコン・フォント・演出が 1 セット。js/skins.js） ----
+function skinText(id, fallback = 'いつもの') {
+  const s = id && skins.byId(id);
+  return s ? `${s.emoji} ${s.name}` : fallback;
+}
+
+// 着せ替えの見本（カード）。その着せ替えの色・フォント・アイコンで小さく描く
+function skinCard(skin, { on, onClick }) {
+  skins.loadFont(skin);
+  const dark = skin.alwaysDark || matchMedia('(prefers-color-scheme: dark)').matches;
+  const c = (dark ? skin.dark ?? skin.sample?.dark : skin.light ?? skin.sample?.light) ?? null;
+  const icons = ['calendar', 'events', 'lists', 'diary'].map((k) => skin.icons?.[k] ?? { calendar: '📅', events: '✈️', lists: '📝', diary: '📔' }[k]);
+  const layers = skins.wallpaperLayers(skin);
+  return h(
+    'button',
+    {
+      type: 'button',
+      class: `skin-card${on ? ' on' : ''}`,
+      style: c ? `--sk-bg:${c.bg};--sk-surface:${c.surface};--sk-text:${c.text};--sk-accent:${c.accent};--sk-accent-text:${c.accentText};--sk-border:${c.border}` : '',
+      onClick,
+    },
+    h(
+      'span',
+      { class: 'skin-sample', style: `${skin.font ? `font-family:'${skin.font.family}',sans-serif;` : ''}${layers ? `background:${layers[0].css.replaceAll('var(--bg)', c?.bg ?? 'var(--bg)')}` : ''}` },
+      h('span', { class: 'skin-sample-icons' }, icons.join(' ')),
+      h('span', { class: 'skin-sample-card' }, 'きょうの予定'),
+      h('span', { class: 'skin-sample-btn' }, '＋ 追加'),
+    ),
+    h('b', { class: 'skin-name' }, `${skin.emoji} ${skin.name}`, skin.premium && h('span', { class: 'skin-crown', title: '有料プラン' }, '👑')),
+    h('small', { class: 'skin-desc' }, skin.desc),
+  );
+}
+
+// 着せ替えを選ぶ。押すとその場で画面に反映して見られる（キャンセルで元に戻す）
+//   scope 'global'：自分の全体の設定 / 'g:<id>'：自分のこのグループだけ（「グループの公式に合わせる」も選べる）
+//   official で group を渡すと、グループの公式の着せ替え（オーナー・管理者。メンバー全員の基本になる）
+function skinSheet({ scope = 'global', group = null, official = false } = {}) {
+  const groupId = group?.id ?? null;
+  const NONE = scope === 'global' ? 'standard' : 'inherit';
+  const saved = official ? group.theme ?? '' : skins.getChoice(scope) ?? NONE;
+  let picked = saved;
+  // 選んだものを、その場で画面に反映する（見本として）
+  const previewSkin = () => {
+    if (official) return skins.byId(picked) ?? skins.byId(skins.getChoice('global')) ?? skins.SKINS[0];
+    if (picked === 'inherit') return skins.byId(skins.official(groupId)) ?? skins.byId(skins.getChoice('global')) ?? skins.SKINS[0];
+    return skins.byId(picked) ?? skins.SKINS[0];
+  };
+  const show = () => {
+    const s = previewSkin();
+    skins.apply(s);
+    wallpaper.setFallback(s.id, skins.wallpaperLayers(s));
+    applyTheme(themeForHash(location.hash));
+    wallpaper.apply(groupId);
+  };
+  const restore = () => {
+    applyLook();
+    wallpaper.apply(location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);
+  };
+  return openSheet((close) => {
+    const box = h('div', { class: 'skin-edit' });
+    const render = () =>
+      setChildren(
+        box,
+        !official &&
+          scope !== 'global' &&
+          h(
+            'button',
+            { type: 'button', class: `chip wide-chip${picked === 'inherit' ? ' on' : ''}`, onClick: () => ((picked = 'inherit'), show(), render()) },
+            `グループの公式に合わせる（${skins.official(groupId) ? skinText(skins.official(groupId)) : 'なければ全体の設定'}）`,
+          ),
+        official &&
+          h('button', { type: 'button', class: `chip wide-chip${picked === '' ? ' on' : ''}`, onClick: () => ((picked = ''), show(), render()) }, '決めない（みんな自分の設定のまま）'),
+        h(
+          'div',
+          { class: 'skin-grid' },
+          skins.SKINS.map((s) => skinCard(s, { on: picked === s.id, onClick: () => ((picked = s.id), show(), render()) })),
+        ),
+        h('p', { class: 'sch-hint' }, '👑 は有料プラン（グループ単位）の着せ替えです。今は試作中なので、すべて使えます。'),
+        h('p', { class: 'sch-hint' }, '自分の壁紙（写真・季節）を設定しているときは、そちらが出ます。着せ替えの壁紙にするには、壁紙を「なし」にしてください。'),
+        official && h('p', { class: 'sch-hint' }, 'グループの公式にすると、メンバー全員のこのグループの見た目になります（「このグループだけ」の着せ替えを選んだ人は、その人が選んだもの）。'),
+      );
+    render();
+    return [
+      h('div', { class: 'sheet-title' }, official ? `👑 「${group.name}」の公式の着せ替え` : scope === 'global' ? '🎨 着せ替え（全体の設定）' : `🎨 「${group.name}」での着せ替え`),
+      box,
+      h(
+        'div',
+        { class: 'sheet-buttons' },
+        h('button', { type: 'button', class: 'btn', onClick: () => (restore(), close(null)) }, 'キャンセル'),
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn primary',
+            onClick: async () => {
+              const s = skins.byId(picked);
+              if (s && !skins.canUse(s, group)) return toast('有料プランのグループで使えます');
+              try {
+                if (official) {
+                  await store.setGroupSkin(groupId, picked || null);
+                  skins.setOfficial(groupId, picked || null);
+                } else skins.setChoice(scope, picked === NONE ? null : picked);
+              } catch (e) {
+                restore();
+                return showError(e);
+              }
+              close(true);
+              restore();
+              toast(s ? `${s.emoji} 「${s.name}」に着せ替えました` : '着せ替えを戻しました');
+              if (s && s.id !== 'standard') setTimeout(() => fx.confetti(), 200);
+            },
+          },
+          '保存',
+        ),
+      ),
+    ];
+  });
+}
+
 // グループの壁紙（おすそわけ）の一覧。「使う」で、このグループの壁紙か全体の壁紙として自分の端末にコピーする
 async function sharedWallpapersSheet(group) {
   let items;
@@ -2142,6 +2271,8 @@ function profileView(root) {
         PROFILE_ITEMS.map(([f, label]) => h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, label), profileValue(f, g))),
       ),
       h('button', { class: 'btn primary wide', onClick: () => profileSheet().then(render) }, '✏️ 全体の設定を編集'),
+      h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🎨 着せ替え'), h('span', { class: 'pv-text' }, skinText(skins.getChoice('global'))))),
+      h('button', { class: 'btn wide', onClick: () => skinSheet({ scope: 'global' }).then(render) }, '🎨 着せ替えを変える'),
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting('global') ?? { type: 'none' })))),
       h('button', { class: 'btn wide', onClick: () => wallpaperSheet('global', '🖼 壁紙（全体の設定）').then(render) }, '🖼 壁紙を変える'),
       h('button', { class: 'btn wide', onClick: shareGlobalWallpaper }, '📤 この壁紙をグループにおすそわけ'),
@@ -2225,7 +2356,9 @@ function groupProfileView(root, { groupId }) {
   const body = h('main', { class: 'content' }, h('p', { class: 'empty small' }, '読み込み中…'));
   root.append(top, body);
 
+  let latest = null; // 最新のグループ（シートを閉じたあと、最新の内容で描き直すため）
   const render = (group) => {
+    latest = group;
     setChildren(top, header({ title: `👤 「${group.name}」でのプロフィール`, back }));
     const g = globalProfile();
     const me = { uid: user.uid, ...(group.members?.[user.uid] ?? {}) };
@@ -2276,6 +2409,14 @@ function groupProfileView(root, { groupId }) {
         ),
       ),
       h('button', { class: 'btn primary wide', onClick: () => profileSheet({ group }) }, '✏️ このグループでのプロフィールを編集'),
+      h(
+        'div',
+        { class: 'pv-table wallpaper-row' },
+        h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '👑 グループの公式'), h('span', { class: 'pv-text' }, skinText(group.theme, 'なし（みんな自分の設定）'))),
+        h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🎨 着せ替え'), h('span', { class: 'pv-text' }, skins.getChoice(`g:${groupId}`) ? skinText(skins.getChoice(`g:${groupId}`)) : `グループの公式に合わせる（今は ${skinText(skins.resolve(groupId).skin.id)}）`)),
+      ),
+      h('button', { class: 'btn wide', onClick: () => skinSheet({ scope: `g:${groupId}`, group }).then(() => render(latest)) }, '🎨 このグループでの着せ替えを変える'),
+      isManager(group) && h('button', { class: 'btn wide', onClick: () => skinSheet({ group, official: true }).then(() => render(latest)) }, '👑 グループの公式の着せ替えを決める'),
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting(`g:${groupId}`))))),
       h('button', { class: 'btn wide', onClick: () => wallpaperSheet(`g:${groupId}`, `🖼 「${group.name}」の壁紙`).then(() => render(group)) }, '🖼 このグループの壁紙を変える'),
       h('button', { class: 'btn wide', onClick: () => sharedWallpapersSheet(group).then(() => render(group)) }, '👥 みんながおすそわけした壁紙'),
@@ -4856,7 +4997,11 @@ function groupView(root, { groupId }) {
       updateGlobalFab();
       groupMembers[groupId] = memberList(g);
       groupThemes[groupId] = g.members?.[user.uid]?.colors ?? null;
-      applyTheme(themeForHash(location.hash));
+      // グループの公式の着せ替えが変わったら、描き直す
+      if (skins.setOfficial(groupId, g.theme ?? null)) {
+        applyLook();
+        wallpaper.apply(groupId);
+      } else applyTheme(themeForHash(location.hash));
       // その日はじめてこのグループを開いたら、ログインボーナス（2 回目からは何もしない）
       processRedemptions(); // ごほうびの交換の承認・結果（グループを読み込んだので）
       // ログボのあとで、終わった予定の報酬（予定を読み込んでから）
@@ -5026,10 +5171,10 @@ function groupView(root, { groupId }) {
     const tabs = h(
       'div',
       { class: 'tabs four', role: 'tablist' },
-      tabBtn('calendar', annivMode ? '🎉 記念日' : '📅 カレンダー'),
-      tabBtn('events', '✈️ イベント', active.length),
-      tabBtn('lists', '📝 リスト', daily.length),
-      tabBtn('diary', '📔 日記'),
+      tabBtn('calendar', annivMode ? `${skins.icon('anniv')} 記念日` : `${skins.icon('calendar')} カレンダー`),
+      tabBtn('events', `${skins.icon('events')} イベント`, active.length),
+      tabBtn('lists', `${skins.icon('lists')} リスト`, daily.length),
+      tabBtn('diary', `${skins.icon('diary')} 日記`),
     );
     if (tab === 'diary') {
       setChildren(
@@ -6978,7 +7123,7 @@ function eventView(root, { groupId, eventId, date = null }) {
         h('span', { class: 'event-dates' }, fmtRange(ev)),
         h('span', { class: `event-badge ${st.kind}` }, st.label),
       ),
-      h('div', { class: 'tabs', role: 'tablist' }, tabBtn('schedule', '🗓 旅程', planned), tabBtn('lists', '📝 リスト', mine.length)),
+      h('div', { class: 'tabs', role: 'tablist' }, tabBtn('schedule', `${skins.icon('trip')} 旅程`, planned), tabBtn('lists', `${skins.icon('lists')} リスト`, mine.length)),
       tab === 'schedule'
         ? scheduleSection(groupId, ev, schedule)
         : [
@@ -9143,7 +9288,7 @@ function route() {
   unmount = null;
   app.replaceChildren();
   const hash = location.hash;
-  applyTheme(themeForHash(hash));
+  applyLook(hash);
   // 壁紙（グループの中ならグループの設定、なければ全体の設定）。グループの画面（タブがある）以外は、ずれをなくす
   if (!/^#\/g\/[\w-]+$/.test(hash)) wallpaper.setParallax(0);
   wallpaper.apply(hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);

@@ -5251,3 +5251,108 @@ html.swipe-tabs body {
   font-size: 12px;
   word-break: break-all;
 }
+
+/* 着せ替えの壁紙の地面（まん中の層）：下に寄せて横にくり返す。ceiling は上から垂れる形 */
+.wp-ground {
+  background-size: 400px 34%;
+  background-repeat: repeat-x;
+  background-position: left bottom;
+}
+
+.wp-ceiling {
+  background-size: 400px 18%;
+  background-repeat: repeat-x;
+  background-position: left top;
+}
+
+/* 着せ替えを選ぶシート：見本のカードを 2 列に並べる */
+.skin-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chip.wide-chip {
+  width: 100%;
+  text-align: left;
+}
+
+.skin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.skin-card {
+  --sk-bg: var(--bg);
+  --sk-surface: var(--surface);
+  --sk-text: var(--text);
+  --sk-accent: var(--accent);
+  --sk-accent-text: var(--accent-text);
+  --sk-border: var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 6px 10px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+}
+
+.skin-card.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.skin-sample {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--sk-bg);
+  color: var(--sk-text);
+  font-size: 12px;
+}
+
+.skin-sample-icons {
+  font-size: 15px;
+  letter-spacing: 2px;
+}
+
+.skin-sample-card {
+  padding: 5px 7px;
+  border: 1px solid var(--sk-border);
+  border-radius: 7px;
+  background: var(--sk-surface);
+}
+
+.skin-sample-btn {
+  align-self: flex-end;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--sk-accent);
+  color: var(--sk-accent-text);
+  font-weight: 700;
+}
+
+.skin-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  font-size: 14px;
+}
+
+.skin-crown {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.skin-desc {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
