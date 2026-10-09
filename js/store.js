@@ -927,8 +927,10 @@ export async function deleteAnniversary(groupId, id) {
 }
 
 // ---- アプリ開発者の管理：停止（いつでも元に戻せる） ----
-// suspendedUsers/{uid} = { name, at, by }：あるとその人はデータを読み書きできない（ルールの signedIn()）
-// groups/{id}.suspended = true：メンバーはグループの中身を読み書きできない（ルールの isActiveMember()）
+// ユーザー：ログインのアカウントを無効にする（Workers の /admin。push.js の adminAction('suspendUser')）。
+//   suspendedUsers/{uid} = { name, at, by } はダッシュボードに出すための記録（Workers が書く）
+// グループ：groups/{id}.suspended = true：メンバーはグループの中身を読み書きできない（ルールの isActiveMember()。
+//   グループのデータはメンバーかを確かめるためにもともと読んでいるので、読み取りは増えない）
 
 export async function listAllGroups() {
   const snap = await getDocs(collection(db, 'groups'));
@@ -943,16 +945,3 @@ export function watchSuspendedUsers(cb, onError) {
   return onSnapshot(collection(db, 'suspendedUsers'), (snap) => cb(Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]))), onError);
 }
 
-export async function setUserSuspended(userId, suspended, name = '') {
-  if (suspended) await setDoc(doc(db, 'suspendedUsers', userId), { name, at: Date.now(), by: uid() });
-  else await deleteDoc(doc(db, 'suspendedUsers', userId));
-}
-
-// 自分が停止されているか（読めなければ停止されていないことにする）
-export function watchMySuspension(userId, cb) {
-  return onSnapshot(
-    doc(db, 'suspendedUsers', userId),
-    (snap) => cb(snap.exists()),
-    () => cb(false),
-  );
-}

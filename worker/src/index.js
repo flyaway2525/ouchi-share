@@ -16,7 +16,10 @@
 //   body: { action: 'deleteGroup', groupId } … グループと中身（リスト・予定・日記・写真など）と、そのグループの復旧ID を全部消す
 //   body: { action: 'deleteUser', uid }       … 全グループから外し（オーナーなら、いちばん古いメンバーをオーナーにする。
 //                                                 1 人だけのグループは消す）、プロフィール・通知の送り先・既読・停止の印・復旧ID を消し、ログインのアカウントも消す
-//   アプリ開発者（DEVELOPER_UIDS か admins/{uid} に developer: true）以外は 403。アプリ開発者は消せない
+//   body: { action: 'suspendUser', uid, name } … ログインのアカウントを無効にする（ログインし直せない。開いている人も、
+//                                                  ログインの有効期限（最大 1 時間）が切れたら使えなくなる）。suspendedUsers/{uid} に記録
+//   body: { action: 'resumeUser', uid }       … 無効を外し、記録を消す
+//   アプリ開発者（DEVELOPER_UIDS か admins/{uid} に developer: true）以外は 403。アプリ開発者は停止・削除できない
 // 毎日の定期実行（wrangler.toml の crons）… 翌日の予定・イベントのリマインドを送る
 //
 // 必要な秘密の値（wrangler secret put で登録。リポジトリには入れない）：
@@ -48,10 +51,11 @@ export default {
         if (!(await isDeveloperUid(token, sender))) throw fail(403, 'not-developer');
         const req = await request.json();
         if (req.action === 'deleteGroup') return json(await adminDeleteGroup(token, String(req.groupId ?? '')), 200, cors);
-        if (req.action === 'deleteUser') {
+        if (['deleteUser', 'suspendUser', 'resumeUser'].includes(req.action)) {
           const target = String(req.uid ?? '');
-          if (!target || target === sender || (await isDeveloperUid(token, target))) throw fail(400, 'cannot-delete');
-          return json(await adminDeleteUser(token, target), 200, cors);
+          if (!/^[\w-]+$/.test(target) || target === sender || (await isDeveloperUid(token, target))) throw fail(400, 'cannot-change-this-user');
+          if (req.action === 'deleteUser') return json(await adminDeleteUser(token, target), 200, cors);
+          return json(await adminSetDisabled(token, target, req.action === 'suspendUser', String(req.name ?? '').slice(0, 40), sender), 200, cors);
         }
         throw fail(400, 'bad-action');
       }
@@ -413,6 +417,25 @@ async function adminDeleteGroup(token, groupId) {
   writes.push({ delete: docName(`groups/${groupId}`) });
   await commitWrites(token, writes);
   return { ok: true, deleted: writes.length };
+}
+
+// ログインのアカウントを無効にする／戻す（Firebase Authentication の disableUser）。ダッシュボード用に記録も書く
+async function adminSetDisabled(token, uid, disabled, name, by) {
+  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:update`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ localId: uid, disableUser: disabled }),
+  });
+  if (!res.ok) {
+    console.error('auth update', res.status, await res.text());
+    throw fail(502, `auth-${res.status}`);
+  }
+  await commitWrites(token, [
+    disabled
+      ? { update: { name: docName(`suspendedUsers/${uid}`), fields: { name: { stringValue: name }, at: { integerValue: String(Date.now()) }, by: { stringValue: by } } } }
+      : { delete: docName(`suspendedUsers/${uid}`) },
+  ]);
+  return { ok: true, disabled };
 }
 
 async function adminDeleteUser(token, uid) {

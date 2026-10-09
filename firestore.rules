@@ -10,10 +10,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ログインしていて、停止されていない（suspendedUsers/{uid} がない）人
+    // ログインしている人（停止されたユーザーは、ログインのアカウントごと無効にするので、ここでは確かめない。
+    // 読み書きのたびに停止の印を読むと、そのぶん読み取りが増えるため）
     function signedIn() {
-      return request.auth != null
-        && !exists(/databases/$(database)/documents/suspendedUsers/$(request.auth.uid));
+      return request.auth != null;
     }
 
     // グループのメンバーで、グループが停止されていない（グループの中身を読み書きするとき）
@@ -43,11 +43,11 @@ service cloud.firestore {
       return v is string && v.size() > 0 && v.size() <= max;
     }
 
-    // ---- 停止されたユーザー（アプリ開発者が書く。本人は自分が停止されているかだけ読める） ----
-    // signedIn() を使わない（停止された本人が、停止されていることを読めるように）
+    // ---- 停止されたユーザーの記録（ダッシュボードの表示用。書くのは Workers の /admin だけ） ----
+    // 停止そのものは、ログインのアカウントを無効にして行う（ルールで毎回は確かめない）
     match /suspendedUsers/{userId} {
-      allow get: if request.auth != null && (request.auth.uid == userId || isDeveloper());
-      allow list, write: if isDeveloper();
+      allow read: if isDeveloper();
+      allow write: if false;
     }
 
     // ---- 許可リスト（コンソールからのみ編集） ----

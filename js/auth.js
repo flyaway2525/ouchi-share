@@ -141,6 +141,8 @@ export function authErrorMessage(e) {
       return 'このログイン方法は有効になっていません（Firebase の Authentication 設定を確認してください）。';
     case 'auth/network-request-failed':
       return 'ネットワークにつながりません。';
+    case 'auth/user-disabled':
+      return 'このアカウントは、アプリの管理者によって停止されています。';
     default:
       return `ログインに失敗しました（${e?.code || e?.message || '不明なエラー'}）`;
   }

@@ -9,8 +9,6 @@ const EVENT_EMOJIS = ['✈️', '🏕️', '🚗', '🏖️', '♨️', '🎿', 
 
 let user; // undefined = 確認中, null = 未ログイン
 let isAdmin = false; // グループを作れる人（許可リスト admins/{uid}）
-let accountSuspended = false; // このアカウントがアプリ開発者に停止されている（suspendedUsers/{uid}）
-let unwatchSuspension = null;
 let isDeveloper = false; // アプリ開発者（いつもの開発者 DEVELOPER_UIDS か、admins/{uid} に developer: true）。管理者ダッシュボードはこの人だけ
 let unwatchAdmin = null;
 // ログイン処理の途中（名前の設定など）で画面が切り替わらないようにする
@@ -6135,19 +6133,6 @@ function eventView(root, { groupId, eventId, date = null }) {
 
 // 管理者だけの機能は、ここにまとめる（タブ：利用状況 / お知らせ / ログボ / グループ）
 // - アプリからのお知らせ（announcements。アプリを使う全員に届く）を書く・再通知する・消すのは、ここからだけ（ルールでも管理者だけ）
-// アカウントが停止されているときの画面（ほかの画面は出さない）
-function suspendedView(root) {
-  root.append(
-    h(
-      'main',
-      { class: 'content welcome' },
-      h('h1', {}, '⛔ このアカウントは停止されています'),
-      h('p', { class: 'welcome-text' }, 'アプリの管理者によって、このアカウントの利用が止められています。心当たりがない場合は、アプリの管理者に連絡してください。'),
-      h('button', { class: 'btn wide', onClick: () => auth.signOut().then(() => (location.hash = '#/')) }, 'ログアウト'),
-    ),
-  );
-}
-
 // 管理者ダッシュボードはアプリ開発者だけ。それ以外の人が開いたら、ホームに戻す
 function notDeveloperView(root) {
   root.append(header({ title: '管理者ダッシュボード', back: '#/' }), h('main', { class: 'content' }, h('p', { class: 'empty' }, 'このページはアプリ開発者だけが使えます')));
@@ -6292,10 +6277,15 @@ function adminView(root) {
     const stopped = !!suspended?.[u.uid];
     actionSheet(`${u.name || '（名前なし）'}${u.guest ? '（ゲスト）' : ''}`, [
       {
-        label: stopped ? '▶️ 停止を解除する' : '⏸ 停止する（データを読み書きできなくする）',
+        label: stopped ? '▶️ 停止を解除する' : '⏸ 停止する（ログインできなくする）',
         onClick: async () => {
-          if (!stopped && !(await confirmSheet(`${u.name || 'この人'} を停止しますか？ アプリを開いても「停止されています」とだけ出て、データを読み書きできなくなります（あとで解除できます）`, '停止する'))) return;
-          store.setUserSuspended(u.uid, !stopped, u.name ?? '').then(() => toast(stopped ? '停止を解除しました' : '停止しました'), showError);
+          if (!stopped && !(await confirmSheet(`${u.name || 'この人'} を停止しますか？ ログインのアカウントを無効にします。開いている人も、最大 1 時間ほどでログアウトされ、ログインし直せなくなります（あとで解除できます）`, '停止する'))) return;
+          try {
+            await (await loadPush()).adminAction(stopped ? 'resumeUser' : 'suspendUser', { uid: u.uid, name: u.name ?? '' });
+            toast(stopped ? '停止を解除しました' : '停止しました');
+          } catch (e) {
+            toast(e.message);
+          }
         },
       },
       {
@@ -6309,7 +6299,7 @@ function adminView(root) {
             toast(res.authDeleted ? '削除しました' : 'データは削除しました（ログインのアカウントは消せませんでした）');
             refreshGroups();
           } catch (e) {
-            showError(e);
+            toast(e.message);
           }
         },
       },
@@ -6369,7 +6359,7 @@ function adminView(root) {
             toast(`「${g.name}」を削除しました`);
             refreshGroups();
           } catch (e) {
-            showError(e);
+            toast(e.message);
           }
         },
       },
@@ -8245,7 +8235,6 @@ function route() {
 
   updateGlobalFab();
   if (!user) return welcomeView(app);
-  if (accountSuspended) return suspendedView(app);
   if (auth.needsName()) return nameSetupView(app);
 
   // アプリを開いた最初の 1 回だけ：ホームなら、最後に開いていたグループの画面から始める（‹ でホームに戻れる）
@@ -8302,16 +8291,6 @@ auth.watchUser((u) => {
   unwatchAdmin = null;
   isAdmin = false;
   isDeveloper = !!u && store.DEVELOPER_UIDS.includes(u.uid);
-  unwatchSuspension?.();
-  unwatchSuspension = null;
-  accountSuspended = false;
-  if (u) {
-    unwatchSuspension = store.watchMySuspension(u.uid, (v) => {
-      if (v === accountSuspended) return;
-      accountSuspended = v;
-      route();
-    });
-  }
   if (u && !u.isAnonymous) {
     unwatchAdmin = store.watchIsAdmin(u.uid, ({ admin, developer }) => {
       developer ||= store.DEVELOPER_UIDS.includes(u.uid);
