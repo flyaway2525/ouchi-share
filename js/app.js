@@ -1599,7 +1599,7 @@ function profileSheet({ group = null, focus = null } = {}) {
 const WALLPAPER_TYPES = [
   ['none', 'なし'],
   ['season', '🍂 季節で自動'],
-  ['photo', '📷 自分の写真'],
+  ['photo', '🖼 自分の画像・GIF・動画'],
 ];
 const CLARITY = [
   [1, '壁紙をはっきり'],
@@ -1609,31 +1609,101 @@ const CLARITY = [
 function wallpaperText(s) {
   if (!s) return '全体の設定と同じ';
   if (s.type === 'season') return '季節で自動（月ごとに変わる）';
-  if (s.type === 'photo') return '自分の写真';
+  if (s.type === 'photo') {
+    const names = (s.layers ?? []).map((l, i) => l && `${wallpaper.LAYER_NAMES[i]}${l.kind === 'video' ? '（動画）' : ''}`).filter(Boolean);
+    return `自分の画像（${names.join('・') || 'なし'}）`;
+  }
   return 'なし';
 }
 
-// scope：'global'（全体）か 'g:<グループ ID>'（このグループだけ）。グループのときは「全体の設定と同じ」も選べる
+// scope：'global'（全体）か 'g:<グループ ID>'（このグループだけ）。グループのときは「全体の設定と同じ」も選べる。
+// 画像は 奥・まん中・手前 の 3 枚まで。タブを移ると奥はゆっくり、手前は大きく動く（透明な PNG・GIF を手前に置くと立体的）
 function wallpaperSheet(scope, title) {
   const isGroup = scope !== 'global';
   const saved = wallpaper.getSetting(scope);
   let type = saved?.type ?? (isGroup ? 'inherit' : 'none');
   let clarity = saved?.clarity ?? 2;
-  let newPhoto = null; // 選んだ写真（保存するまでは端末に書かない）
+  const layers = [0, 1, 2].map((i) => (saved?.type === 'photo' ? saved.layers?.[i] ?? null : null));
+  const picked = {}; // 層の番号 → { blob, kind, url }（保存するまで端末に書かない）
+  const removed = new Set(); // 外した層の番号
+  let demo = null;
   return openSheet((close) => {
     const box = h('div', { class: 'wallpaper-edit' });
     const preview = h('div', { class: 'wallpaper-preview' });
+    const previewLayers = async () => {
+      if (type === 'season') return wallpaper.resolveLayers({ type: 'season' }, scope);
+      if (type !== 'photo') return [null, null, null];
+      return Promise.all(
+        [0, 1, 2].map(async (i) => {
+          const p = picked[i];
+          if (p) return p.kind === 'video' ? { video: p.url, fit: layers[i]?.fit ?? 'cover' } : { css: `url("${p.url}")`, fit: layers[i]?.fit ?? 'cover' };
+          if (!layers[i] || removed.has(i)) return null;
+          const url = await wallpaper.mediaUrl(wallpaper.layerKey(scope, i, layers[i]));
+          return url && (layers[i].kind === 'video' ? { video: url, fit: layers[i].fit } : { css: `url("${url}")`, fit: layers[i].fit });
+        }),
+      );
+    };
     const renderPreview = async () => {
-      let bg = null;
-      if (type === 'season') bg = wallpaper.seasonBackground();
-      else if (type === 'photo') {
-        const url = newPhoto ? URL.createObjectURL(newPhoto) : await wallpaper.photoUrl(scope);
-        if (url) bg = `url("${url}")`;
-      }
-      preview.style.setProperty('--wallpaper', bg ?? 'none');
-      preview.style.setProperty('--wallpaper-veil', String([0, 0.35, 0.55, 0.75][clarity]));
-      preview.classList.toggle('photo', type === 'photo');
-      setChildren(preview, h('div', { class: 'wallpaper-preview-card' }, h('b', {}, 'こんな感じ'), h('span', {}, '予定やリストのカードはこう見えます')), type === 'photo' && !bg && h('p', { class: 'wallpaper-preview-empty' }, '下の「写真を選ぶ」から選んでください'));
+      const ls = await previewLayers();
+      wallpaper.renderLayers(preview, ls, clarity);
+      preview.append(h('div', { class: 'wallpaper-preview-card' }, h('b', {}, 'こんな感じ'), h('span', {}, '予定やリストのカードはこう見えます')));
+      if (type === 'photo' && !ls.some(Boolean)) preview.append(h('p', { class: 'wallpaper-preview-empty' }, '下で画像を選んでください'));
+    };
+    // 「動きを見る」：タブを カレンダー → イベント → リスト → 日記 → カレンダー と移ったときの動き
+    const playDemo = () => {
+      clearInterval(demo);
+      let i = 0;
+      demo = setInterval(() => {
+        i += 1;
+        wallpaper.shiftLayers(preview, i % 5 === 4 ? 0 : i % 5, '%');
+        if (i >= 5) clearInterval(demo);
+      }, 750);
+    };
+    const slot = (i) => {
+      const has = !!picked[i] || (layers[i] && !removed.has(i));
+      const kind = picked[i]?.kind ?? layers[i]?.kind;
+      return h(
+        'div',
+        { class: 'wp-slot' },
+        h('b', { class: 'wp-slot-name' }, `${['🏔', '🌳', '🌸'][i]} ${wallpaper.LAYER_NAMES[i]}`),
+        h('span', { class: 'wp-slot-state' }, has ? (kind === 'video' ? '動画' : '画像') : 'なし'),
+        h(
+          'div',
+          { class: 'wp-slot-buttons' },
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn',
+              onClick: async () => {
+                const file = await pickMediaFile();
+                if (!file) return;
+                try {
+                  const m = await wallpaper.prepareMedia(file);
+                  if (picked[i]) URL.revokeObjectURL(picked[i].url);
+                  picked[i] = { ...m, url: URL.createObjectURL(m.blob) };
+                  removed.delete(i);
+                  layers[i] = { kind: m.kind, fit: layers[i]?.fit ?? (i === 0 ? 'cover' : 'contain') };
+                } catch (e) {
+                  return toast(e.message);
+                }
+                render();
+              },
+            },
+            has ? '変える' : '選ぶ',
+          ),
+          has && h('button', { type: 'button', class: 'btn', onClick: () => (delete picked[i], removed.add(i), render()) }, '外す'),
+        ),
+        has &&
+          h(
+            'div',
+            { class: 'people-chips wp-fit' },
+            [
+              ['cover', '画面いっぱい'],
+              ['contain', '全体を見せる（下に寄せる）'],
+            ].map(([k, label]) => h('button', { type: 'button', class: `chip${(layers[i]?.fit ?? 'cover') === k ? ' on' : ''}`, onClick: () => ((layers[i] = { ...layers[i], fit: k }), render()) }, label)),
+          ),
+      );
     };
     const render = () => {
       setChildren(
@@ -1646,25 +1716,11 @@ function wallpaperSheet(scope, title) {
             h('button', { type: 'button', class: `chip${type === k ? ' on' : ''}`, onClick: () => ((type = k), render()) }, label),
           ),
         ),
-        type === 'photo' &&
-          h(
-            'button',
-            {
-              type: 'button',
-              class: 'btn',
-              onClick: async () => {
-                const file = await pickImageFile();
-                if (!file) return;
-                try {
-                  newPhoto = await wallpaper.resizeForWallpaper(file);
-                } catch (e) {
-                  return toast(e.message);
-                }
-                render();
-              },
-            },
-            '📷 写真を選ぶ',
-          ),
+        type === 'photo' && [
+          h('span', { class: 'links-label' }, '3 枚まで重ねられます。タブを移ると、奥はゆっくり・手前は大きく動いて立体的に見えます'),
+          ...[0, 1, 2].map(slot),
+          h('p', { class: 'sch-hint' }, '手前の画像は、背景が透明な PNG や GIF にすると、奥の画像が透けて見えます。GIF と動画は動いたまま流れます（動画は音なし・くり返し）。'),
+        ],
         type !== 'none' &&
           type !== 'inherit' && [
             h('span', { class: 'links-label' }, '見やすさ（壁紙の上にかける膜の濃さ）'),
@@ -1675,7 +1731,8 @@ function wallpaperSheet(scope, title) {
             ),
           ],
         preview,
-        h('p', { class: 'sch-hint' }, '壁紙はこの端末のこのアプリだけに保存されます（写真もサーバーには送りません）。別のスマホや、Safari とホーム画面のアプリでは、それぞれで設定してください。'),
+        type !== 'none' && type !== 'inherit' && h('button', { type: 'button', class: 'btn wide wp-demo', onClick: playDemo }, '▶ タブを移ったときの動きを見る'),
+        h('p', { class: 'sch-hint' }, '壁紙はこの端末のこのアプリだけに保存されます（画像・動画もサーバーには送りません）。別のスマホや、Safari とホーム画面のアプリでは、それぞれで設定してください。'),
       );
       renderPreview();
     };
@@ -1695,13 +1752,28 @@ function wallpaperSheet(scope, title) {
             onClick: async () => {
               try {
                 if (type === 'photo') {
-                  if (newPhoto) await wallpaper.savePhoto(scope, newPhoto);
-                  else if (!(await wallpaper.photoUrl(scope))) return toast('写真を選んでください');
-                } else await wallpaper.deletePhoto(scope);
-                wallpaper.setSetting(scope, type === 'inherit' ? null : { type, clarity });
+                  const final = [];
+                  for (const i of [0, 1, 2]) {
+                    const old = saved?.type === 'photo' ? saved.layers?.[i] : null;
+                    if (picked[i]) {
+                      if (old) await wallpaper.deleteMedia(wallpaper.layerKey(scope, i, old));
+                      await wallpaper.saveMedia(`${scope}:${i}`, picked[i].blob);
+                      final.push({ kind: picked[i].kind, fit: layers[i]?.fit ?? 'cover' });
+                    } else if (removed.has(i) || !layers[i]) {
+                      if (old) await wallpaper.deleteMedia(wallpaper.layerKey(scope, i, old));
+                      final.push(null);
+                    } else final.push({ ...layers[i] });
+                  }
+                  if (!final.some(Boolean)) return toast('画像を 1 枚以上選んでください');
+                  wallpaper.setSetting(scope, { type, clarity, layers: final });
+                } else {
+                  for (const key of [scope, `${scope}:0`, `${scope}:1`, `${scope}:2`]) await wallpaper.deleteMedia(key);
+                  wallpaper.setSetting(scope, type === 'inherit' ? null : { type, clarity });
+                }
               } catch (e) {
                 return showError(e);
               }
+              clearInterval(demo);
               close(true);
               await wallpaper.apply(location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);
               toast('壁紙を変えました');
@@ -1713,6 +1785,20 @@ function wallpaperSheet(scope, title) {
     ];
   });
 }
+
+// 画像・GIF・動画を選ぶ（壁紙用）
+function pickMediaFile() {
+  return new Promise((resolve) => {
+    const input = h('input', { type: 'file', accept: 'image/*,video/*', style: 'display:none' });
+    input.addEventListener('change', () => {
+      resolve(input.files?.[0] ?? null);
+      input.remove();
+    });
+    document.body.append(input);
+    input.click();
+  });
+}
+
 // ---- 画面：プロフィール（全体の設定と、グループごとの設定） ----
 // 全体の設定（profiles/{uid}）は、すべてのグループの基本。グループごとに、変えたい項目だけ上書きできる（members.{uid}.custom）。
 //   #/profile            … 全体の設定の確認・編集と、グループごとの上書きの一覧
@@ -4544,6 +4630,8 @@ function groupView(root, { groupId }) {
     // カレンダー・イベント・リストはタブで切り替える（最後に開いたタブを端末に保存）
     const tabKey = `groupTab:${groupId}`;
     const tab = ['calendar', 'events', 'lists', 'diary'].includes(prefs.get(tabKey)) ? prefs.get(tabKey) : 'calendar';
+    // 壁紙：右のタブほど横にずれる（奥はゆっくり、手前は大きく）
+    wallpaper.setParallax(['calendar', 'events', 'lists', 'diary'].indexOf(tab));
     // カレンダーのタブは、長押しで記念日カレンダーと切り替える（グループごとに端末へ保存）
     const annivKey = `calMode:${groupId}`;
     const annivMode = prefs.get(annivKey) === 'anniv';
@@ -8699,7 +8787,8 @@ function route() {
   app.replaceChildren();
   const hash = location.hash;
   applyTheme(themeForHash(hash));
-  // 壁紙（グループの中ならグループの設定、なければ全体の設定）
+  // 壁紙（グループの中ならグループの設定、なければ全体の設定）。グループの画面（タブがある）以外は、ずれをなくす
+  if (!/^#\/g\/[\w-]+$/.test(hash)) wallpaper.setParallax(0);
   wallpaper.apply(hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);
 
   if (user === undefined) return loadingView(app);

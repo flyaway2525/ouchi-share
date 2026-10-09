@@ -5028,32 +5028,55 @@ html.has-wallpaper body {
   background: transparent;
 }
 
-/* 壁紙（画面に固定）と、その上の膜（見やすさ） */
-html.has-wallpaper body::before,
-html.has-wallpaper body::after {
-  content: '';
+/* 壁紙：#wallpaper（画面に固定）に 奥・まん中・手前 の層と、その上の膜（見やすさ）。
+   層は画面より横に長くしておき、タブを移ると左にずれる（奥はゆっくり、手前は大きく。wallpaper.js の shiftLayers） */
+#wallpaper {
   position: fixed;
   inset: 0;
+  z-index: -1;
+  overflow: hidden;
   pointer-events: none;
 }
 
-html.has-wallpaper body::before {
-  z-index: -2;
-  background-image: var(--wallpaper);
-  background-size: 160px 160px, cover;
-  background-repeat: repeat, no-repeat;
-}
-
-html.wallpaper-photo body::before {
-  background-size: cover;
+.wp-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% + 24vw);
+  height: 100%;
   background-position: center;
   background-repeat: no-repeat;
+  transition: transform 0.8s cubic-bezier(0.25, 0.7, 0.25, 1);
+  will-change: transform;
 }
 
-html.has-wallpaper body::after {
-  z-index: -1;
+.wp-cover {
+  background-size: cover;
+  object-fit: cover;
+}
+
+.wp-contain {
+  background-size: contain;
+  background-position: center bottom;
+  object-fit: contain;
+  object-position: center bottom;
+}
+
+.wp-pattern {
+  background-size: 160px 160px;
+  background-repeat: repeat;
+}
+
+.wp-veil {
+  position: absolute;
+  inset: 0;
   background: var(--bg);
-  opacity: var(--wallpaper-veil, 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wp-layer {
+    transition: none;
+  }
 }
 
 /* 壁紙の設定のシート */
@@ -5068,27 +5091,15 @@ html.has-wallpaper body::after {
   position: relative;
   display: grid;
   place-items: center;
-  height: 180px;
+  height: 200px;
   border: 1px solid var(--border);
   border-radius: 16px;
   overflow: hidden;
-  background-color: var(--bg);
-  background-image: var(--wallpaper);
-  background-size: 160px 160px, cover;
-  background-repeat: repeat, no-repeat;
-}
-
-.wallpaper-preview.photo {
-  background-size: cover;
-  background-position: center;
-}
-
-.wallpaper-preview::before {
-  content: '';
-  position: absolute;
-  inset: 0;
   background: var(--bg);
-  opacity: var(--wallpaper-veil, 0.55);
+}
+
+.wallpaper-preview .wp-layer {
+  width: 124%;
 }
 
 .wallpaper-preview-card {
@@ -5113,4 +5124,39 @@ html.has-wallpaper body::after {
 
 .wallpaper-row {
   margin-top: 12px;
+}
+
+/* 壁紙の層（奥・まん中・手前）を選ぶところ */
+.wp-slot {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.wp-slot-state {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.wp-slot-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.wp-slot-buttons .btn {
+  padding: 6px 10px;
+}
+
+.wp-fit {
+  grid-column: 1 / -1;
+}
+
+.wp-fit .chip {
+  padding: 3px 8px;
+  font-size: 11px;
 }
