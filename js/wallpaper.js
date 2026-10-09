@@ -87,6 +87,54 @@ export async function deleteMedia(key) {
   urlCache.delete(key);
 }
 
+export async function mediaBlob(key) {
+  return (await idb('readonly', (s) => s.get(key)).catch(() => null)) ?? null;
+}
+
+// おすそわけの一覧に出す小さな見本（画像の層を重ねて 120×160 に。動画の層は飛ばす）。季節は色だけ
+export async function makeThumb(setting, scope) {
+  const c = document.createElement('canvas');
+  c.width = 120;
+  c.height = 160;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff8f0';
+  g.fillRect(0, 0, 120, 160);
+  if (setting.type === 'season') {
+    const [color, emoji] = SEASONS[new Date().getMonth()];
+    g.fillStyle = color;
+    g.globalAlpha = 0.35;
+    g.fillRect(0, 0, 120, 160);
+    g.globalAlpha = 1;
+    g.font = '40px serif';
+    g.fillText(emoji, 38, 96);
+  } else {
+    for (const [i, layer] of (setting.layers ?? []).entries()) {
+      if (!layer || layer.kind === 'video') continue;
+      const blob = await mediaBlob(layerKey(scope, i, layer));
+      if (!blob) continue;
+      const url = URL.createObjectURL(blob);
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const el = new Image();
+          el.onload = () => resolve(el);
+          el.onerror = reject;
+          el.src = url;
+        });
+        const contain = layer.fit === 'contain';
+        const scale = (contain ? Math.min : Math.max)(120 / img.naturalWidth, 160 / img.naturalHeight);
+        const w = img.naturalWidth * scale;
+        const hh = img.naturalHeight * scale;
+        g.drawImage(img, (120 - w) / 2, contain ? 160 - hh : (160 - hh) / 2, w, hh);
+      } catch {
+        // 読めない画像は飛ばす
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+  }
+  return c.toDataURL('image/jpeg', 0.7);
+}
+
 export async function mediaUrl(key) {
   if (urlCache.has(key)) return urlCache.get(key);
   const blob = await idb('readonly', (s) => s.get(key)).catch(() => null);

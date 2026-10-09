@@ -1799,6 +1799,117 @@ function pickMediaFile() {
   });
 }
 
+// ---- 壁紙のおすそわけ（Cloudflare の KV に 7 日間だけ置く。Firebase には置かない） ----
+// 今の壁紙（scope の設定）をグループに置く。受け取った人は「使う」で自分の端末にコピーして、自分の設定にする
+async function shareWallpaper(scope, groupId) {
+  const s = wallpaper.getSetting(scope) ?? (scope.startsWith('g:') ? wallpaper.getSetting('global') : null);
+  const from = wallpaper.getSetting(scope) ? scope : 'global';
+  if (!s || s.type === 'none') return toast('おすそわけする壁紙がありません（先に壁紙を設定してください）');
+  const name = await askText({ title: '壁紙の名前', value: `${auth.displayName()}の壁紙`, okLabel: 'おすそわけする' });
+  if (!name) return;
+  try {
+    const blobs = [null, null, null];
+    if (s.type === 'photo') for (const i of [0, 1, 2]) if (s.layers?.[i]) blobs[i] = await wallpaper.mediaBlob(wallpaper.layerKey(from, i, s.layers[i]));
+    const size = blobs.reduce((n, b) => n + (b?.size ?? 0), 0);
+    if (size > 20 * 1024 * 1024) return toast('大きすぎておすそわけできません（合計 20MB まで）');
+    toast('おすそわけしています…');
+    const push = await loadPush();
+    const setting = { type: s.type, clarity: s.clarity ?? 2, layers: (s.layers ?? [null, null, null]).map((l, i) => (l && blobs[i] ? { kind: l.kind, fit: l.fit ?? 'cover' } : null)) };
+    const { id } = await push.wallpaperApi('share', {
+      groupId,
+      name,
+      setting,
+      sizes: blobs.map((b) => b?.size ?? 0),
+      mimes: blobs.map((b) => b?.type ?? ''),
+      thumb: await wallpaper.makeThumb(s, from),
+    });
+    for (const i of [0, 1, 2]) if (blobs[i]) await push.wallpaperUpload(groupId, id, i, blobs[i]);
+    toast('おすそわけしました（7 日間、グループのみんなが使えます）');
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+// グループの壁紙（おすそわけ）の一覧。「使う」で、このグループの壁紙か全体の壁紙として自分の端末にコピーする
+async function sharedWallpapersSheet(group) {
+  let items;
+  try {
+    items = (await (await loadPush()).wallpaperApi('list', { groupId: group.id })).items;
+  } catch (e) {
+    return toast(e.message);
+  }
+  const manager = isManager(group);
+  const use = async (item, scope) => {
+    try {
+      toast('壁紙を受け取っています…');
+      const push = await loadPush();
+      for (const key of [scope, `${scope}:0`, `${scope}:1`, `${scope}:2`]) await wallpaper.deleteMedia(key);
+      for (const i of [0, 1, 2]) {
+        if (!(item.sizes?.[i] > 0)) continue;
+        await wallpaper.saveMedia(`${scope}:${i}`, await push.wallpaperGet(group.id, item.id, i));
+      }
+      wallpaper.setSetting(scope, { type: item.setting.type, clarity: item.setting.clarity ?? 2, ...(item.setting.type === 'photo' ? { layers: item.setting.layers } : {}) });
+      await wallpaper.apply(location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);
+      toast(`「${item.name}」を壁紙にしました`);
+    } catch (e) {
+      toast(e.message);
+    }
+  };
+  return openSheet((close) => [
+    h('div', { class: 'sheet-title' }, `👥 「${group.name}」の壁紙（おすそわけ）`),
+    h('p', { class: 'sch-hint' }, 'メンバーがおすそわけした壁紙です（置いてから 7 日で消えます）。「使う」を押すと、自分の端末にコピーして自分の壁紙になります。'),
+    items.length === 0
+      ? h('p', { class: 'empty small' }, 'まだありません。壁紙の画面の「📤 おすそわけ」から置けます')
+      : h(
+          'div',
+          { class: 'wp-shared-list' },
+          items.map((item) => {
+            const days = Math.max(1, Math.ceil((item.expires - Date.now()) / 86400000));
+            return h(
+              'div',
+              { class: 'wp-shared' },
+              item.thumb ? h('img', { class: 'wp-shared-thumb', src: item.thumb, alt: '' }) : h('span', { class: 'wp-shared-thumb' }, '🖼'),
+              h(
+                'div',
+                { class: 'wp-shared-main' },
+                h('b', {}, item.name),
+                h('small', {}, `${item.byName || 'メンバー'} ・ あと${days}日 ・ ${item.size >= 1048576 ? `${(item.size / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(item.size / 1024))}KB`}`),
+                h(
+                  'div',
+                  { class: 'wp-shared-buttons' },
+                  h('button', { type: 'button', class: 'btn primary', onClick: () => (close(true), use(item, `g:${group.id}`)) }, 'このグループで使う'),
+                  h('button', { type: 'button', class: 'btn', onClick: () => (close(true), use(item, 'global')) }, '全体で使う'),
+                  (item.by === user.uid || manager) &&
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        class: 'btn',
+                        onClick: async () => {
+                          close(undefined);
+                          if (!(await confirmSheet(`「${item.name}」のおすそわけを消しますか？（もう使った人の壁紙はそのまま）`, '消す'))) return;
+                          (await loadPush()).wallpaperApi('delete', { groupId: group.id, id: item.id }).then(() => toast('消しました'), (e) => toast(e.message));
+                        },
+                      },
+                      '消す',
+                    ),
+                ),
+              ),
+            );
+          }),
+        ),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
+  ]);
+}
+
+// 全体の壁紙をおすそわけするときは、どのグループに置くか選ぶ
+async function shareGlobalWallpaper() {
+  const groups = knownGroups?.length ? knownGroups : await store.listMyGroups().catch(() => []);
+  if (!groups.length) return toast('グループに入っていません');
+  if (groups.length === 1) return shareWallpaper('global', groups[0].id);
+  actionSheet('どのグループにおすそわけしますか？', groups.map((g) => ({ label: `🏠 ${g.name}`, onClick: () => shareWallpaper('global', g.id) })));
+}
+
 // ---- 画面：プロフィール（全体の設定と、グループごとの設定） ----
 // 全体の設定（profiles/{uid}）は、すべてのグループの基本。グループごとに、変えたい項目だけ上書きできる（members.{uid}.custom）。
 //   #/profile            … 全体の設定の確認・編集と、グループごとの上書きの一覧
@@ -1866,6 +1977,7 @@ function profileView(root) {
       h('button', { class: 'btn primary wide', onClick: () => profileSheet().then(render) }, '✏️ 全体の設定を編集'),
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting('global') ?? { type: 'none' })))),
       h('button', { class: 'btn wide', onClick: () => wallpaperSheet('global', '🖼 壁紙（全体の設定）').then(render) }, '🖼 壁紙を変える'),
+      h('button', { class: 'btn wide', onClick: shareGlobalWallpaper }, '📤 この壁紙をグループにおすそわけ'),
       h(
         'div',
         { class: 'notice profile-explain' },
@@ -1983,6 +2095,8 @@ function groupProfileView(root, { groupId }) {
       h('button', { class: 'btn primary wide', onClick: () => profileSheet({ group }) }, '✏️ このグループでのプロフィールを編集'),
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting(`g:${groupId}`))))),
       h('button', { class: 'btn wide', onClick: () => wallpaperSheet(`g:${groupId}`, `🖼 「${group.name}」の壁紙`).then(() => render(group)) }, '🖼 このグループの壁紙を変える'),
+      h('button', { class: 'btn wide', onClick: () => sharedWallpapersSheet(group).then(() => render(group)) }, '👥 みんながおすそわけした壁紙'),
+      h('button', { class: 'btn wide', onClick: () => shareWallpaper(`g:${groupId}`, groupId) }, '📤 今の壁紙をこのグループにおすそわけ'),
       h('p', { class: 'sch-hint' }, '「このグループだけ」にした項目は、全体の設定を変えてもこのグループでは変わりません。「全体と同じ」の項目は、全体の設定を変えると一緒に変わります。'),
       h('a', { class: 'btn wide', href: '#/profile' }, '🌐 全体の設定を見る'),
       h('a', { class: 'btn wide', href: `#/g/${groupId}/m/${user.uid}` }, '👀 メンバーの画面で自分を見る'),

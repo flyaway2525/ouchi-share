@@ -20,6 +20,12 @@
 //                                                  ログインの有効期限（最大 1 時間）が切れたら使えなくなる）。suspendedUsers/{uid} に記録
 //   body: { action: 'resumeUser', uid }       … 無効を外し、記録を消す
 //   アプリ開発者（DEVELOPER_UIDS か admins/{uid} に developer: true）以外は 403。アプリ開発者は停止・削除できない
+// POST /wallpaper … 壁紙のおすそわけ（グループのメンバーだけ。KV に 7 日間だけ置く。Firebase には置かない）
+//   { action: 'share', groupId, name, setting, mimes: [..], sizes: [..], thumb } … 置く場所を作って id を返す（合計 20MB まで・1 グループ 20 件まで）
+//   POST /wallpaper/upload?groupId=&id=&layer= の本文に、層の画像・動画をそのまま（変換せずに）送る。CPU をほとんど使わない
+//   { action: 'list', groupId }                    … 置いてあるものの一覧（期限切れは出さない）
+//   { action: 'get', groupId, id, layer }          … 層の画像・動画そのもの（バイナリ）
+//   { action: 'delete', groupId, id }              … 消す（置いた本人か、オーナー・管理者）
 // 毎日の定期実行（wrangler.toml の crons）… 翌日の予定・イベントのリマインドを送る
 //
 // 必要な秘密の値（wrangler secret put で登録。リポジトリには入れない）：
@@ -58,6 +64,21 @@ export default {
           return json(await adminSetDisabled(token, target, req.action === 'suspendUser', String(req.name ?? '').slice(0, 40), sender), 200, cors);
         }
         throw fail(400, 'bad-action');
+      }
+      if (new URL(request.url).pathname === '/wallpaper/upload') {
+        const q = new URL(request.url).searchParams;
+        const token = await accessToken(env);
+        const group = await getDoc(token, `groups/${String(q.get('groupId') ?? '')}`);
+        if (!(group?.memberIds ?? []).includes(sender)) throw fail(403, 'not-member');
+        return await uploadWallpaperLayer(env, sender, group, q.get('id') ?? '', Number(q.get('layer')), request, cors);
+      }
+      if (new URL(request.url).pathname === '/wallpaper') {
+        if (!rateLimit(`wp:${sender}`, 60)) return json({ error: 'too-many' }, 429, cors);
+        const req = await request.json();
+        const token = await accessToken(env);
+        const group = await getDoc(token, `groups/${String(req.groupId ?? '')}`);
+        if (!(group?.memberIds ?? []).includes(sender)) throw fail(403, 'not-member');
+        return await handleWallpaper(env, sender, group, req, cors);
       }
       if (new URL(request.url).pathname === '/preview') {
         if (!rateLimit(`preview:${sender}`, 30)) return json({ error: 'too-many' }, 429, cors);
@@ -472,6 +493,77 @@ async function adminDeleteUser(token, uid) {
   });
   if (!res.ok) console.error('auth delete', res.status, await res.text());
   return { ok: true, groupsDeleted, authDeleted: res.ok };
+}
+
+// ---- 壁紙のおすそわけ（KV。7 日で自動で消える） ----
+const WP_TTL = 7 * 24 * 60 * 60;
+const WP_MAX_BYTES = 20 * 1024 * 1024;
+const WP_MAX_PER_GROUP = 20;
+
+async function wpIndex(env, groupId) {
+  const list = (await env.WALLPAPERS.get(`idx:${groupId}`, 'json')) ?? [];
+  const now = Date.now();
+  return list.filter((w) => w.expires > now);
+}
+
+// 層の中身を受け取って KV に置く（本文をそのまま流し込む）
+async function uploadWallpaperLayer(env, sender, group, id, layer, request, cors) {
+  const item = (await wpIndex(env, group.id)).find((w) => w.id === id);
+  if (!item || item.by !== sender || !(layer >= 0 && layer <= 2) || !(item.sizes?.[layer] > 0)) throw fail(400, 'bad-upload');
+  const length = Number(request.headers.get('Content-Length') ?? 0);
+  if (!length || length > item.sizes[layer] + 1024) throw fail(400, 'bad-size');
+  await env.WALLPAPERS.put(`wp:${group.id}:${id}:${layer}`, request.body, { expirationTtl: WP_TTL });
+  return json({ ok: true }, 200, cors);
+}
+
+async function handleWallpaper(env, sender, group, req, cors) {
+  const groupId = group.id;
+  if (req.action === 'list') return json({ items: await wpIndex(env, groupId) }, 200, cors);
+  if (req.action === 'get') {
+    const id = String(req.id ?? '');
+    const layer = Number(req.layer);
+    const item = (await wpIndex(env, groupId)).find((w) => w.id === id);
+    if (!item || !(layer >= 0 && layer <= 2)) throw fail(404, 'no-wallpaper');
+    const bytes = await env.WALLPAPERS.get(`wp:${groupId}:${id}:${layer}`, 'stream');
+    if (!bytes) throw fail(404, 'expired');
+    return new Response(bytes, { status: 200, headers: { ...cors, 'Content-Type': item.mimes?.[layer] || 'application/octet-stream' } });
+  }
+  if (req.action === 'delete') {
+    const id = String(req.id ?? '');
+    const list = await wpIndex(env, groupId);
+    const item = list.find((w) => w.id === id);
+    if (!item) return json({ ok: true }, 200, cors);
+    const role = group.members?.[sender]?.role;
+    if (item.by !== sender && !['owner', 'admin'].includes(role)) throw fail(403, 'not-yours');
+    await Promise.all([0, 1, 2].map((i) => env.WALLPAPERS.delete(`wp:${groupId}:${id}:${i}`)));
+    await env.WALLPAPERS.put(`idx:${groupId}`, JSON.stringify(list.filter((w) => w.id !== id)));
+    return json({ ok: true }, 200, cors);
+  }
+  if (req.action === 'share') {
+    const list = await wpIndex(env, groupId);
+    if (list.length >= WP_MAX_PER_GROUP) throw fail(400, 'too-many-wallpapers');
+    const sizes = [0, 1, 2].map((i) => Math.max(0, Math.floor(Number(req.sizes?.[i] ?? 0))));
+    const size = sizes.reduce((n, v) => n + v, 0);
+    if (size > WP_MAX_BYTES) throw fail(400, 'too-large');
+    const id = crypto.randomUUID().slice(0, 8);
+    const thumb = String(req.thumb ?? '');
+    const item = {
+      id,
+      name: String(req.name ?? '').slice(0, 40) || '壁紙',
+      by: sender,
+      byName: String(group.members?.[sender]?.name ?? ''),
+      at: Date.now(),
+      expires: Date.now() + WP_TTL * 1000,
+      size,
+      sizes,
+      setting: req.setting ?? {},
+      mimes: (req.mimes ?? []).slice(0, 3).map((m) => String(m ?? '').slice(0, 60)),
+      thumb: thumb.length <= 40000 ? thumb : '',
+    };
+    await env.WALLPAPERS.put(`idx:${groupId}`, JSON.stringify([item, ...list]));
+    return json({ ok: true, id }, 200, cors);
+  }
+  throw fail(400, 'bad-action');
 }
 
 async function queryEq(token, parent, collectionId, field, value) {

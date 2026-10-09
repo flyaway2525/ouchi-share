@@ -9,3 +9,8 @@ crons = ["0 11 * * *"]
 
 # 秘密の値はここに書かない。次のコマンドで登録する：
 #   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT
+
+# 壁紙のおすそわけ（7 日間だけ置く。無料の KV。キーの期限で自動で消える）
+[[kv_namespaces]]
+binding = "WALLPAPERS"
+id = "a4549ed2543e4038967b2f3a7469e014"

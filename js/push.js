@@ -119,3 +119,32 @@ export async function adminAction(action, payload) {
   if (!res.ok) throw new Error(`できませんでした（${data.error ?? res.status}）`);
   return data;
 }
+
+// ---- 壁紙のおすそわけ（同じ Workers の /wallpaper。KV に 7 日間だけ置く。Firebase には置かない） ----
+async function wpFetch(path, body, isJson = true) {
+  if (!NOTIFY_URL || !auth.currentUser) throw new Error('サーバーにつながりません');
+  const idToken = await auth.currentUser.getIdToken();
+  const res = await fetch(new URL(path, NOTIFY_URL), {
+    method: 'POST',
+    headers: { ...(isJson ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${idToken}` },
+    body: isJson ? JSON.stringify(body) : body,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(`できませんでした（${data.error ?? res.status}）`);
+  }
+  return res;
+}
+
+// action: 'share' | 'list' | 'delete'
+export async function wallpaperApi(action, payload) {
+  return (await wpFetch('wallpaper', { action, ...payload })).json();
+}
+
+export async function wallpaperUpload(groupId, id, layer, blob) {
+  await wpFetch(`wallpaper/upload?groupId=${encodeURIComponent(groupId)}&id=${encodeURIComponent(id)}&layer=${layer}`, blob, false);
+}
+
+export async function wallpaperGet(groupId, id, layer) {
+  return (await wpFetch('wallpaper', { action: 'get', groupId, id, layer })).blob();
+}

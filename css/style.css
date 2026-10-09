@@ -5160,3 +5160,56 @@ html.has-wallpaper body {
   padding: 3px 8px;
   font-size: 11px;
 }
+
+/* 壁紙のおすそわけの一覧 */
+.wp-shared-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.wp-shared {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.wp-shared-thumb {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 80px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--border);
+  font-size: 28px;
+}
+
+.wp-shared-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wp-shared-main small {
+  color: var(--muted);
+}
+
+.wp-shared-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.wp-shared-buttons .btn {
+  padding: 5px 10px;
+  font-size: 12px;
+}
