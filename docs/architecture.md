@@ -42,7 +42,7 @@ flowchart LR
 | **Firebase**（Google） | ログイン（Authentication：Google・匿名（ゲスト）・Apple）、データ（Firestore、東京リージョン `asia-northeast1`）、通知の配達（Cloud Messaging） | Spark（無料）。超えても課金されず、その日は止まる | Firebase コンソールのプロジェクト `ouchi-share` | `js/firebase.js`（公開してよい設定値・VAPID キー）、`firestore.rules`、`firebase.json`、`.firebaserc`、`ios/App/App/GoogleService-Info.plist` |
 | **Google Analytics（GA4）** | アクセスの計測（画面の種類ごとの表示回数・利用者数など）。ブラウザ版・ホーム画面版だけ（アプリ版はプラグインを入れてから） | 無料 | Firebase コンソール → プロジェクトの設定 → 統合 → Google Analytics と、Google Analytics の画面 | `js/analytics.js`、測定 ID は `js/firebase.js` の measurementId |
 | **Cloudflare Workers** | 通知を送る（`POST /`）、リンクのタイトルと画像を取る（`POST /preview`）、アプリ開発者の管理（`POST /admin`：グループ・ユーザーの削除、ユーザーの停止＝ログインのアカウントを無効にする）、毎日 20 時（日本時間）の翌日の予定のリマインド | 無料（1 日 10 万リクエストまで） | Cloudflare のアカウント（workers.dev のサブドメイン `flyaway2525`）、Worker `ouchi-share-notify` | `worker/`（`wrangler.toml` に定期実行の時刻）。URL は `js/firebase.js` の `NOTIFY_URL` |
-| **Apple** | iPhone アプリ版（Xcode でビルド → TestFlight で配る）、Apple でサインイン、アプリの通知（APNs。これから） | Apple Developer Program 年 99 ドル（**更新はまだ**） | Apple Developer・App Store Connect | `ios/`、`capacitor.config.json`（アプリ ID `io.github.flyaway2525.ouchishare`） |
+| **Apple** | iPhone アプリ版（Xcode でビルド → TestFlight で配る）、Apple でサインイン、アプリの通知（APNs。これから） | Apple Developer Program 年 99 ドル（有効。チーム ID `YGJ84959MM`。2026-10-09 に TestFlight へのアップロードを確認） | Apple Developer・App Store Connect | `ios/`、`capacitor.config.json`（アプリ ID `io.github.flyaway2525.ouchishare`） |
 
 ### 外から読み込んでいるもの（アカウント不要・無料）
 
@@ -68,7 +68,7 @@ flowchart LR
 | Web 版 | `node scripts/bump-version.mjs "変更の内容"` → コミット → `git push`（数分で GitHub Pages に反映） | Windows（いつもの作業場所） |
 | Firestore のルール | `firebase deploy --only firestore:rules` | Windows |
 | Cloudflare Workers | `worker/` で `npx wrangler deploy` | Windows |
-| iPhone アプリ版 | `npm run ios:sync` → Xcode でビルド → TestFlight へアップロード（手順は [ios-setup.md](ios-setup.md)） | Mac（MacBook Pro 2018・Xcode 26.3） |
+| iPhone アプリ版 | `APPLE_TEAM_ID=… scripts/ios-testflight.sh`（ios:sync → Archive → App Store Connect へアップロード。手順は [ios-setup.md](ios-setup.md)） | Mac（MacBook Pro 2018・Xcode 26.3） |
 
 ## 無料枠の目安（家族で使う分には十分）
 

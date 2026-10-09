@@ -9,6 +9,10 @@ ouchi-share のバージョンごとの変更です。バージョンはホー�
 
 <!-- 新しい版はこの下に追記（scripts/bump-version.mjs） -->
 
+## v119（2026-10-09 16:15）
+
+- iPhone アプリ版を TestFlight に上げるスクリプト（scripts/ios-testflight.sh）と手順を追加
+
 ## v118（2026-10-09 15:03）
 
 - iPhone アプリ版で Google ログインが失敗する（registerPlugin がない）のを直した

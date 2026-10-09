@@ -1,5 +1,5 @@
 {
-  "version": 118,
-  "builtAt": "2026-10-09 15:03",
-  "note": "iPhone アプリ版で Google ログインが失敗する（registerPlugin がない）のを直した"
+  "version": 119,
+  "builtAt": "2026-10-09 16:15",
+  "note": "iPhone アプリ版を TestFlight に上げるスクリプト（scripts/ios-testflight.sh）と手順を追加"
 }

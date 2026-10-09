@@ -101,16 +101,28 @@ Web 版のままだと、アプリの中では次が動かない。ここは Mac
 
    iPhone の ID は `xcrun devicectl list devices` で見られる
 
-## 5. TestFlight で家族に配る
+## 5. TestFlight で配る
 
-1. https://appstoreconnect.apple.com → マイ App → ＋ → 新規 App
-   - プラットフォーム：iOS、名前：おうちでシェア（ほかのアプリと同じ名前は使えないので、だめなら少し変える）
-   - 主言語：日本語、バンドル ID：上と同じ、SKU：`ouchi-share` など
-2. Xcode：上のメニューで「Any iOS Device」を選ぶ → Product → **Archive** → Distribute App → App Store Connect → アップロード
-3. App Store Connect の **TestFlight** タブ（処理に 10〜30 分ほど）
-   - **外部テスト**のグループを作り、家族を追加（メールで招待、または公開リンク）。外部テストは最初のビルドだけ簡単な審査（1 日ほど）がある
-   - テスト情報（アプリの説明・連絡先のメールなど）を入れる
-4. 家族は iPhone に「**TestFlight**」アプリを入れて、招待から「おうちでシェア」をインストール
+1. App ID を登録（済み・2026-10-09）：developer.apple.com → Identifiers → `ouchi share` / `io.github.flyaway2525.ouchishare`
+   （Sign In with Apple・Push Notifications を有効にしてある）
+2. App Store Connect にアプリを登録（済み・2026-10-09）：名前 おうちでシェア、主言語 日本語、SKU `ouchi-share`
+3. TestFlight の内部グループ「**自分**」（済み）：本人だけ。審査なしで、処理が終わったビルドが自動で配られる
+4. アップロード：版を上げてプッシュしたあと、Mac で
+
+   ```bash
+   APPLE_TEAM_ID=<チーム ID> scripts/ios-testflight.sh
+   ```
+
+   - Archive → App Store Connect へのアップロードまで行う（Xcode の画面は使わない。Team は project.pbxproj に書かない）
+   - ビルド番号は Web の版（js/version.js の APP_VERSION）と同じ。1.0（118）なら v118 の中身
+   - 処理に 10〜30 分ほど → iPhone の TestFlight アプリに更新が出る
+5. 家族に配るとき：**外部テスト**のグループを作り、家族を追加（メールで招待、または公開リンク）。
+   外部テストは最初のビルドだけ簡単な審査（1 日ほど）があり、テスト情報（アプリの説明・連絡先のメールなど）が要る。
+   家族は iPhone に「**TestFlight**」アプリを入れて、招待から「おうちでシェア」をインストール
+
+### USB と TestFlight の使い分け
+- 直してすぐ確かめる・原因を調べる：USB でつないで入れる（「4.」。1〜2 分。Mac でログが見られる）
+- まとまって直ったら：TestFlight（配るものと同じリリース版。20〜40 分）
 
 ### 期限
 
