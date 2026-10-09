@@ -4608,3 +4608,109 @@ a.btn.wide {
 .admin-tabs .tab {
   font-size: 13px;
 }
+
+/* ---- 予定の報酬 ---- */
+.plan-reward {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #d4a800 18%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reward-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.reward-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reward-preset {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+}
+
+.reward-preset.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.reward-stepper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px 40px 44px;
+  align-items: center;
+  gap: 6px;
+}
+
+.reward-count {
+  text-align: center;
+  font-size: 18px;
+}
+
+.reward-claims {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.reward-claim {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.reward-claim-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reward-claim-main small {
+  color: var(--muted);
+}
+
+.reward-claim-tickets {
+  font-weight: 700;
+}
+
+.reward-claim-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reward-claim-buttons .btn {
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.sheet-action.primary-action {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+}

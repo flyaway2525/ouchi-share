@@ -744,7 +744,7 @@ export async function claimDailyBonus(groupId, today, yesterday, pick, schedule 
     const reward = schedule[monthDays] ?? {};
     const tickets = { ...(cur.tickets ?? {}) };
     for (const [t, n] of Object.entries(reward)) if (n > 0) tickets[t] = (tickets[t] ?? 0) + n;
-    tx.set(ref, { lastDate: today, streak, total, stamps, lastStamp: got[0], month, monthDays, tickets, updatedAt: Date.now() });
+    tx.set(ref, { lastDate: today, streak, total, stamps, lastStamp: got[0], month, monthDays, tickets, ...(cur.planRewards ? { planRewards: cur.planRewards } : {}), updatedAt: Date.now() });
     return { streak, total, got, stamps, before, monthDays, reward, tickets };
   });
 }
@@ -945,3 +945,37 @@ export function watchSuspendedUsers(cb, onError) {
   return onSnapshot(collection(db, 'suspendedUsers'), (snap) => cb(Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]))), onError);
 }
 
+
+// ---- 予定の報酬（オーナー・管理者が予定に付け、終わったら対象のメンバーが受け取る） ----
+// plans/{id}.reward = { bronze, silver, gold }、rewardLabel = ひな形の名前。null で外す
+export async function setPlanReward(groupId, planId, reward, label = '') {
+  await updateDoc(planRef(groupId, planId), reward ? { reward, rewardLabel: label } : { reward: deleteField(), rewardLabel: deleteField() });
+}
+
+// 受け取る・辞退する。decisions = [{ planId, reward, got: true | false }]
+// bonus/{uid}.planRewards[planId] = 'got' | 'declined'（2 回もらわないように）。受け取ったぶんは tickets に足す
+export async function decidePlanRewards(groupId, decisions) {
+  const ref = bonusRef(groupId, uid());
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists() ? snap.data() : {};
+    const planRewards = { ...(cur.planRewards ?? {}) };
+    const tickets = { ...(cur.tickets ?? {}) };
+    const added = {};
+    for (const d of decisions) {
+      if (planRewards[d.planId]) continue;
+      planRewards[d.planId] = d.got ? 'got' : 'declined';
+      if (!d.got) continue;
+      for (const [t, n] of Object.entries(d.reward ?? {})) {
+        if (n > 0) {
+          tickets[t] = (tickets[t] ?? 0) + n;
+          added[t] = (added[t] ?? 0) + n;
+        }
+      }
+    }
+    // 記録がまだない人（ログボをまだ受け取っていない人）は、最低限の項目を入れて作る
+    const base = snap.exists() ? cur : { lastDate: '1970-01-01', streak: 0, total: 0, stamps: {} };
+    tx.set(ref, { ...base, tickets, planRewards, updatedAt: Date.now() });
+    return { added, tickets };
+  });
+}

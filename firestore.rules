@@ -382,7 +382,8 @@ service cloud.firestore {
         // ログインボーナス（スタンプ集め）：メンバーはみんなの記録を読める。書けるのは本人だけ。消すのは本人かオーナー（グループの削除）
         allow read: if isGroupMember();
         allow create, update: if isGroupMember() && request.auth.uid == userId
-          && request.resource.data.keys().hasOnly(['lastDate', 'streak', 'total', 'stamps', 'lastStamp', 'month', 'monthDays', 'tickets', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['lastDate', 'streak', 'total', 'stamps', 'lastStamp', 'month', 'monthDays', 'tickets', 'planRewards', 'updatedAt'])
+          && (!('planRewards' in request.resource.data) || (request.resource.data.planRewards is map && request.resource.data.planRewards.size() <= 2000))
           && request.resource.data.lastDate is string && request.resource.data.lastDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
           && request.resource.data.streak is int && request.resource.data.total is int
           && request.resource.data.stamps is map && request.resource.data.stamps.size() <= 300
@@ -473,8 +474,25 @@ service cloud.firestore {
             && isActiveMember(groupId);
         }
 
+        // オーナー・管理者（予定の報酬を決められる）。グループのデータは isActiveMember でもう読んでいるので、読み取りは増えない
+        function isGroupManager() {
+          return get(/databases/$(database)/documents/groups/$(groupId)).data.members[request.auth.uid].role in ['owner', 'admin'];
+        }
+
+        // 予定の報酬：reward = { bronze, silver, gold }（枚数）、rewardLabel（ひな形の名前）
+        function isValidReward(d) {
+          return (!('reward' in d) || (d.reward is map && d.reward.keys().hasOnly(['bronze', 'silver', 'gold'])))
+            && (!('rewardLabel' in d) || (d.rewardLabel is string && d.rewardLabel.size() <= 40));
+        }
+
+        function rewardUnchanged() {
+          return request.resource.data.get('reward', null) == resource.data.get('reward', null)
+            && request.resource.data.get('rewardLabel', null) == resource.data.get('rewardLabel', null);
+        }
+
         function isValidPlan(d) {
-          return d.keys().hasOnly(['title', 'date', 'endDate', 'start', 'duration', 'place', 'memo', 'links', 'participants', 'createdAt', 'createdBy'])
+          return d.keys().hasOnly(['title', 'date', 'endDate', 'start', 'duration', 'place', 'memo', 'links', 'participants', 'reward', 'rewardLabel', 'createdAt', 'createdBy'])
+            && isValidReward(d)
             && isNonEmptyString(d.title, 100)
             && (d.date == null || (d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
             // 何日か続く予定の終わりの日（開始日より後）
@@ -486,7 +504,9 @@ service cloud.firestore {
         }
 
         allow read: if isGroupMember();
-        allow create, update: if isGroupMember() && isValidPlan(request.resource.data);
+        // 報酬を付ける・変えるのはオーナー・管理者だけ（ほかの項目はメンバーなら誰でも）
+        allow create: if isGroupMember() && isValidPlan(request.resource.data) && (!('reward' in request.resource.data) || isGroupManager());
+        allow update: if isGroupMember() && isValidPlan(request.resource.data) && (rewardUnchanged() || isGroupManager());
         allow delete: if isGroupMember();
       }
 

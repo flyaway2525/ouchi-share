@@ -344,6 +344,168 @@ async function bonusSchedule(groupId) {
   return scheduleCache[groupId];
 }
 
+// ---- 予定の報酬 ----
+// オーナー・管理者が予定に報酬（チケット）を付ける。予定が終わったら（終わりの時刻を過ぎたら）、
+// 対象のメンバー（参加者。「全員」の予定ならグループの全員）がグループを開いたときに受け取り・辞退を選ぶ。
+// 受け取ったか辞退したかは bonus/{uid}.planRewards に書く（2 回もらわない）。「あとで」はこの起動中だけ出さない
+const PLAN_REWARD_PRESETS = [
+  ['自分のための予定（髪を切る・ネイルなど）', { bronze: 3 }],
+  ['自分のための嫌な予定（歯医者など）', { bronze: 5 }],
+  ['ほかの人のための予定（ペットのカットなど）', { bronze: 7 }],
+  ['大人数での予定（旅行など）', { silver: 1 }],
+  ['特別なイベント', { gold: 1 }],
+];
+const hasReward = (r) => !!r && TICKETS.some(([t]) => r[t] > 0);
+
+// 予定が終わる時刻（ミリ秒）。日付のない予定は終わらない
+function planEndMs(p) {
+  if (!p.date) return Infinity;
+  if (p.endDate && p.endDate > p.date) return new Date(`${p.endDate}T23:59:59`).getTime();
+  if (p.start) return new Date(`${p.date}T00:00:00`).getTime() + endOf(p) * 60000;
+  return new Date(`${p.date}T23:59:59`).getTime();
+}
+
+// 報酬を決めるシート（オーナー・管理者）。戻り値 { reward, label } / 'clear' / null
+function planRewardSheet(plan) {
+  return openSheet((close) => {
+    let reward = { bronze: 0, silver: 0, gold: 0, ...(plan.reward ?? {}) };
+    let label = plan.rewardLabel ?? '';
+    const box = h('div', { class: 'reward-edit' });
+    const render = () =>
+      setChildren(
+        box,
+        h('span', { class: 'links-label' }, 'ひな形から選ぶ'),
+        h(
+          'div',
+          { class: 'reward-presets' },
+          PLAN_REWARD_PRESETS.map(([name, r]) =>
+            h(
+              'button',
+              {
+                type: 'button',
+                class: `reward-preset${label === name ? ' on' : ''}`,
+                onClick: () => {
+                  reward = { bronze: 0, silver: 0, gold: 0, ...r };
+                  label = name;
+                  render();
+                },
+              },
+              h('span', {}, name),
+              h('b', {}, ticketText(r)),
+            ),
+          ),
+        ),
+        h('span', { class: 'links-label' }, '枚数を細かく調整'),
+        TICKETS.map(([t, name, icon]) =>
+          h(
+            'div',
+            { class: 'reward-stepper' },
+            h('span', {}, `${icon} ${name}`),
+            h('button', { type: 'button', class: 'btn', onClick: () => ((reward[t] = Math.max(0, (reward[t] ?? 0) - 1)), (label = PLAN_REWARD_PRESETS.find(([, r]) => TICKETS.every(([k]) => (r[k] ?? 0) === (reward[k] ?? 0)))?.[0] ?? 'カスタム'), render()) }, '−'),
+            h('b', { class: 'reward-count' }, reward[t] ?? 0),
+            h('button', { type: 'button', class: 'btn', onClick: () => ((reward[t] = Math.min(99, (reward[t] ?? 0) + 1)), (label = PLAN_REWARD_PRESETS.find(([, r]) => TICKETS.every(([k]) => (r[k] ?? 0) === (reward[k] ?? 0)))?.[0] ?? 'カスタム'), render()) }, '＋'),
+          ),
+        ),
+        h('p', { class: 'sch-hint' }, hasReward(reward) ? `この予定が終わったら、参加者に ${ticketText(reward)}（${label || 'カスタム'}）` : '報酬なし'),
+      );
+    render();
+    return [
+      h('div', { class: 'sheet-title' }, `🎁 「${plan.title}」の報酬`),
+      box,
+      h(
+        'div',
+        { class: 'sheet-buttons' },
+        h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn primary',
+            onClick: () => {
+              const clean = Object.fromEntries(TICKETS.map(([t]) => [t, reward[t] ?? 0]).filter(([, n]) => n > 0));
+              close(hasReward(clean) ? { reward: clean, label: label || 'カスタム' } : 'clear');
+            },
+          },
+          '保存',
+        ),
+      ),
+      plan.reward && h('button', { class: 'sheet-action danger', onClick: () => close('clear') }, '報酬をなくす'),
+    ];
+  });
+}
+
+const planRewardChecked = new Set(); // 'uid:グループ'（この起動中は確かめた。「あとで」もここ）
+
+// グループを開いたときに呼ぶ（ログボのあと）。終わった予定の報酬で、まだ受け取り・辞退していないものがあればポップアップ
+async function checkPlanRewards(group, plans) {
+  const key = `${user.uid}:${group.id}`;
+  if (planRewardChecked.has(key)) return;
+  planRewardChecked.add(key);
+  const now = Date.now();
+  const mine = plans.filter((p) => hasReward(p.reward) && planEndMs(p) <= now && (p.participants?.length ? p.participants.includes(user.uid) : group.memberIds.includes(user.uid)));
+  if (!mine.length) return;
+  let decided = {};
+  try {
+    decided = (await store.getBonus(group.id))?.planRewards ?? {};
+  } catch {
+    return;
+  }
+  const pending = mine.filter((p) => !decided[p.id]).sort((a, b) => a.date.localeCompare(b.date));
+  if (!pending.length) return;
+  while (newsShowing) await new Promise((r) => setTimeout(r, 400));
+  newsShowing = 'planReward';
+  await planRewardPopup(group, pending);
+  newsShowing = null;
+  checkNews();
+}
+
+function planRewardPopup(group, pending) {
+  let left = [...pending];
+  return openSheet((close) => {
+    const list = h('div', { class: 'reward-claims' });
+    const decide = async (items, got) => {
+      try {
+        const res = await store.decidePlanRewards(
+          group.id,
+          items.map((p) => ({ planId: p.id, reward: p.reward, got })),
+        );
+        left = left.filter((p) => !items.includes(p));
+        if (got && hasReward(res.added)) toast(`🎁 ${ticketText(res.added)} を受け取りました`);
+        else if (!got) toast('辞退しました');
+        if (!left.length) close(true);
+        else render();
+      } catch (e) {
+        showError(e);
+      }
+    };
+    const render = () =>
+      setChildren(
+        list,
+        left.map((p) =>
+          h(
+            'div',
+            { class: 'reward-claim' },
+            h('div', { class: 'reward-claim-main' }, h('b', {}, p.title), h('small', {}, `${fmtDate(p.date)}${p.rewardLabel ? ` ・ ${p.rewardLabel}` : ''}`), h('span', { class: 'reward-claim-tickets' }, ticketText(p.reward))),
+            h('div', { class: 'reward-claim-buttons' }, h('button', { type: 'button', class: 'btn primary', onClick: () => decide([p], true) }, '受け取る'), h('button', { type: 'button', class: 'btn', onClick: () => decide([p], false) }, '辞退')),
+          ),
+        ),
+      );
+    render();
+    const total = () => {
+      const sum = {};
+      for (const p of left) for (const [t, n] of Object.entries(p.reward)) sum[t] = (sum[t] ?? 0) + n;
+      return ticketText(sum);
+    };
+    return [
+      h('div', { class: 'sheet-title' }, `🎁 ${group.name}：予定の報酬`),
+      h('p', { class: 'sch-hint' }, 'おつかれさまでした！終わった予定の報酬です。受け取るか、辞退するかを選んでください'),
+      list,
+      h('button', { class: 'sheet-action primary-action', onClick: () => decide([...left], true) }, `🎁 まとめて受け取る`),
+      h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'あとで（次に開いたときにもう一度）'),
+    ];
+  });
+}
+
 // 次のシルバー・ゴールドまで（その月の受け取り回数で数える）
 function nextSpecial(schedule, monthDays) {
   for (let n = monthDays + 1; n <= 31; n++) {
@@ -4038,6 +4200,8 @@ function groupView(root, { groupId }) {
   let unwatchRecovery = null;
   if (auth.isGuest()) store.ensureRecoveryCode(groupId).catch(() => {});
 
+  let plansReady;
+  const plansLoaded = new Promise((r) => (plansReady = r)); // 予定を読み込んだら（予定の報酬の確認に使う）
   const onGone = async (e) => {
     if (e?.code !== 'permission-denied' && e?.message !== 'not-found') return showError(e);
     // 停止中のグループは中身が読めないだけ（停止の案内を出したまま、ホームには戻さない）
@@ -4063,7 +4227,8 @@ function groupView(root, { groupId }) {
       groupThemes[groupId] = g.members?.[user.uid]?.colors ?? null;
       applyTheme(themeForHash(location.hash));
       // その日はじめてこのグループを開いたら、ログインボーナス（2 回目からは何もしない）
-      if (!authBusy && !auth.needsName()) checkBonus(g);
+      // ログボのあとで、終わった予定の報酬（予定を読み込んでから）
+      if (!authBusy && !auth.needsName()) checkBonus(g).finally(() => plansLoaded.then(() => group && checkPlanRewards(group, plans ?? [])));
       const owner = g.members?.[user.uid]?.role === 'owner';
       if (owner && !unwatchRecovery) {
         unwatchRecovery = store.watchRecoveryCodes(groupId, (codes) => (recoveryCodes = codes), () => {});
@@ -4303,6 +4468,7 @@ function groupView(root, { groupId }) {
     groupId,
     (ps) => {
       plans = ps;
+      plansReady();
       renderBody();
     },
     (e) => {
@@ -5416,6 +5582,16 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           if (res) store.updatePlan(groupId, plan.id, res).catch(showError);
         },
       },
+      // 報酬（オーナー・管理者だけ）
+      isManager(group) && {
+        label: hasReward(plan.reward) ? `🎁 報酬を変更（今：${ticketText(plan.reward)}）` : '🎁 報酬を設定',
+        onClick: async () => {
+          const res = await planRewardSheet(plan);
+          if (!res) return;
+          if (res === 'clear') store.setPlanReward(groupId, plan.id, null).then(() => toast('報酬をなくしました'), showError);
+          else store.setPlanReward(groupId, plan.id, res.reward, res.label).then(() => toast(`報酬を ${ticketText(res.reward)} にしました`), showError);
+        },
+      },
       {
         label: '削除',
         danger: true,
@@ -5604,6 +5780,7 @@ function calendarSection({ groupId, group, events, lists, plans, rerender }) {
           { class: 'cal-row-sub' },
           [isSpan(plan) && `${fmtDate(plan.date)} 〜 ${fmtDate(plan.endDate)}`, plan.place && `📍${plan.place}`, `👥 ${participantsLabel(members, plan.participants)}`].filter(Boolean).join(' ・ '),
         ),
+        hasReward(plan.reward) && h('span', { class: 'plan-reward' }, `🎁 ${ticketText(plan.reward)}${plan.rewardLabel ? `（${plan.rewardLabel}）` : ''}`),
         plan.memo && h('span', { class: 'cal-row-sub' }, plan.memo),
         linkChips(plan.links),
       ),
