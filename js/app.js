@@ -4442,7 +4442,7 @@ function groupView(root, { groupId }) {
               const order = ['calendar', 'events', 'lists', 'diary'];
               const dir = order.indexOf(id) > order.indexOf(tab) ? 1 : -1;
               [...body.children].slice(1).forEach((el) =>
-                el.animate([{ transform: `translateX(${dir * 28}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }),
+                el.animate([{ transform: `translateX(${dir * 28}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 400, easing: 'cubic-bezier(0.25, 0.7, 0.25, 1)' }),
               );
             }
           },
@@ -8624,7 +8624,7 @@ function animateNav(prev, next) {
   void app.offsetWidth; // アニメーションを最初からやり直す
   app.classList.add(cls);
   clearTimeout(navTimer);
-  navTimer = setTimeout(() => app.classList.remove(cls), 450);
+  navTimer = setTimeout(() => app.classList.remove(cls), 600);
 }
 
 window.addEventListener('hashchange', () => {

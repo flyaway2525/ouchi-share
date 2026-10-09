@@ -4949,15 +4949,15 @@ a.btn.wide {
 
 /* 画面の切り替え：進むときは右から、戻るときは左から、同じ深さはふわっと（app.js の animateNav） */
 #app.nav-forward > main {
-  animation: fx-in-right 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: fx-in-right 0.45s cubic-bezier(0.25, 0.7, 0.25, 1);
 }
 
 #app.nav-back > main {
-  animation: fx-in-left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: fx-in-left 0.45s cubic-bezier(0.25, 0.7, 0.25, 1);
 }
 
 #app.nav-fade > main {
-  animation: fx-fade 0.25s ease;
+  animation: fx-fade 0.35s ease;
 }
 
 @keyframes fx-in-right {
