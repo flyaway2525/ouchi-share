@@ -546,8 +546,19 @@ function nextSpecial(schedule, monthDays) {
 }
 
 // ごほうびの登録・編集（オーナー）
-function rewardSheet(initial = {}) {
+// members：承認する人を選ぶためのメンバー（ないときは選べない）
+function rewardSheet(initial = {}, members = []) {
   return openSheet((close) => {
+    let approver = initial.approver ?? '';
+    const approverChips = h('div', { class: 'people-chips' });
+    const syncApprover = () =>
+      setChildren(
+        approverChips,
+        [{ uid: '', name: 'オーナー・管理者のだれか' }, ...members].map((m) =>
+          h('button', { type: 'button', class: `chip${approver === m.uid ? ' on' : ''}`, onClick: () => ((approver = m.uid), syncApprover()) }, m.uid && avatar(m, 18), m.name),
+        ),
+      );
+    syncApprover();
     const emoji = h('input', { class: 'text-input reward-emoji', value: initial.emoji ?? '🎁', maxlength: 4, 'aria-label': '絵文字' });
     const title = h('input', { class: 'text-input', value: initial.title ?? '', placeholder: '例：ゲーム30分、好きなおやつ', maxlength: 40, 'aria-label': 'ごほうび' });
     let ticket = initial.ticket ?? 'bronze';
@@ -584,13 +595,15 @@ function rewardSheet(initial = {}) {
             if (!t) return title.focus();
             const n = Math.round(Number(count.value));
             if (!(n >= 1 && n <= 99)) return toast('枚数は 1〜99 で入れてください');
-            close({ title: t, emoji: emoji.value.trim() || '🎁', ticket, count: n });
+            close({ title: t, emoji: emoji.value.trim() || '🎁', ticket, count: n, approver });
           },
         },
         h('div', { class: 'reward-title-row' }, emoji, title),
         h('span', { class: 'links-label' }, '交換に使うチケット'),
         chips,
         h('label', { class: 'end-date-row' }, h('span', {}, '枚数'), count),
+        h('span', { class: 'links-label' }, '交換を承認する人'),
+        approverChips,
         h(
           'div',
           { class: 'sheet-buttons' },
@@ -687,6 +700,129 @@ function itemsView(root, { groupId, uid = null }) {
     },
     uid ?? user.uid,
   );
+}
+
+// ---- ごほうびの交換の承認 ----
+// 交換するとチケットを預かって「承認待ち」。承認する人（ごほうびで指定した人。指定がなければオーナー・管理者のだれか）に
+// ポップアップと通知。承認・却下すると、交換した人に結果のポップアップ（却下のときはチケットを戻す）。履歴はチケットの画面
+const approverLabel = (group, approver) => (approver ? group.members?.[approver]?.name ?? '（退出したメンバー）' : 'オーナー・管理者');
+const canApprove = (group, x) => x.uid !== user.uid && (x.approver ? x.approver === user.uid : isManager(group));
+const approvalShown = new Set(); // この起動中にポップアップで出した記録の id
+const resultShown = new Set();
+
+// 承認・却下する（却下は理由を聞く。書かなくてもよい）
+async function decideRedemptionUI(group, x, approve) {
+  let comment = '';
+  if (!approve) {
+    const res = await askText({ title: `「${x.title}」を却下する理由（なくてもOK）`, placeholder: '例：今日はもう遅いので明日ね', okLabel: '却下する' });
+    if (res === null) return false;
+    comment = res;
+  }
+  try {
+    await store.decideRedemption(group.id, x.id, approve, group.members?.[user.uid]?.name ?? auth.displayName(), comment);
+  } catch (e) {
+    showError(e);
+    return false;
+  }
+  requestNotify({
+    groupId: group.id,
+    kind: 'reward',
+    title: `🎟 ${group.name}`,
+    body: approve ? `「${x.emoji} ${x.title}」の交換が承認されました` : `「${x.emoji} ${x.title}」の交換は却下されました${comment ? `（${comment}）` : ''}`,
+    url: `#/g/${group.id}/tickets`,
+    participants: [x.uid],
+  });
+  return true;
+}
+
+// 承認する人に出すポップアップ（承認待ちのもの）
+async function approvalPopup(group, items) {
+  while (newsShowing) await new Promise((r) => setTimeout(r, 400));
+  let left = items.filter((x) => x.status === 'pending');
+  if (!left.length) return;
+  newsShowing = 'approval';
+  await openSheet((close) => {
+    const list = h('div', { class: 'reward-claims' });
+    const render = () =>
+      setChildren(
+        list,
+        left.map((x) =>
+          h(
+            'div',
+            { class: 'reward-claim' },
+            h('div', { class: 'reward-claim-main' }, h('b', {}, `${x.name} さん：${x.emoji} ${x.title}`), h('small', {}, `${ticketInfo(x.ticket)[2]}×${x.count} ・ ${fmtDateTime(x.at)}`)),
+            h(
+              'div',
+              { class: 'reward-claim-buttons' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: 'btn primary',
+                  onClick: async (e) => {
+                    const src = e.currentTarget;
+                    if (!(await decideRedemptionUI(group, x, true))) return;
+                    fx.burst(src, ['✅', '✨'], { count: 8 });
+                    left = left.filter((y) => y !== x);
+                    left.length ? render() : setTimeout(() => close(true), 400);
+                  },
+                },
+                '承認',
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: 'btn',
+                  onClick: async () => {
+                    if (!(await decideRedemptionUI(group, x, false))) return;
+                    toast('却下しました');
+                    left = left.filter((y) => y !== x);
+                    left.length ? render() : close(true);
+                  },
+                },
+                '却下',
+              ),
+            ),
+          ),
+        ),
+      );
+    render();
+    return [
+      h('div', { class: 'sheet-title' }, `🎟 ${group.name}：ごほうびの交換の承認`),
+      h('p', { class: 'sch-hint' }, '交換したいというお願いが届いています。承認するか、却下するかを選んでください（チケットは預かってあります。却下すると本人に戻ります）'),
+      list,
+      h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'あとで'),
+    ];
+  });
+  newsShowing = null;
+  checkNews();
+}
+
+// 交換した人に出す結果のポップアップ（承認・却下）。見たら seen、却下ならチケットを戻す
+async function redemptionResultPopup(group, x) {
+  while (newsShowing) await new Promise((r) => setTimeout(r, 400));
+  newsShowing = 'redeemResult';
+  const ok = x.status === 'approved';
+  if (ok) setTimeout(() => fx.confetti(), 300);
+  await openSheet((close) => [
+    h('div', { class: 'sheet-title' }, ok ? '🎉 交換が承認されました' : '交換は却下されました'),
+    h(
+      'div',
+      { class: 'bonus-card' },
+      h('p', { class: 'redeem-result-title' }, `${x.emoji} ${x.title}`),
+      h('p', { class: 'sch-hint' }, `${x.decidedByName || '承認する人'} さんが${ok ? '承認しました' : '却下しました'}${x.comment ? `：「${x.comment}」` : ''}`),
+      !ok && h('p', { class: 'bonus-next' }, `${ticketInfo(x.ticket)[2]} ${ticketInfo(x.ticket)[1]}チケット ${x.count}枚を戻しました`),
+    ),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, 'OK'),
+  ]);
+  try {
+    await store.settleMyRedemption(group.id, x);
+  } catch (e) {
+    console.warn('交換の結果を記録できませんでした', e);
+  }
+  newsShowing = null;
+  checkNews();
 }
 
 // ---- 画面：チケット・ごほうび（グループごと） ----
@@ -847,18 +983,21 @@ function ticketsView(root, { groupId }) {
 
   const redeem = async (r) => {
     const [, label, icon] = ticketInfo(r.ticket);
-    if (!(await confirmSheet(`${icon} ${label}チケット ${r.count}枚で「${r.emoji} ${r.title}」と交換しますか？`, '交換する'))) return;
+    const who = approverLabel(group, r.approver);
+    if (!(await confirmSheet(`${icon} ${label}チケット ${r.count}枚で「${r.emoji} ${r.title}」と交換しますか？（${who}の承認待ちになります。チケットは預かり、却下されたら戻ります）`, '交換をお願いする'))) return;
     try {
       await store.redeemReward(groupId, r, myName());
     } catch (e) {
       return e.message === 'not-enough' ? toast('チケットが足りません') : showError(e);
     }
-    toast(`「${r.title}」と交換しました！`);
-    requestNotify({ groupId, kind: 'reward', title: `🎟 ${group.name}`, body: `${myName()}さんが「${r.emoji} ${r.title}」と交換しました（${icon}×${r.count}）`, url: `#/g/${groupId}/tickets` });
+    toast(`${who}に承認をお願いしました`);
+    // 承認する人（指定がなければオーナー・管理者）に通知
+    const approvers = r.approver ? [r.approver] : Object.entries(group.members ?? {}).filter(([, m]) => ['owner', 'admin'].includes(m.role)).map(([id]) => id);
+    requestNotify({ groupId, kind: 'reward', title: `🎟 ${group.name}：承認のお願い`, body: `${myName()}さんが「${r.emoji} ${r.title}」と交換したいそうです（${icon}×${r.count}）`, url: `#/g/${groupId}`, participants: approvers.filter((id) => id !== user.uid) });
   };
 
   const editReward = async (r = {}) => {
-    const res = await rewardSheet(r);
+    const res = await rewardSheet(r, memberList(group));
     if (res) store.saveReward(groupId, r.id ?? null, res).catch(showError);
   };
 
@@ -923,7 +1062,7 @@ function ticketsView(root, { groupId }) {
               'li',
               { class: 'reward-row' },
               h('span', { class: 'reward-emoji-big' }, r.emoji),
-              h('span', { class: 'reward-main' }, h('span', { class: 'reward-title' }, r.title), h('span', { class: `reward-cost ticket-${r.ticket}` }, `${ticketInfo(r.ticket)[2]} ${ticketInfo(r.ticket)[1]} ×${r.count}`)),
+              h('span', { class: 'reward-main' }, h('span', { class: 'reward-title' }, r.title), h('span', { class: `reward-cost ticket-${r.ticket}` }, `${ticketInfo(r.ticket)[2]} ${ticketInfo(r.ticket)[1]} ×${r.count}`), h('small', { class: 'reward-approver' }, `承認：${approverLabel(group, r.approver)}`)),
               h('button', { class: 'btn primary reward-btn', disabled: !enough, onClick: () => redeem(r) }, enough ? '交換' : '足りない'),
               isOwner() &&
                 h(
@@ -949,19 +1088,47 @@ function ticketsView(root, { groupId }) {
           }),
       ),
       isOwner() && h('button', { class: 'add-card', onClick: () => editReward() }, '＋ ごほうびを追加'),
-      logs.length > 0 && h('p', { class: 'section-label' }, `交換・換金の記録${isOwner() ? '（タップで「済み」にできます）' : ''}`),
+      logs.length > 0 && h('p', { class: 'section-label' }, '交換・換金の記録（承認の履歴）'),
       logs.length > 0 &&
         h(
           'ul',
           { class: 'reward-log' },
-          logs.map((x) =>
-            h(
+          logs.map((x) => {
+            const st = x.status ?? 'approved'; // 承認制より前の記録は「承認済み」あつかい
+            const badge = { pending: ['⏳ 承認待ち', ' muted'], approved: [x.done ? '✅ 済み' : '✅ 承認', ''], rejected: ['❌ 却下', ' danger'], canceled: ['取り消し', ' muted'] }[st];
+            const detail =
+              st === 'pending'
+                ? `承認する人：${approverLabel(group, x.approver)}`
+                : st === 'approved' && x.decidedByName
+                  ? `${x.decidedByName}さんが承認 ・ ${fmtDateTime(x.decidedAt)}`
+                  : st === 'rejected'
+                    ? `${x.decidedByName}さんが却下 ・ ${fmtDateTime(x.decidedAt)}${x.comment ? `「${x.comment}」` : ''}`
+                    : '';
+            // 押したとき：承認待ちなら、承認する人は承認・却下、本人は取り消し。承認済み・換金はオーナー・管理者が「済み」にできる
+            const menu = () => {
+              if (st === 'pending' && canApprove(group, x))
+                return actionSheet(`${x.name}：${x.title}`, [
+                  { label: '✅ 承認する', onClick: () => decideRedemptionUI(group, x, true) },
+                  { label: '❌ 却下する', danger: true, onClick: () => decideRedemptionUI(group, x, false) },
+                ]);
+              if (st === 'pending' && x.uid === user.uid)
+                return actionSheet(x.title, [
+                  {
+                    label: '交換のお願いを取り消す（チケットを戻す）',
+                    danger: true,
+                    onClick: () => store.settleMyRedemption(groupId, x, { cancel: true }).then(() => toast('取り消して、チケットを戻しました'), showError),
+                  },
+                ]);
+              if (st === 'approved' && isOwner()) store.setRedemptionDone(groupId, x.id, !x.done).catch(showError);
+            };
+            const tappable = (st === 'pending' && (canApprove(group, x) || x.uid === user.uid)) || (st === 'approved' && isOwner());
+            return h(
               'li',
-              isOwner() ? { class: `is-tappable${x.done ? ' done' : ''}`, onClick: () => store.setRedemptionDone(groupId, x.id, !x.done).catch(showError) } : { class: x.done ? 'done' : '' },
-              h('span', { class: 'reward-log-main' }, `${x.name}：${x.emoji} ${x.title}`, h('small', {}, `${ticketInfo(x.ticket)[2]}×${x.count} ・ ${fmtDateTime(x.at)}`)),
-              h('span', { class: `badge${x.done ? '' : ' muted'}` }, x.done ? '済み' : 'まだ'),
-            ),
-          ),
+              { class: `${tappable ? 'is-tappable' : ''}${x.done ? ' done' : ''}`, onClick: tappable ? menu : null },
+              h('span', { class: 'reward-log-main' }, `${x.name}：${x.emoji} ${x.title}`, h('small', {}, `${ticketInfo(x.ticket)[2]}×${x.count} ・ ${fmtDateTime(x.at)}`), detail && h('small', {}, detail)),
+              h('span', { class: `badge${badge[1]}` }, badge[0]),
+            );
+          }),
         ),
     );
   }
@@ -4655,6 +4822,7 @@ function groupView(root, { groupId }) {
   let unwatchRecovery = null;
   if (auth.isGuest()) store.ensureRecoveryCode(groupId).catch(() => {});
 
+  let processRedemptions = () => {}; // 下で中身を入れる
   let plansReady;
   const plansLoaded = new Promise((r) => (plansReady = r)); // 予定を読み込んだら（予定の報酬の確認に使う）
   const onGone = async (e) => {
@@ -4682,6 +4850,7 @@ function groupView(root, { groupId }) {
       groupThemes[groupId] = g.members?.[user.uid]?.colors ?? null;
       applyTheme(themeForHash(location.hash));
       // その日はじめてこのグループを開いたら、ログインボーナス（2 回目からは何もしない）
+      processRedemptions(); // ごほうびの交換の承認・結果（グループを読み込んだので）
       // ログボのあとで、終わった予定の報酬（予定を読み込んでから）
       if (!authBusy && !auth.needsName()) checkBonus(g).finally(() => plansLoaded.then(() => group && checkPlanRewards(group, plans ?? [])));
       const owner = g.members?.[user.uid]?.role === 'owner';
@@ -4998,6 +5167,26 @@ function groupView(root, { groupId }) {
       renderBody();
     },
   );
+  // ごほうびの交換の承認：承認待ち（自分が承認する人のもの）と、自分の交換の結果。どちらも数件だけ読む
+  // （グループを読み込む前に届いたら、読み込んだあとで出す：processRedemptions はグループの見張りからも呼ぶ）
+  let pendingList = [];
+  let resultList = [];
+  processRedemptions = () => {
+    if (!group || authBusy) return;
+    const mine = pendingList.filter((x) => canApprove(group, x) && !approvalShown.has(x.id));
+    if (mine.length) {
+      mine.forEach((x) => approvalShown.add(x.id));
+      approvalPopup(group, mine);
+    }
+    for (const x of resultList) {
+      if (!['approved', 'rejected'].includes(x.status) || resultShown.has(x.id)) continue;
+      resultShown.add(x.id);
+      redemptionResultPopup(group, x);
+    }
+  };
+  const unwatchPending = store.watchPendingRedemptions(groupId, (list) => ((pendingList = list), processRedemptions()), () => {});
+  const unwatchMyResults = store.watchMyUnseenRedemptions(groupId, (list) => ((resultList = list), processRedemptions()), () => {});
+
   // 記念日（読めなくてもほかは使えるように、エラー時は空として扱う）
   const unwatchAnnivs = store.watchAnniversaries(
     groupId,
@@ -5034,6 +5223,8 @@ function groupView(root, { groupId }) {
     unwatchDiaryTags();
     unwatchAnnivs();
     document.removeEventListener('pointerdown', onSwipeDown);
+    unwatchPending();
+    unwatchMyResults();
     document.documentElement.classList.remove('swipe-tabs');
     unwatchNews();
     clearNewsSource(newsSourceId);

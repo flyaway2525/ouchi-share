@@ -780,9 +780,10 @@ export function watchRewards(groupId, cb, onError) {
   return onSnapshot(rewardsCol(groupId), (snap) => cb(snap.docs.map(withId)), onError);
 }
 
-export async function saveReward(groupId, rewardId, { title, emoji, ticket, count }) {
+// approver：承認する人（メンバーの uid。'' ならオーナー・管理者のだれか）
+export async function saveReward(groupId, rewardId, { title, emoji, ticket, count, approver = '' }) {
   const ref = rewardId ? doc(rewardsCol(groupId), rewardId) : doc(rewardsCol(groupId));
-  await setDoc(ref, { title, emoji, ticket, count, createdAt: Date.now() }, { merge: true });
+  await setDoc(ref, { title, emoji, ticket, count, approver, createdAt: Date.now() }, { merge: true });
 }
 
 export async function deleteReward(groupId, rewardId) {
@@ -793,7 +794,8 @@ export function watchRedemptions(groupId, cb, onError) {
   return onSnapshot(query(redemptionsCol(groupId), orderBy('at', 'desc'), limit(30)), (snap) => cb(snap.docs.map(withId)), onError);
 }
 
-// チケットでごほうびと交換する（足りなければ Error('not-enough')）。チケットを減らして、交換の記録を残す
+// チケットでごほうびと交換する（足りなければ Error('not-enough')）。チケットを預かって（減らして）、承認待ちの記録を残す。
+// 承認する人が承認・却下する（却下・取り消しのときは本人の端末がチケットを戻す）。戻り値は記録の id
 export async function redeemReward(groupId, reward, name) {
   const ref = bonusRef(groupId, uid());
   const log = doc(redemptionsCol(groupId));
@@ -803,7 +805,60 @@ export async function redeemReward(groupId, reward, name) {
     if ((tickets[reward.ticket] ?? 0) < reward.count) throw new Error('not-enough');
     tickets[reward.ticket] -= reward.count;
     tx.update(ref, { tickets, updatedAt: Date.now() });
-    tx.set(log, { uid: uid(), name, title: reward.title, emoji: reward.emoji, ticket: reward.ticket, count: reward.count, at: Date.now(), done: false });
+    tx.set(log, {
+      uid: uid(),
+      name,
+      title: reward.title,
+      emoji: reward.emoji,
+      ticket: reward.ticket,
+      count: reward.count,
+      at: Date.now(),
+      done: false,
+      status: 'pending',
+      approver: reward.approver ?? '',
+      seen: false,
+    });
+  });
+  return log.id;
+}
+
+// 承認待ち（承認する人が見る）と、自分の交換でまだ結果を見ていないもの（交換した人が見る）。どちらも数件だけ読む
+export function watchPendingRedemptions(groupId, cb, onError) {
+  return onSnapshot(query(redemptionsCol(groupId), where('status', '==', 'pending')), (snap) => cb(snap.docs.map(withId)), onError);
+}
+
+export function watchMyUnseenRedemptions(groupId, cb, onError) {
+  return onSnapshot(query(redemptionsCol(groupId), where('uid', '==', uid()), where('seen', '==', false)), (snap) => cb(snap.docs.map(withId)), onError);
+}
+
+// 承認・却下（承認する人）
+export async function decideRedemption(groupId, id, approve, name, comment = '') {
+  await updateDoc(doc(redemptionsCol(groupId), id), {
+    status: approve ? 'approved' : 'rejected',
+    decidedBy: uid(),
+    decidedByName: name,
+    decidedAt: Date.now(),
+    comment: comment.slice(0, 100),
+  });
+}
+
+// 交換した本人：結果を見た。却下・取り消しのときはチケットを戻す（2 回戻さないよう refunded を見る）。cancel で承認待ちを取り消す
+export async function settleMyRedemption(groupId, log, { cancel = false } = {}) {
+  const ref = bonusRef(groupId, uid());
+  const logRef = doc(redemptionsCol(groupId), log.id);
+  await runTransaction(db, async (tx) => {
+    const cur = await tx.get(logRef);
+    if (!cur.exists()) return;
+    const x = cur.data();
+    const status = cancel && x.status === 'pending' ? 'canceled' : x.status;
+    const refund = (status === 'rejected' || status === 'canceled') && !x.refunded;
+    if (refund) {
+      const snap = await tx.get(ref);
+      const tickets = { ...(snap.exists() ? snap.data().tickets ?? {} : {}) };
+      tickets[x.ticket] = (tickets[x.ticket] ?? 0) + x.count;
+      tx.update(ref, { tickets, updatedAt: Date.now() });
+    }
+    tx.update(logRef, { seen: true, ...(refund ? { refunded: true } : {}), ...(status !== x.status ? { status } : {}) });
   });
 }
 

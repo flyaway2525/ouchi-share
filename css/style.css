@@ -5223,3 +5223,25 @@ html.swipe-tabs body {
 .group-body {
   min-height: calc(100dvh - 130px);
 }
+
+/* ごほうびの交換の承認 */
+.reward-approver {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.reward-log-main small + small {
+  display: block;
+}
+
+.badge.danger {
+  background: color-mix(in srgb, #d0453c 15%, transparent);
+  color: #d0453c;
+}
+
+.redeem-result-title {
+  margin: 4px 0;
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+}
