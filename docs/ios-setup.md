@@ -66,6 +66,8 @@ Web 版のままだと、アプリの中では次が動かない。ここは Mac
    - ポップアップのログインはアプリの中では開けない（`auth/argument-error`）ので、`@capacitor-firebase/authentication` の
      iPhone の仕組みのログイン画面で Google にログインし、結果（ID トークン）で Firebase の JavaScript SDK にログインする
      （`capacitor.config.json` の `skipNativeAuth: true`。`js/auth.js` の `isNativeApp` のときだけ）
+   - ビルドなしで `@capacitor/core` を読み込んでいないので `Capacitor.registerPlugin` はない。プラグインは、アプリが最初から入れる
+     `window.Capacitor.nativePromise('FirebaseAuthentication', 'signInWithGoogle', {})` で呼ぶ（v118。実機でログインできた）
    - Firebase に iOS アプリ（`ouchi-share-ios`）を登録し、`ios/App/App/GoogleService-Info.plist` を Xcode のプロジェクトに追加済み。
      Google から戻ってくるための URL スキーム（REVERSED_CLIENT_ID）も `Info.plist` に追加済み
    - プラグインの部品（Firebase・GoogleSignIn）は Swift Package Manager。Facebook の部品は使わないので外してある（packageTraits）
@@ -88,6 +90,16 @@ Web 版のままだと、アプリの中では次が動かない。ここは Mac
 
 1. iPhone を USB で Mac につなぐ → iPhone の 設定 → プライバシーとセキュリティ → **デベロッパモード** をオン
 2. Xcode の上のメニューで自分の iPhone を選んで ▶
+3. Xcode の Team を選ぶと `project.pbxproj` に DEVELOPMENT_TEAM が入るが、これはコミットしない。
+   コマンドでビルドするなら、Team をその場で渡せば `project.pbxproj` は変わらない：
+
+   ```bash
+   cd ios/App
+   xcodebuild -project App.xcodeproj -scheme App -configuration Debug -destination 'id=<iPhone の ID>' DEVELOPMENT_TEAM=<チーム ID> -allowProvisioningUpdates build
+   xcrun devicectl device install app --device <iPhone の ID> <ビルドした App.app>
+   ```
+
+   iPhone の ID は `xcrun devicectl list devices` で見られる
 
 ## 5. TestFlight で家族に配る
 

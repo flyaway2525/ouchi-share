@@ -23,7 +23,12 @@ import { auth, isNativeApp } from './firebase.js';
 export { isNativeApp };
 
 // アプリの中のログイン画面（ネイティブのプラグイン）。アプリの中でだけ使う
-const nativeAuth = () => window.Capacitor.registerPlugin('FirebaseAuthentication');
+// ビルドなしで @capacitor/core を読み込んでいないので registerPlugin はない。アプリが最初から入れる
+// window.Capacitor.nativePromise でプラグインを直接呼ぶ
+const nativeAuth = () => {
+  const call = (method) => (options = {}) => window.Capacitor.nativePromise('FirebaseAuthentication', method, options);
+  return { signInWithGoogle: call('signInWithGoogle'), signInWithApple: call('signInWithApple'), signOut: call('signOut') };
+};
 
 // iPhone の仕組みで Google / Apple にログインして、Firebase 用の資格情報（credential）にする
 async function nativeCredential(providerId) {
