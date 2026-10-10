@@ -120,6 +120,20 @@ export async function adminAction(action, payload) {
   return data;
 }
 
+// 自分のアカウントを消す（同じ Workers の /account。本人だけ。グループから外れ、プロフィールとログインのアカウントを消す）
+export async function deleteMyAccount() {
+  if (!NOTIFY_URL || !auth.currentUser) throw new Error('サーバーにつながりません');
+  const idToken = await auth.currentUser.getIdToken(true);
+  const res = await fetch(new URL('account', NOTIFY_URL), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify({ action: 'deleteMe' }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`消せませんでした（${data.error ?? res.status}）`);
+  return data;
+}
+
 // ---- 壁紙のおすそわけ（同じ Workers の /wallpaper。KV に 7 日間だけ置く。Firebase には置かない） ----
 async function wpFetch(path, body, isJson = true) {
   if (!NOTIFY_URL || !auth.currentUser) throw new Error('サーバーにつながりません');

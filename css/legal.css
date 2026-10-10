@@ -1,0 +1,100 @@
+/* 利用規約・プライバシーポリシーのページ（terms.html・privacy.html）。アプリの style.css は読まずに、これだけで表示する */
+:root {
+  --bg: #fff8f0;
+  --surface: #ffffff;
+  --text: #2b2622;
+  --muted: #8a7f76;
+  --border: #eee3d8;
+  --accent: #f08a4b;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1a18;
+    --surface: #2a2724;
+    --text: #f3ede7;
+    --muted: #a39990;
+    --border: #3a3632;
+    --accent: #f59a5f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.legal {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: calc(env(safe-area-inset-top, 0px) + 24px) 16px calc(env(safe-area-inset-bottom, 0px) + 40px);
+}
+
+.legal-app {
+  margin: 0;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+h1 {
+  margin: 4px 0 0;
+  font-size: 24px;
+}
+
+.legal-date {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+h2 {
+  margin: 28px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 17px;
+}
+
+ul {
+  padding-left: 20px;
+}
+
+li + li {
+  margin-top: 4px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  font-size: 14px;
+}
+
+th,
+td {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  white-space: nowrap;
+}
+
+a {
+  color: var(--accent);
+}
+
+.legal-links {
+  margin-top: 32px;
+  text-align: center;
+}

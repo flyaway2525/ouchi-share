@@ -2288,6 +2288,7 @@ function profileView(root) {
         ['groups', '🏠 グループごと'],
         ['notify', '🔔 通知'],
         ['account', '🔐 アカウント'],
+        ['legal', '📄 規約'],
       ].map(([id, label]) => h('button', { type: 'button', class: 'chip', onClick: () => document.getElementById(`set-${id}`)?.scrollIntoView({ block: 'start' }) }, label)),
     );
     setChildren(
@@ -2403,6 +2404,11 @@ function profileView(root) {
         '🪪 ユーザーIDをコピー',
       ),
       guest && h('button', { class: 'btn wide', onClick: myRecoverySheet }, '🆘 復旧IDを確認'),
+      section('legal', '📄 このアプリについて'),
+      h('a', { class: 'btn wide', href: legalUrl('terms.html'), target: '_blank', rel: 'noopener' }, '📄 利用規約'),
+      h('a', { class: 'btn wide', href: legalUrl('privacy.html'), target: '_blank', rel: 'noopener' }, '🔒 プライバシーポリシー'),
+      // アプリ開発者は消せない（Workers でも断る）
+      !isDeveloper && h('button', { class: 'btn wide danger-btn', onClick: deleteAccountFlow }, '🗑 アカウントを削除'),
     );
   };
   render();
@@ -3217,6 +3223,47 @@ function recoveryCodeSheet(title, code, note) {
   ]);
 }
 
+// 自分のアカウントを消す（App Store の決まり）。説明 → 「削除」と入力 → Workers の /account で消す → この端末の設定も消す
+async function deleteAccountFlow() {
+  const go = await openSheet((close) => [
+    h('div', { class: 'sheet-title' }, '🗑 アカウントを削除'),
+    h(
+      'ul',
+      { class: 'delete-account-list' },
+      h('li', {}, '参加中のすべてのグループから抜けます。オーナーのグループは、いちばん前から参加しているメンバーがオーナーになります。ひとりだけのグループは、中身ごと消えます。'),
+      h('li', {}, 'プロフィール・通知の設定・ログインのアカウントが消えます。元に戻せません。'),
+      h('li', {}, 'グループに書いた予定・リスト・日記などは、グループのみんなのものなので残ります（消したいものは、先に消してください）。'),
+      h('li', {}, 'この端末の着せ替え・壁紙などの設定も消えます。'),
+    ),
+    h('button', { class: 'sheet-action danger', onClick: () => close(true) }, '削除へ進む'),
+    h('button', { class: 'sheet-action cancel', onClick: () => close(false) }, 'キャンセル'),
+  ]);
+  if (!go) return;
+  const typed = await askText({ title: '確認のため「削除」と入力してください', placeholder: '削除', okLabel: 'アカウントを削除する' });
+  if (typed == null) return;
+  if (typed.trim() !== '削除') return toast('「削除」と入力されていないので、やめました');
+  try {
+    toast('アカウントを削除しています…');
+    await (await loadPush()).deleteMyAccount();
+  } catch (e) {
+    return showError(e);
+  }
+  // この端末に残っているこのアプリの設定と壁紙の画像を消す
+  try {
+    for (const k of Object.keys(localStorage).filter((k) => k.startsWith('ouchi-share:'))) localStorage.removeItem(k);
+  } catch {
+    // 消せなくても続ける
+  }
+  try {
+    indexedDB.deleteDatabase('ouchi-share-wallpaper');
+  } catch {
+    // 消せなくても続ける
+  }
+  await auth.signOut().catch(() => {});
+  location.hash = '#/';
+  toast('アカウントを削除しました。ご利用ありがとうございました');
+}
+
 async function myRecoverySheet() {
   let codes;
   try {
@@ -3305,6 +3352,17 @@ function recoverView(root, { code = '' }) {
 
 // ---- 画面：ようこそ（未ログイン） ----
 
+// 利用規約・プライバシーポリシー（GitHub Pages のページ。アプリ版は画面をアプリに同梱しているので、公開中のページを開く）
+const legalUrl = (page) => (auth.isNativeApp ? `https://flyaway2525.github.io/ouchi-share/${page}` : page);
+const legalLinks = () =>
+  h(
+    'p',
+    { class: 'legal-footer' },
+    h('a', { href: legalUrl('terms.html'), target: '_blank', rel: 'noopener' }, '利用規約'),
+    ' ・ ',
+    h('a', { href: legalUrl('privacy.html'), target: '_blank', rel: 'noopener' }, 'プライバシーポリシー'),
+  );
+
 function welcomeView(root) {
   root.append(
     h(
@@ -3317,6 +3375,8 @@ function welcomeView(root) {
       auth.isNativeApp && h('button', { class: 'btn wide apple-signin', onClick: () => runAuth(auth.signInWithApple) }, ' Apple でサインイン'),
       h('p', { class: 'welcome-note' }, '招待リンクを受け取った方は、そのリンクから開いてください。'),
       h('a', { class: 'btn wide', href: '#/recover' }, 'スマホを替えた方（復旧IDで戻る）'),
+      h('p', { class: 'welcome-note' }, 'ログインすると、利用規約とプライバシーポリシーに同意したものとします。'),
+      legalLinks(),
     ),
   );
 }
@@ -3366,6 +3426,8 @@ function joinView(root, { groupId, code }) {
     h('div', { class: 'divider' }, 'または'),
     h('button', { class: 'btn wide', onClick: () => runAuth(auth.signInWithGoogle) }, 'Google でログインして参加'),
     auth.isNativeApp && h('button', { class: 'btn wide apple-signin', onClick: () => runAuth(auth.signInWithApple) }, ' Apple でサインインして参加'),
+    h('p', { class: 'welcome-note' }, '参加すると、利用規約とプライバシーポリシーに同意したものとします。'),
+    legalLinks(),
   );
 }
 

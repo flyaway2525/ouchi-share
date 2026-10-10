@@ -20,6 +20,11 @@
 //                                                  ログインの有効期限（最大 1 時間）が切れたら使えなくなる）。suspendedUsers/{uid} に記録
 //   body: { action: 'resumeUser', uid }       … 無効を外し、記録を消す
 //   アプリ開発者（DEVELOPER_UIDS か admins/{uid} に developer: true）以外は 403。アプリ開発者は停止・削除できない
+// POST /account … 自分のアカウントのこと（本人だけ。Authorization: Bearer <ID トークン>）
+//   body: { action: 'deleteMe' } … 自分のアカウントを消す（App Store の決まり）。中身は /admin の deleteUser と同じ
+//                                   （全グループから外し、オーナーならいちばん古いメンバーをオーナーに、1 人だけのグループは消す。
+//                                    プロフィール・通知の送り先・既読・復旧ID を消し、ログインのアカウントも消す）。
+//                                   グループに書いた予定・リストなどは、グループのみんなのものなので残る。アプリ開発者は消せない
 // POST /wallpaper … 壁紙のおすそわけ（グループのメンバーだけ。KV に 7 日間だけ置く。Firebase には置かない）
 //   { action: 'share', groupId, name, setting, mimes: [..], sizes: [..], thumb } … 置く場所を作って id を返す（合計 20MB まで・1 グループ 20 件まで）
 //   POST /wallpaper/upload?groupId=&id=&layer= の本文に、層の画像・動画をそのまま（変換せずに）送る。CPU をほとんど使わない
@@ -64,6 +69,14 @@ export default {
           return json(await adminSetDisabled(token, target, req.action === 'suspendUser', String(req.name ?? '').slice(0, 40), sender), 200, cors);
         }
         throw fail(400, 'bad-action');
+      }
+      if (new URL(request.url).pathname === '/account') {
+        if (!rateLimit(`account:${sender}`, 5)) return json({ error: 'too-many' }, 429, cors);
+        const req = await request.json();
+        if (req.action !== 'deleteMe') throw fail(400, 'bad-action');
+        const token = await accessToken(env);
+        if (await isDeveloperUid(token, sender)) throw fail(400, 'developer-cannot-delete');
+        return json(await adminDeleteUser(token, sender), 200, cors);
       }
       if (new URL(request.url).pathname === '/wallpaper/upload') {
         const q = new URL(request.url).searchParams;

@@ -3,7 +3,7 @@
 サービスを足す・やめる・プランを変える・設定値を変えたら、このファイルを直す（CLAUDE.md の決まり）。
 アプリの中の作り（画面・データ構造）は [design.md](design.md)、端末ごとの違いは [CLAUDE.md](../CLAUDE.md) の「対応する環境」。
 
-最終更新: 2026-10-08
+最終更新: 2026-10-10
 
 ## 全体の図
 
@@ -41,7 +41,7 @@ flowchart LR
 | **GitHub** | ソースコード、Web 版の公開（GitHub Pages） | 無料 | GitHub のユーザー `flyaway2525`、リポジトリ `ouchi-share` | リポジトリ直下のファイルがそのまま公開される（ビルドなし） |
 | **Firebase**（Google） | ログイン（Authentication：Google・匿名（ゲスト）・Apple）、データ（Firestore、東京リージョン `asia-northeast1`）、通知の配達（Cloud Messaging） | Spark（無料）。超えても課金されず、その日は止まる | Firebase コンソールのプロジェクト `ouchi-share` | `js/firebase.js`（公開してよい設定値・VAPID キー）、`firestore.rules`、`firebase.json`、`.firebaserc`、`ios/App/App/GoogleService-Info.plist` |
 | **Google Analytics（GA4）** | アクセスの計測（画面の種類ごとの表示回数・利用者数など）。ブラウザ版・ホーム画面版だけ（アプリ版はプラグインを入れてから） | 無料 | Firebase コンソール → プロジェクトの設定 → 統合 → Google Analytics と、Google Analytics の画面 | `js/analytics.js`、測定 ID は `js/firebase.js` の measurementId |
-| **Cloudflare Workers** | 通知を送る（`POST /`）、リンクのタイトルと画像を取る（`POST /preview`）、アプリ開発者の管理（`POST /admin`：グループ・ユーザーの削除、ユーザーの停止＝ログインのアカウントを無効にする）、壁紙のおすそわけ（`POST /wallpaper`・`/wallpaper/upload`。KV `WALLPAPERS` に 7 日間だけ置く）、毎日 20 時（日本時間）の翌日の予定のリマインド | 無料（1 日 10 万リクエストまで） | Cloudflare のアカウント（workers.dev のサブドメイン `flyaway2525`）、Worker `ouchi-share-notify` | `worker/`（`wrangler.toml` に定期実行の時刻）。URL は `js/firebase.js` の `NOTIFY_URL` |
+| **Cloudflare Workers** | 通知を送る（`POST /`）、リンクのタイトルと画像を取る（`POST /preview`）、アプリ開発者の管理（`POST /admin`：グループ・ユーザーの削除、ユーザーの停止＝ログインのアカウントを無効にする）、本人のアカウントの削除（`POST /account`。App Store の決まり）、壁紙のおすそわけ（`POST /wallpaper`・`/wallpaper/upload`。KV `WALLPAPERS` に 7 日間だけ置く）、毎日 20 時（日本時間）の翌日の予定のリマインド | 無料（1 日 10 万リクエストまで） | Cloudflare のアカウント（workers.dev のサブドメイン `flyaway2525`）、Worker `ouchi-share-notify` | `worker/`（`wrangler.toml` に定期実行の時刻）。URL は `js/firebase.js` の `NOTIFY_URL` |
 | **Apple** | iPhone アプリ版（Xcode でビルド → TestFlight で配る）、Apple でサインイン、アプリの通知（APNs。これから） | Apple Developer Program 年 99 ドル（有効。チーム ID `YGJ84959MM`。2026-10-09 に TestFlight へのアップロードを確認） | Apple Developer・App Store Connect | `ios/`、`capacitor.config.json`（アプリ ID `io.github.flyaway2525.ouchishare`） |
 
 ### 外から読み込んでいるもの（アカウント不要・無料）
@@ -85,4 +85,5 @@ flowchart LR
 
 - かかるのは **Apple Developer Program の年 99 ドルだけ**。ほかに有料のサービス・プランは使わない（Firebase は Blaze にしない）
 - 有料のものが必要になりそうなときは、先にユーザーに相談する
+- 利用規約・プライバシーポリシーは GitHub Pages の `terms.html`・`privacy.html`（アプリ版は公開中のページを開く。App Store に URL を登録する）。App Store に入力する内容の下書きは [app-store.md](app-store.md)
 - 有料プラン（無料・👑 サブスク・💎 買い切りの 3 段。公式の着せ替え）の方針を 2026-10-10 に決めた（docs/design.md の「有料プランの方針」）。まだ作っていない。課金を入れるときは、App Store のアプリ内課金（Small Business Program で手数料 15%）と、使う人が増えたときの Firebase の Blaze（予算の上限付き）・Cloudflare Pages への移動を、あらためて相談する

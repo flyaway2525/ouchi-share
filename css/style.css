@@ -5357,3 +5357,27 @@ html.swipe-tabs body {
   color: var(--text);
   box-shadow: var(--shadow);
 }
+
+/* アカウントの削除 */
+.btn.danger-btn {
+  margin-top: 16px;
+  color: var(--danger);
+}
+
+.delete-account-list {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.legal-footer {
+  margin: 8px 0 0;
+  font-size: 13px;
+  text-align: center;
+}
+
+.legal-footer a {
+  color: var(--muted);
+  text-decoration: underline;
+}
