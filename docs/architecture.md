@@ -85,5 +85,6 @@ flowchart LR
 
 - かかるのは **Apple Developer Program の年 99 ドルだけ**。ほかに有料のサービス・プランは使わない（Firebase は Blaze にしない）
 - 有料のものが必要になりそうなときは、先にユーザーに相談する
+- お問い合わせは **Google フォーム**（無料。ユーザーの Google アカウントで作った「おうちでシェア お問い合わせ」。回答はフォームの「回答」に、新しい回答はメールで通知）。アプリの設定の画面からは、版（entry.1638365749）と端末（entry.1808333484）を入れて開く。よくある質問は GitHub Pages の `support.html`（App Store のサポート URL）
 - 利用規約・プライバシーポリシーは GitHub Pages の `terms.html`・`privacy.html`（アプリ版は公開中のページを開く。App Store に URL を登録する）。App Store に入力する内容の下書きは [app-store.md](app-store.md)
 - 有料プラン（無料・👑 サブスク・💎 買い切りの 3 段。公式の着せ替え）の方針を 2026-10-10 に決めた（docs/design.md の「有料プランの方針」）。まだ作っていない。課金を入れるときは、App Store のアプリ内課金（Small Business Program で手数料 15%）と、使う人が増えたときの Firebase の Blaze（予算の上限付き）・Cloudflare Pages への移動を、あらためて相談する

@@ -2288,7 +2288,7 @@ function profileView(root) {
         ['groups', '🏠 グループごと'],
         ['notify', '🔔 通知'],
         ['account', '🔐 アカウント'],
-        ['legal', '📄 規約'],
+        ['legal', '📄 このアプリ'],
       ].map(([id, label]) => h('button', { type: 'button', class: 'chip', onClick: () => document.getElementById(`set-${id}`)?.scrollIntoView({ block: 'start' }) }, label)),
     );
     setChildren(
@@ -2405,6 +2405,8 @@ function profileView(root) {
       ),
       guest && h('button', { class: 'btn wide', onClick: myRecoverySheet }, '🆘 復旧IDを確認'),
       section('legal', '📄 このアプリについて'),
+      h('a', { class: 'btn wide', href: contactUrl(), target: '_blank', rel: 'noopener' }, '✉️ お問い合わせ'),
+      h('a', { class: 'btn wide', href: legalUrl('support.html'), target: '_blank', rel: 'noopener' }, '❓ よくある質問（サポート）'),
       h('a', { class: 'btn wide', href: legalUrl('terms.html'), target: '_blank', rel: 'noopener' }, '📄 利用規約'),
       h('a', { class: 'btn wide', href: legalUrl('privacy.html'), target: '_blank', rel: 'noopener' }, '🔒 プライバシーポリシー'),
       // アプリ開発者は消せない（Workers でも断る）
@@ -3354,6 +3356,13 @@ function recoverView(root, { code = '' }) {
 
 // 利用規約・プライバシーポリシー（GitHub Pages のページ。アプリ版は画面をアプリに同梱しているので、公開中のページを開く）
 const legalUrl = (page) => (auth.isNativeApp ? `https://flyaway2525.github.io/ouchi-share/${page}` : page);
+// お問い合わせ（Google フォーム）。アプリの版と、端末・アプリの形を最初から入れておく（名前や ID などは入れない）
+const CONTACT_FORM = 'https://docs.google.com/forms/d/e/1FAIpQLSenWFqli5xYXQ9hAviAcIGWDuXwk4oQ6KAVmmX_Lv3A-JRFZQ/viewform';
+function contactUrl() {
+  const device = auth.isNativeApp ? 'iPhone のアプリ' : isIOS() ? 'iPhone の Safari（ホーム画面に追加したものも）' : isAndroid() ? 'Android' : 'パソコン';
+  const q = new URLSearchParams({ usp: 'pp_url', 'entry.1638365749': `v${APP_VERSION}`, 'entry.1808333484': device });
+  return `${CONTACT_FORM}?${q}`;
+}
 const legalLinks = () =>
   h(
     'p',

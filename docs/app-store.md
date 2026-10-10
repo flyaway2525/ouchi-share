@@ -17,7 +17,7 @@ App Store Connect に入力する内容の下書き。入力はユーザー（Ap
 | 値段 | 無料（アプリ内課金あり） |
 | プライバシーポリシーの URL | https://flyaway2525.github.io/ouchi-share/privacy.html |
 | 利用規約（EULA）の URL | https://flyaway2525.github.io/ouchi-share/terms.html （サブスクを出すときは、説明文の最後にも載せる） |
-| サポート URL | **未定**（必須。問い合わせ先を決めてから。メールアドレスを公開のリポジトリに書かない） |
+| サポート URL | https://flyaway2525.github.io/ouchi-share/support.html （よくある質問と、Google フォームのお問い合わせ） |
 | 著作権 | 2026 （運営者の名前。本名を出すか決める） |
 
 ## 説明文（4,000 文字まで）
@@ -112,7 +112,7 @@ App Store Connect に入力する内容の下書き。入力はユーザー（Ap
 
 - [x] アカウントの削除（設定の画面。v137）
 - [x] 利用規約・プライバシーポリシーのページ（v137）
-- [ ] サポート URL・問い合わせ先を決める（ページの「お問い合わせ：準備中」も直す）
+- [x] サポート URL・問い合わせ先（support.html と Google フォーム。v140）
 - [ ] Apple でサインインの有効化と実機での確認（Google でログインがあるので必須）
 - [ ] アプリ内課金（サブスク）と「購入を復元」
 - [ ] 審査用のアカウント

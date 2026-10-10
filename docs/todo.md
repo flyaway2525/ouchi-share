@@ -62,7 +62,7 @@
 - [x] 自分でアカウントを消す機能（設定の画面。Workers の /account。v137）
 - [x] 利用規約・プライバシーポリシーのページ（terms.html・privacy.html。ログインの画面と設定の画面からリンク。v137）
 - [x] App Store の説明文・キーワード・App のプライバシーの答えの下書き（[app-store.md](app-store.md)）
-- [ ] 問い合わせ先・サポート URL を決める（ページの「お問い合わせ：準備中」を直す）
+- [x] 問い合わせ先・サポート URL（support.html と Google フォーム。設定の画面から版と端末を入れて開く。v140）
 - [ ] Apple でサインイン（上の 6.）
 - [ ] App Store Connect の有料アプリの契約・Small Business Program
 - [x] 着せ替えの段階（無料・👑・💎）と、使えるかの判定（`skins.canUse`。v130。今は試作で常に使える）

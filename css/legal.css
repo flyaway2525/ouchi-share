@@ -98,3 +98,33 @@ a {
   margin-top: 32px;
   text-align: center;
 }
+
+h3 {
+  margin: 20px 0 4px;
+  font-size: 15px;
+}
+
+/* サポートのページのお問い合わせボタン */
+.support-cta {
+  margin: 8px 0 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.support-button {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.support-cta small {
+  color: var(--muted);
+}

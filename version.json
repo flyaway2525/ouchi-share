@@ -1,5 +1,5 @@
 {
-  "version": 139,
-  "builtAt": "2026-10-10 23:37",
-  "note": "Ignore tab switches for a moment after reordering (iPhone tab-jump fix attempt)"
+  "version": 140,
+  "builtAt": "2026-10-11 03:09",
+  "note": "Support page and contact form (Google Forms) with version and device prefilled"
 }
