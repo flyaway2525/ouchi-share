@@ -1,6 +1,7 @@
 // 壁紙（自分の画面だけ）。全体の設定と、グループごとの設定（このグループだけ別の壁紙）がある。
 // - 設定は端末に保存（localStorage の ouchi-share:wallpaper:<scope>。scope は 'global' か 'g:<グループ ID>'）
-//   { type: 'none' | 'season' | 'photo', clarity: 1 | 2 | 3, layers: [{ kind: 'image' | 'video', fit: 'cover' | 'contain' } | null × 3] }
+//   { type: 'skin' | 'season' | 'photo' | 'off', clarity: 1 | 2 | 3, layers: [{ kind: 'image' | 'video', fit: 'cover' | 'contain' } | null × 3] }
+//   skin：着せ替えの壁紙（設定がないときもこれ）、off：なし。v135 より前の 'none'（着せ替えの壁紙が出ていた）は 'skin' として読む
 //   layers は 奥（0）・まん中（1）・手前（2）の 3 枚まで。グループの設定がなければ全体の設定を使う
 // - 画像・GIF・動画は、この端末の中（IndexedDB）にだけ保存する（キー '<scope>:<0〜2>'）。Firebase には送らない（通信・費用なし）
 //   - 写真（JPEG など）は長い辺 1600px に縮める。PNG・WebP は透明なところを残す。GIF と動画は動きを残すため縮めない
@@ -40,6 +41,7 @@ export function getSetting(scope) {
   }
   // v122 の写真 1 枚の設定（キーは scope）→ 奥の 1 枚として読む
   if (s?.type === 'photo' && !s.layers) s = { ...s, layers: [{ kind: 'image', fit: 'cover', legacy: true }, null, null] };
+  if (s?.type === 'none') s = { ...s, type: 'skin' };
   return s;
 }
 
@@ -191,11 +193,12 @@ export const seasonBackground = () => seasonLayers().filter(Boolean).reverse().m
 // その画面で使う設定と、その持ち主（グループの中ならグループの設定、なければ全体の設定）
 export function effective(groupId) {
   const own = groupId && getSetting(`g:${groupId}`);
-  return own ? { s: own, scope: `g:${groupId}` } : { s: getSetting('global') ?? { type: 'none' }, scope: 'global' };
+  return own ? { s: own, scope: `g:${groupId}` } : { s: getSetting('global') ?? { type: 'skin' }, scope: 'global' };
 }
 
 // 設定 → 描く層 [{ css } | { video } | null × 3]
 export async function resolveLayers(s, scope) {
+  if (s.type === 'skin') return fallback?.layers ?? [null, null, null];
   if (s.type === 'season') return seasonLayers();
   if (s.type !== 'photo') return [null, null, null];
   return Promise.all(
@@ -253,10 +256,16 @@ function ensureHost() {
   return host;
 }
 
-// 着せ替え（skins.js）の壁紙。自分の壁紙（写真・季節）を設定していないときに出す
+// 着せ替え（skins.js）の壁紙（type 'skin' のときに出す）
 let fallback = null; // { id, layers }
 export function setFallback(id, layers) {
   fallback = layers ? { id, layers } : null;
+}
+
+// 自分の写真の壁紙を使えるか（サブスクの特典。app.js が決める）。使えないときは着せ替えの壁紙にする
+let photoGate = () => true;
+export function setPhotoGate(fn) {
+  photoGate = fn;
 }
 
 // 画面に壁紙を反映する（ルーターから呼ぶ）
@@ -265,13 +274,9 @@ let shown = '';
 export async function apply(groupId) {
   const seq = ++applySeq;
   let { s, scope } = effective(groupId);
-  let layers = await resolveLayers(s, scope);
+  if (s.type === 'photo' && !photoGate(groupId)) s = { type: 'skin', clarity: s.clarity };
+  const layers = await resolveLayers(s, scope);
   if (seq !== applySeq) return; // 読み込んでいる間に別の画面に移った
-  if (!layers.some(Boolean) && fallback) {
-    layers = fallback.layers;
-    s = { type: 'skin', id: fallback.id, clarity: 2 };
-    scope = 'skin';
-  }
   const on = layers.some(Boolean);
   document.documentElement.classList.toggle('has-wallpaper', on);
   if (!on) {
@@ -280,12 +285,39 @@ export async function apply(groupId) {
     return;
   }
   // 同じ壁紙なら描き直さない（動画が最初からにならないように）
-  const sig = JSON.stringify([scope, s, new Date().getMonth()]);
+  const sig = JSON.stringify([scope, s, new Date().getMonth(), s.type === 'skin' ? fallback?.id : null]);
   if (sig !== shown) {
     renderLayers(ensureHost(), layers, s.clarity);
     shown = sig;
   }
   shiftLayers(host, parallaxIndex);
+}
+
+// 見本として、保存していない層を画面に出す（着せ替え・壁紙のシート）。閉じたら apply で元に戻す
+export function preview(layers, clarity) {
+  applySeq += 1; // 読み込み中の apply は捨てる
+  const on = layers.some(Boolean);
+  document.documentElement.classList.toggle('has-wallpaper', on);
+  if (!on) host?.replaceChildren();
+  else {
+    renderLayers(ensureHost(), layers, clarity);
+    shiftLayers(host, parallaxIndex);
+  }
+  shown = '';
+}
+
+// 「タブを移ったときの動きを見る」：カレンダー → イベント → リスト → 日記 → 元の位置
+let demoTimer = null;
+export function demo() {
+  if (!host) return;
+  clearInterval(demoTimer);
+  const back = parallaxIndex;
+  let i = 0;
+  demoTimer = setInterval(() => {
+    i += 1;
+    shiftLayers(host, i <= 3 ? i : back);
+    if (i > 3) clearInterval(demoTimer);
+  }, 750);
 }
 
 // タブを移ったときに呼ぶ（0：カレンダー、1：イベント、2：リスト、3：日記。グループの外は 0）

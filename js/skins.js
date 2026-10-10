@@ -191,6 +191,18 @@ function shared(skin, group) {
   return (p?.owned?.[skin.id] ?? []).some((uid) => subs.includes(uid));
 }
 
+// 自分の写真の壁紙：サブスクの人か、サブスクの人がいるグループの中（👑 の着せ替えと同じ決まり）
+export function canUsePhoto({ group = null, me = null } = {}) {
+  if (TRIAL) return true;
+  return !!me?.sub || (group?.premium?.subs ?? []).length > 0;
+}
+
+// 壁紙をグループにおすそわけ：サブスクの人だけ
+export function canShare({ me = null } = {}) {
+  if (TRIAL) return true;
+  return !!me?.sub;
+}
+
 // 使えるか：自分の全体の設定は自分が持っているものだけ。グループの中では、グループにシェアされたものも。
 //   グループの公式（official）は、グループにシェアされたものだけ
 export function canUse(skin, { group = null, me = null, official = false } = {}) {

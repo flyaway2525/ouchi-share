@@ -1421,6 +1421,8 @@ function applyLook(hash = location.hash) {
   skins.apply(skin);
   wallpaper.setFallback(skin.id, skins.wallpaperLayers(skin));
 }
+// 自分の写真の壁紙はサブスクの特典（使えないときは着せ替えの壁紙になる）。課金を入れたら、グループのサブスクの状態も見る
+wallpaper.setPhotoGate(() => skins.canUsePhoto());
 
 // プロフィールの編集。group を渡すと「このグループでのプロフィール」（項目ごとに、全体の設定を使うか選べる）。
 // focus（'name' など）を渡すと、その項目を「このグループだけ」にした状態で開く
@@ -1701,11 +1703,13 @@ function profileSheet({ group = null, focus = null } = {}) {
   });
 }
 
-// ---- 壁紙の設定（自分の画面だけ。js/wallpaper.js） ----
+// ---- 壁紙（自分の画面だけ。js/wallpaper.js）。着せ替えのシートの「🖼 壁紙」で選ぶ ----
+// skin：着せ替えの壁紙（最初はこれ）／season：季節で自動／photo：自分の写真・GIF・動画（👑 サブスクの特典）／off：なし
 const WALLPAPER_TYPES = [
-  ['none', 'なし'],
+  ['skin', '🎨 着せ替えの壁紙'],
   ['season', '🍂 季節で自動'],
-  ['photo', '🖼 自分の画像・GIF・動画'],
+  ['photo', '🖼 自分の写真・GIF・動画 👑'],
+  ['off', 'なし'],
 ];
 const CLARITY = [
   [1, '壁紙をはっきり'],
@@ -1717,179 +1721,97 @@ function wallpaperText(s) {
   if (s.type === 'season') return '季節で自動（月ごとに変わる）';
   if (s.type === 'photo') {
     const names = (s.layers ?? []).map((l, i) => l && `${wallpaper.LAYER_NAMES[i]}${l.kind === 'video' ? '（動画）' : ''}`).filter(Boolean);
-    return `自分の画像（${names.join('・') || 'なし'}）`;
+    return `自分の写真（${names.join('・') || 'なし'}）`;
   }
-  return 'なし';
+  if (s.type === 'off') return 'なし';
+  return '着せ替えの壁紙';
 }
 
-// scope：'global'（全体）か 'g:<グループ ID>'（このグループだけ）。グループのときは「全体の設定と同じ」も選べる。
-// 画像は 奥・まん中・手前 の 3 枚まで。タブを移ると奥はゆっくり、手前は大きく動く（透明な PNG・GIF を手前に置くと立体的）
-function wallpaperSheet(scope, title) {
-  const isGroup = scope !== 'global';
-  const saved = wallpaper.getSetting(scope);
-  let type = saved?.type ?? (isGroup ? 'inherit' : 'none');
-  let clarity = saved?.clarity ?? 2;
-  const layers = [0, 1, 2].map((i) => (saved?.type === 'photo' ? saved.layers?.[i] ?? null : null));
-  const picked = {}; // 層の番号 → { blob, kind, url }（保存するまで端末に書かない）
-  const removed = new Set(); // 外した層の番号
-  let demo = null;
-  return openSheet((close) => {
-    const box = h('div', { class: 'wallpaper-edit' });
-    const preview = h('div', { class: 'wallpaper-preview' });
-    const previewLayers = async () => {
-      if (type === 'season') return wallpaper.resolveLayers({ type: 'season' }, scope);
-      if (type !== 'photo') return [null, null, null];
-      return Promise.all(
-        [0, 1, 2].map(async (i) => {
-          const p = picked[i];
-          if (p) return p.kind === 'video' ? { video: p.url, fit: layers[i]?.fit ?? 'cover' } : { css: `url("${p.url}")`, fit: layers[i]?.fit ?? 'cover' };
-          if (!layers[i] || removed.has(i)) return null;
-          const url = await wallpaper.mediaUrl(wallpaper.layerKey(scope, i, layers[i]));
-          return url && (layers[i].kind === 'video' ? { video: url, fit: layers[i].fit } : { css: `url("${url}")`, fit: layers[i].fit });
-        }),
-      );
-    };
-    const renderPreview = async () => {
-      const ls = await previewLayers();
-      wallpaper.renderLayers(preview, ls, clarity);
-      preview.append(h('div', { class: 'wallpaper-preview-card' }, h('b', {}, 'こんな感じ'), h('span', {}, '予定やリストのカードはこう見えます')));
-      if (type === 'photo' && !ls.some(Boolean)) preview.append(h('p', { class: 'wallpaper-preview-empty' }, '下で画像を選んでください'));
-    };
-    // 「動きを見る」：タブを カレンダー → イベント → リスト → 日記 → カレンダー と移ったときの動き
-    const playDemo = () => {
-      clearInterval(demo);
-      let i = 0;
-      demo = setInterval(() => {
-        i += 1;
-        wallpaper.shiftLayers(preview, i % 5 === 4 ? 0 : i % 5, '%');
-        if (i >= 5) clearInterval(demo);
-      }, 750);
-    };
-    const slot = (i) => {
-      const has = !!picked[i] || (layers[i] && !removed.has(i));
-      const kind = picked[i]?.kind ?? layers[i]?.kind;
-      return h(
-        'div',
-        { class: 'wp-slot' },
-        h('b', { class: 'wp-slot-name' }, `${['🏔', '🌳', '🌸'][i]} ${wallpaper.LAYER_NAMES[i]}`),
-        h('span', { class: 'wp-slot-state' }, has ? (kind === 'video' ? '動画' : '画像') : 'なし'),
-        h(
-          'div',
-          { class: 'wp-slot-buttons' },
-          h(
-            'button',
-            {
-              type: 'button',
-              class: 'btn',
-              onClick: async () => {
-                const file = await pickMediaFile();
-                if (!file) return;
-                try {
-                  const m = await wallpaper.prepareMedia(file);
-                  if (picked[i]) URL.revokeObjectURL(picked[i].url);
-                  picked[i] = { ...m, url: URL.createObjectURL(m.blob) };
-                  removed.delete(i);
-                  layers[i] = { kind: m.kind, fit: layers[i]?.fit ?? (i === 0 ? 'cover' : 'contain') };
-                } catch (e) {
-                  return toast(e.message);
-                }
-                render();
-              },
-            },
-            has ? '変える' : '選ぶ',
-          ),
-          has && h('button', { type: 'button', class: 'btn', onClick: () => (delete picked[i], removed.add(i), render()) }, '外す'),
-        ),
-        has &&
-          h(
-            'div',
-            { class: 'people-chips wp-fit' },
-            [
-              ['cover', '画面いっぱい'],
-              ['contain', '全体を見せる（下に寄せる）'],
-            ].map(([k, label]) => h('button', { type: 'button', class: `chip${(layers[i]?.fit ?? 'cover') === k ? ' on' : ''}`, onClick: () => ((layers[i] = { ...layers[i], fit: k }), render()) }, label)),
-          ),
-      );
-    };
-    const render = () => {
-      setChildren(
-        box,
-        h('span', { class: 'links-label' }, '壁紙'),
-        h(
-          'div',
-          { class: 'people-chips' },
-          [...(isGroup ? [['inherit', '全体の設定と同じ']] : []), ...WALLPAPER_TYPES].map(([k, label]) =>
-            h('button', { type: 'button', class: `chip${type === k ? ' on' : ''}`, onClick: () => ((type = k), render()) }, label),
-          ),
-        ),
-        type === 'photo' && [
-          h('span', { class: 'links-label' }, '3 枚まで重ねられます。タブを移ると、奥はゆっくり・手前は大きく動いて立体的に見えます'),
-          ...[0, 1, 2].map(slot),
-          h('p', { class: 'sch-hint' }, '手前の画像は、背景が透明な PNG や GIF にすると、奥の画像が透けて見えます。GIF と動画は動いたまま流れます（動画は音なし・くり返し）。'),
-        ],
-        type !== 'none' &&
-          type !== 'inherit' && [
-            h('span', { class: 'links-label' }, '見やすさ（壁紙の上にかける膜の濃さ）'),
-            h(
-              'div',
-              { class: 'people-chips' },
-              CLARITY.map(([k, label]) => h('button', { type: 'button', class: `chip${clarity === k ? ' on' : ''}`, onClick: () => ((clarity = k), render()) }, label)),
-            ),
-          ],
-        preview,
-        type !== 'none' && type !== 'inherit' && h('button', { type: 'button', class: 'btn wide wp-demo', onClick: playDemo }, '▶ タブを移ったときの動きを見る'),
-        h('p', { class: 'sch-hint' }, '壁紙はこの端末のこのアプリだけに保存されます（画像・動画もサーバーには送りません）。別のスマホや、Safari とホーム画面のアプリでは、それぞれで設定してください。'),
-      );
-      renderPreview();
-    };
-    render();
-    return [
-      h('div', { class: 'sheet-title' }, title),
-      box,
+// 自分の写真の壁紙の編集（奥・まん中・手前 の 3 枚まで）。st：{ scope, saved, layers, picked, removed }。
+// 選んだ画像は保存するまで端末に書かない（picked に持つ）。タブを移ると奥はゆっくり、手前は大きく動く
+function photoSlots(st, rerender) {
+  const slot = (i) => {
+    const has = !!st.picked[i] || (st.layers[i] && !st.removed.has(i));
+    const kind = st.picked[i]?.kind ?? st.layers[i]?.kind;
+    return h(
+      'div',
+      { class: 'wp-slot' },
+      h('b', { class: 'wp-slot-name' }, `${['🏔', '🌳', '🌸'][i]} ${wallpaper.LAYER_NAMES[i]}`),
+      h('span', { class: 'wp-slot-state' }, has ? (kind === 'video' ? '動画' : '画像') : 'なし'),
       h(
         'div',
-        { class: 'sheet-buttons' },
-        h('button', { type: 'button', class: 'btn', onClick: () => close(null) }, 'キャンセル'),
+        { class: 'wp-slot-buttons' },
         h(
           'button',
           {
             type: 'button',
-            class: 'btn primary',
+            class: 'btn',
             onClick: async () => {
+              const file = await pickMediaFile();
+              if (!file) return;
               try {
-                if (type === 'photo') {
-                  const final = [];
-                  for (const i of [0, 1, 2]) {
-                    const old = saved?.type === 'photo' ? saved.layers?.[i] : null;
-                    if (picked[i]) {
-                      if (old) await wallpaper.deleteMedia(wallpaper.layerKey(scope, i, old));
-                      await wallpaper.saveMedia(`${scope}:${i}`, picked[i].blob);
-                      final.push({ kind: picked[i].kind, fit: layers[i]?.fit ?? 'cover' });
-                    } else if (removed.has(i) || !layers[i]) {
-                      if (old) await wallpaper.deleteMedia(wallpaper.layerKey(scope, i, old));
-                      final.push(null);
-                    } else final.push({ ...layers[i] });
-                  }
-                  if (!final.some(Boolean)) return toast('画像を 1 枚以上選んでください');
-                  wallpaper.setSetting(scope, { type, clarity, layers: final });
-                } else {
-                  for (const key of [scope, `${scope}:0`, `${scope}:1`, `${scope}:2`]) await wallpaper.deleteMedia(key);
-                  wallpaper.setSetting(scope, type === 'inherit' ? null : { type, clarity });
-                }
+                const m = await wallpaper.prepareMedia(file);
+                if (st.picked[i]) URL.revokeObjectURL(st.picked[i].url);
+                st.picked[i] = { ...m, url: URL.createObjectURL(m.blob) };
+                st.removed.delete(i);
+                st.layers[i] = { kind: m.kind, fit: st.layers[i]?.fit ?? (i === 0 ? 'cover' : 'contain') };
               } catch (e) {
-                return showError(e);
+                return toast(e.message);
               }
-              clearInterval(demo);
-              close(true);
-              await wallpaper.apply(location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);
-              toast('壁紙を変えました');
+              rerender();
             },
           },
-          '保存',
+          has ? '変える' : '選ぶ',
         ),
+        has && h('button', { type: 'button', class: 'btn', onClick: () => (delete st.picked[i], st.removed.add(i), rerender()) }, '外す'),
       ),
-    ];
-  });
+      has &&
+        h(
+          'div',
+          { class: 'people-chips wp-fit' },
+          [
+            ['cover', '画面いっぱい'],
+            ['contain', '全体を見せる（下に寄せる）'],
+          ].map(([k, label]) => h('button', { type: 'button', class: `chip${(st.layers[i]?.fit ?? 'cover') === k ? ' on' : ''}`, onClick: () => ((st.layers[i] = { ...st.layers[i], fit: k }), rerender()) }, label)),
+        ),
+    );
+  };
+  return [
+    h('span', { class: 'links-label' }, '3 枚まで重ねられます。タブを移ると、奥はゆっくり・手前は大きく動いて立体的に見えます'),
+    ...[0, 1, 2].map(slot),
+    h('p', { class: 'sch-hint' }, '手前の画像は、背景が透明な PNG や GIF にすると、奥の画像が透けて見えます。GIF と動画は動いたまま流れます（動画は音なし・くり返し）。'),
+  ];
+}
+
+// 写真の壁紙の見本の層（保存前の画像も）
+async function photoPreviewLayers(st) {
+  return Promise.all(
+    [0, 1, 2].map(async (i) => {
+      const p = st.picked[i];
+      const fit = st.layers[i]?.fit ?? 'cover';
+      if (p) return p.kind === 'video' ? { video: p.url, fit } : { css: `url("${p.url}")`, fit };
+      if (!st.layers[i] || st.removed.has(i)) return null;
+      const url = await wallpaper.mediaUrl(wallpaper.layerKey(st.scope, i, st.layers[i]));
+      return url && (st.layers[i].kind === 'video' ? { video: url, fit } : { css: `url("${url}")`, fit });
+    }),
+  );
+}
+
+// 写真の壁紙を端末に保存する。保存した層の設定を返す（1 枚もなければ null）
+async function savePhotoLayers(st) {
+  const final = [];
+  for (const i of [0, 1, 2]) {
+    const old = st.saved?.type === 'photo' ? st.saved.layers?.[i] : null;
+    if (st.picked[i]) {
+      if (old) await wallpaper.deleteMedia(wallpaper.layerKey(st.scope, i, old));
+      await wallpaper.saveMedia(`${st.scope}:${i}`, st.picked[i].blob);
+      final.push({ kind: st.picked[i].kind, fit: st.layers[i]?.fit ?? 'cover' });
+    } else if (st.removed.has(i) || !st.layers[i]) {
+      if (old) await wallpaper.deleteMedia(wallpaper.layerKey(st.scope, i, old));
+      final.push(null);
+    } else final.push({ ...st.layers[i] });
+  }
+  return final.some(Boolean) ? final : null;
 }
 
 // 画像・GIF・動画を選ぶ（壁紙用）
@@ -1908,9 +1830,10 @@ function pickMediaFile() {
 // ---- 壁紙のおすそわけ（Cloudflare の KV に 7 日間だけ置く。Firebase には置かない） ----
 // 今の壁紙（scope の設定）をグループに置く。受け取った人は「使う」で自分の端末にコピーして、自分の設定にする
 async function shareWallpaper(scope, groupId) {
+  if (!skins.canShare()) return toast('壁紙のおすそわけは、サブスクの特典です');
   const s = wallpaper.getSetting(scope) ?? (scope.startsWith('g:') ? wallpaper.getSetting('global') : null);
   const from = wallpaper.getSetting(scope) ? scope : 'global';
-  if (!s || s.type === 'none') return toast('おすそわけする壁紙がありません（先に壁紙を設定してください）');
+  if (!['season', 'photo'].includes(s?.type)) return toast('おすそわけできるのは、季節の壁紙と自分の写真の壁紙です（着せ替えの壁紙は、着せ替えを選べば使えます）');
   const name = await askText({ title: '壁紙の名前', value: `${auth.displayName()}の壁紙`, okLabel: 'おすそわけする' });
   if (!name) return;
   try {
@@ -2019,74 +1942,127 @@ function skinCard(skin, { on, onClick }) {
   );
 }
 
-// 着せ替えを選ぶ。押すとその場で画面に反映して見られる（キャンセルで元に戻す）
-//   scope 'global'：自分の全体の設定 / 'g:<id>'：自分のこのグループだけ（「グループの公式に合わせる」も選べる）
-//   official で group を渡すと、グループの公式の着せ替え（オーナー・管理者。メンバー全員の基本になる）
-function skinSheet({ scope = 'global', group = null, official = false } = {}) {
+// 着せ替えと壁紙を選ぶ（「🎨 着せ替え」「🖼 壁紙」のタブ）。押すとその場で画面に反映して見られる（キャンセルで元に戻す）
+//   scope 'global'：自分の全体の設定 / 'g:<id>'：自分のこのグループだけ（「グループの公式に合わせる」「全体の設定と同じ」も選べる）
+//   official で group を渡すと、グループの公式の着せ替え（オーナー・管理者。着せ替えだけ。メンバー全員の基本になる）
+function lookSheet({ scope = 'global', group = null, official = false, tab: firstTab = 'skin' } = {}) {
   const groupId = group?.id ?? null;
-  const NONE = scope === 'global' ? 'standard' : 'inherit';
+  const isGroup = scope !== 'global';
+  const NONE = isGroup ? 'inherit' : 'standard';
   const saved = official ? group.theme ?? '' : skins.getChoice(scope) ?? NONE;
   let picked = saved;
+  let tab = official ? 'skin' : firstTab;
+  // 壁紙
+  const wpSaved = official ? null : wallpaper.getSetting(scope);
+  let wpType = wpSaved?.type ?? (isGroup ? 'inherit' : 'skin');
+  let clarity = wpSaved?.clarity ?? 2;
+  const st = {
+    scope,
+    saved: wpSaved,
+    layers: [0, 1, 2].map((i) => (wpSaved?.type === 'photo' ? wpSaved.layers?.[i] ?? null : null)),
+    picked: {},
+    removed: new Set(),
+  };
+
   // 選んだものを、その場で画面に反映する（見本として）
   const previewSkin = () => {
     if (official) return skins.byId(picked) ?? skins.byId(skins.getChoice('global')) ?? skins.SKINS[0];
-    if (scope !== 'global') return skins.resolveFor(groupId, picked === 'inherit' ? null : picked).skin;
+    if (isGroup) return skins.resolveFor(groupId, picked === 'inherit' ? null : picked).skin;
     return skins.byId(picked) ?? skins.SKINS[0];
   };
   const mineMode = skins.getMode() === 'mine';
   const off = groupId && skins.official(groupId);
-  const show = () => {
+  let seq = 0;
+  const show = async () => {
+    const my = ++seq;
     const s = previewSkin();
     skins.apply(s);
     wallpaper.setFallback(s.id, skins.wallpaperLayers(s));
-    wallpaper.apply(groupId);
+    if (official) return wallpaper.apply(groupId);
+    let layers;
+    let c = clarity;
+    if (wpType === 'photo') layers = await photoPreviewLayers(st);
+    else if (wpType === 'inherit') {
+      const g = wallpaper.getSetting('global') ?? { type: 'skin' };
+      layers = await wallpaper.resolveLayers(g, 'global');
+      c = g.clarity ?? 2;
+    } else layers = await wallpaper.resolveLayers({ type: wpType }, scope);
+    if (my === seq) wallpaper.preview(layers, c);
   };
   const restore = () => {
     applyLook();
     wallpaper.apply(location.hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);
   };
-  return openSheet((close) => {
+
+  const done = openSheet((close) => {
     const box = h('div', { class: 'skin-edit' });
+    const pick = (fn) => () => (fn(), show(), render());
+    const skinTab = () => [
+      // グループに合わせる人：「グループの公式に合わせる」（なければ全体の設定）。
+      // いつも自分の着せ替えの人：「全体の設定と同じ」と「グループの公式に合わせる」（公式があるとき）
+      !official &&
+        isGroup &&
+        h(
+          'button',
+          { type: 'button', class: `chip wide-chip${picked === 'inherit' ? ' on' : ''}`, onClick: pick(() => (picked = 'inherit')) },
+          mineMode
+            ? `全体の設定と同じ（${skinText(skins.getChoice('global'))}）`
+            : `グループの公式に合わせる（${off ? skinText(off) : `公式はまだなし。全体の設定の ${skinText(skins.getChoice('global'))}`}）`,
+        ),
+      !official && isGroup && mineMode && off && h('button', { type: 'button', class: `chip wide-chip${picked === 'official' ? ' on' : ''}`, onClick: pick(() => (picked = 'official')) }, `グループの公式に合わせる（${skinText(off)}）`),
+      official && h('button', { type: 'button', class: `chip wide-chip${picked === '' ? ' on' : ''}`, onClick: pick(() => (picked = '')) }, '決めない（みんな自分の設定のまま）'),
+      h(
+        'div',
+        { class: 'skin-grid' },
+        skins.SKINS.map((s) => skinCard(s, { on: picked === s.id, onClick: pick(() => (picked = s.id)) })),
+      ),
+      h(
+        'div',
+        { class: 'sch-hint skin-tiers' },
+        h('p', {}, '👑 サブスクに入ると使い放題（自分の写真の壁紙・壁紙のおすそわけも）'),
+        h('p', {}, '💎 買い切り：買えばずっと自分のもの'),
+        h('p', {}, '👥 グループのみんなで使えるのは、サブスクの特典（サブスクの人がいるグループでは 👑 ぜんぶと、その人が買った 💎 を使える）'),
+        h('p', {}, '今は試作中なので、すべて使えます。'),
+      ),
+      official && h('p', { class: 'sch-hint' }, 'グループの公式にすると、メンバー全員のこのグループの見た目になります（「このグループだけ」の着せ替えを選んだ人は、その人が選んだもの）。壁紙は、その着せ替えの壁紙になります（自分の壁紙を選んでいる人は、その人の壁紙）。'),
+    ];
+    const wallTab = () => [
+      h(
+        'div',
+        { class: 'people-chips' },
+        [...(isGroup ? [['inherit', '全体の設定と同じ']] : []), ...WALLPAPER_TYPES].map(([k, label]) => h('button', { type: 'button', class: `chip${wpType === k ? ' on' : ''}`, onClick: pick(() => (wpType = k)) }, label)),
+      ),
+      wpType === 'skin' && h('p', { class: 'sch-hint' }, `着せ替え（今は ${previewSkin().emoji} ${previewSkin().name}）の壁紙です。${skins.wallpaperLayers(previewSkin()) ? '' : 'この着せ替えには壁紙がないので、壁紙なしになります。'}`),
+      wpType === 'photo' && photoSlots(st, () => (show(), render())),
+      ['skin', 'season', 'photo'].includes(wpType) && [
+        h('span', { class: 'links-label' }, '見やすさ（壁紙の上にかける膜の濃さ）'),
+        h(
+          'div',
+          { class: 'people-chips' },
+          CLARITY.map(([k, label]) => h('button', { type: 'button', class: `chip${clarity === k ? ' on' : ''}`, onClick: pick(() => (clarity = k)) }, label)),
+        ),
+        h('button', { type: 'button', class: 'btn wide', onClick: () => wallpaper.demo() }, '▶ タブを移ったときの動きを見る'),
+      ],
+      h('p', { class: 'sch-hint' }, '壁紙はこの端末のこのアプリだけに保存されます（写真・動画もサーバーには送りません）。別のスマホや、Safari とホーム画面のアプリでは、それぞれで設定してください。'),
+    ];
     const render = () =>
       setChildren(
         box,
-        // グループに合わせる人：「グループの公式に合わせる」（なければ全体の設定）。
-        // いつも自分の着せ替えの人：「全体の設定と同じ」と「グループの公式に合わせる」（公式があるとき）
         !official &&
-          scope !== 'global' &&
           h(
-            'button',
-            { type: 'button', class: `chip wide-chip${picked === 'inherit' ? ' on' : ''}`, onClick: () => ((picked = 'inherit'), show(), render()) },
-            mineMode
-              ? `全体の設定と同じ（${skinText(skins.getChoice('global'))}）`
-              : `グループの公式に合わせる（${off ? skinText(off) : `公式はまだなし。全体の設定の ${skinText(skins.getChoice('global'))}`}）`,
+            'div',
+            { class: 'look-tabs', role: 'tablist' },
+            [
+              ['skin', '🎨 着せ替え'],
+              ['wall', '🖼 壁紙'],
+            ].map(([k, label]) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(tab === k), class: `look-tab${tab === k ? ' on' : ''}`, onClick: () => ((tab = k), render()) }, label)),
           ),
-        !official &&
-          scope !== 'global' &&
-          mineMode &&
-          off &&
-          h('button', { type: 'button', class: `chip wide-chip${picked === 'official' ? ' on' : ''}`, onClick: () => ((picked = 'official'), show(), render()) }, `グループの公式に合わせる（${skinText(off)}）`),
-        official &&
-          h('button', { type: 'button', class: `chip wide-chip${picked === '' ? ' on' : ''}`, onClick: () => ((picked = ''), show(), render()) }, '決めない（みんな自分の設定のまま）'),
-        h(
-          'div',
-          { class: 'skin-grid' },
-          skins.SKINS.map((s) => skinCard(s, { on: picked === s.id, onClick: () => ((picked = s.id), show(), render()) })),
-        ),
-        h(
-          'div',
-          { class: 'sch-hint skin-tiers' },
-          h('p', {}, '👑 サブスクに入ると使い放題'),
-          h('p', {}, '💎 買い切り：買えばずっと自分のもの'),
-          h('p', {}, '👥 グループのみんなで使えるのは、サブスクの特典（サブスクの人がいるグループでは 👑 ぜんぶと、その人が買った 💎 を使える）'),
-          h('p', {}, '今は試作中なので、すべて使えます。'),
-        ),
-        h('p', { class: 'sch-hint' }, '自分の壁紙（写真・季節）を設定しているときは、そちらが出ます。着せ替えの壁紙にするには、壁紙を「なし」にしてください。'),
-        official && h('p', { class: 'sch-hint' }, 'グループの公式にすると、メンバー全員のこのグループの見た目になります（「このグループだけ」の着せ替えを選んだ人は、その人が選んだもの）。'),
+        ...(tab === 'skin' ? skinTab() : wallTab()),
       );
     render();
+    show();
     return [
-      h('div', { class: 'sheet-title' }, official ? `👑 「${group.name}」の公式の着せ替え` : scope === 'global' ? '🎨 着せ替え（全体の設定）' : `🎨 「${group.name}」での着せ替え`),
+      h('div', { class: 'sheet-title' }, official ? `👑 「${group.name}」の公式の着せ替え` : isGroup ? `🎨 「${group.name}」での着せ替え・壁紙` : '🎨 着せ替え・壁紙（全体の設定）'),
       box,
       h(
         'div',
@@ -2100,26 +2076,43 @@ function skinSheet({ scope = 'global', group = null, official = false } = {}) {
             onClick: async () => {
               const s = picked === 'official' ? skins.byId(off) : skins.byId(picked);
               if (s && !skins.canUse(s, { group, official })) return toast(official ? 'グループで使うには、サブスクの人が必要です' : `${skins.TIERS[skins.tierOf(s)].label}の着せ替えです`);
+              if (!official && wpType === 'photo' && !skins.canUsePhoto({ group })) return toast('自分の写真の壁紙は、サブスクの特典です');
               try {
                 if (official) {
                   await store.setGroupSkin(groupId, picked || null);
                   skins.setOfficial(groupId, picked || null);
                   skins.markSeen(groupId, picked || null); // 決めた本人には「変わりました」を出さない
-                } else skins.setChoice(scope, picked === NONE ? null : picked);
+                } else {
+                  skins.setChoice(scope, picked === NONE ? null : picked);
+                  if (wpType === 'photo') {
+                    const layers = await savePhotoLayers(st);
+                    if (!layers) return toast('壁紙の画像を 1 枚以上選んでください');
+                    wallpaper.setSetting(scope, { type: 'photo', clarity, layers });
+                  } else {
+                    for (const key of [scope, `${scope}:0`, `${scope}:1`, `${scope}:2`]) await wallpaper.deleteMedia(key);
+                    wallpaper.setSetting(scope, wpType === 'inherit' ? null : { type: wpType, clarity });
+                  }
+                }
               } catch (e) {
                 restore();
                 return showError(e);
               }
+              for (const p of Object.values(st.picked)) URL.revokeObjectURL(p.url);
               close(true);
               restore();
-              toast(s ? `${s.emoji} 「${s.name}」に着せ替えました` : '着せ替えを戻しました');
-              if (s && s.id !== 'standard') setTimeout(() => fx.confetti(), 200);
+              toast(official ? (s ? `${s.emoji} 「${s.name}」をグループの公式にしました` : 'グループの公式をなしにしました') : '着せ替え・壁紙を変えました');
+              if (s && s.id !== 'standard' && picked !== saved) setTimeout(() => fx.confetti(), 200);
             },
           },
           '保存',
         ),
       ),
     ];
+  });
+  // 背景のタップ・下スワイプで閉じたときも、見本を元に戻す
+  return done.then((r) => {
+    if (r !== true) restore();
+    return r;
   });
 }
 
@@ -2133,6 +2126,7 @@ async function sharedWallpapersSheet(group) {
   }
   const manager = isManager(group);
   const use = async (item, scope) => {
+    if (item.setting.type === 'photo' && !skins.canUsePhoto({ group: scope === 'global' ? null : group })) return toast('自分の写真の壁紙は、サブスクの特典です');
     try {
       toast('壁紙を受け取っています…');
       const push = await loadPush();
@@ -2152,7 +2146,7 @@ async function sharedWallpapersSheet(group) {
     h('div', { class: 'sheet-title' }, `👥 「${group.name}」の壁紙（おすそわけ）`),
     h('p', { class: 'sch-hint' }, 'メンバーがおすそわけした壁紙です（置いてから 7 日で消えます）。「使う」を押すと、自分の端末にコピーして自分の壁紙になります。'),
     items.length === 0
-      ? h('p', { class: 'empty small' }, 'まだありません。壁紙の画面の「📤 おすそわけ」から置けます')
+      ? h('p', { class: 'empty small' }, 'まだありません。設定の画面の「📤 この壁紙をグループにおすそわけ」から置けます（サブスクの特典）')
       : h(
           'div',
           { class: 'wp-shared-list' },
@@ -2286,8 +2280,13 @@ function profileView(root) {
         h('p', {}, '🎨 「あなたの色」は、みんなの画面でのあなたの色（アイコン・カレンダーなど）です。自分の画面の色は、下の「🎨 見た目」の着せ替えで変えます。'),
       ),
       section('look', '🎨 見た目（自分の画面だけ）'),
-      h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🎨 着せ替え'), h('span', { class: 'pv-text' }, skinText(skins.getChoice('global'))))),
-      h('button', { class: 'btn wide', onClick: () => skinSheet({ scope: 'global' }).then(render) }, '🎨 着せ替えを変える'),
+      h(
+        'div',
+        { class: 'pv-table wallpaper-row' },
+        h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🎨 着せ替え'), h('span', { class: 'pv-text' }, skinText(skins.getChoice('global')))),
+        h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting('global') ?? { type: 'skin' }))),
+      ),
+      h('button', { class: 'btn primary wide', onClick: () => lookSheet({ scope: 'global' }).then(render) }, '🎨 着せ替え・壁紙を変える'),
       h(
         'div',
         { class: 'pv-table wallpaper-row' },
@@ -2314,9 +2313,7 @@ function profileView(root) {
           ? 'どのグループでも自分の着せ替えのままです（グループごとに「このグループでは公式に合わせる」にもできます）。'
           : 'グループの公式の着せ替えがあるグループでは、その着せ替えになります（グループごとに「このグループだけ」別の着せ替えにもできます）。',
       ),
-      h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting('global') ?? { type: 'none' })))),
-      h('button', { class: 'btn wide', onClick: () => wallpaperSheet('global', '🖼 壁紙（全体の設定）').then(render) }, '🖼 壁紙を変える'),
-      h('button', { class: 'btn wide', onClick: shareGlobalWallpaper }, '📤 この壁紙をグループにおすそわけ'),
+      h('button', { class: 'btn wide', onClick: shareGlobalWallpaper }, '📤 この壁紙をグループにおすそわけ 👑'),
       section('groups', '🏠 グループごとの自分の設定'),
       h('p', { class: 'sch-hint' }, 'グループを押すと、そのグループでのプロフィール・着せ替え・壁紙を変えられます。'),
       !groups
@@ -2452,6 +2449,7 @@ function groupProfileView(root, { groupId }) {
         { class: 'pv-table wallpaper-row' },
         h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '👑 グループの公式'), h('span', { class: 'pv-text' }, skinText(group.theme, 'なし（みんな自分の設定）'))),
         h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🎨 着せ替え'), h('span', { class: 'pv-text' }, mySkinText(groupId))),
+        h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting(`g:${groupId}`)))),
       ),
       group.theme &&
         skins.byId(group.theme) &&
@@ -2476,12 +2474,10 @@ function groupProfileView(root, { groupId }) {
             'このグループでは公式に合わせる',
           ),
         ),
-      h('button', { class: 'btn wide', onClick: () => skinSheet({ scope: `g:${groupId}`, group }).then(() => render(latest)) }, '🎨 このグループでの着せ替えを変える'),
+      h('button', { class: 'btn primary wide', onClick: () => lookSheet({ scope: `g:${groupId}`, group }).then(() => render(latest)) }, '🎨 このグループの着せ替え・壁紙を変える'),
       h('p', { class: 'sch-hint' }, isManager(group) ? 'グループの公式の着せ替えは、グループのメニューの「🛠 グループの管理」で決めます。' : 'グループの公式の着せ替えは、オーナー・管理者が決めます。'),
-      h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting(`g:${groupId}`))))),
-      h('button', { class: 'btn wide', onClick: () => wallpaperSheet(`g:${groupId}`, `🖼 「${group.name}」の壁紙`).then(() => render(group)) }, '🖼 このグループの壁紙を変える'),
-      h('button', { class: 'btn wide', onClick: () => sharedWallpapersSheet(group).then(() => render(group)) }, '👥 みんながおすそわけした壁紙'),
-      h('button', { class: 'btn wide', onClick: () => shareWallpaper(`g:${groupId}`, groupId) }, '📤 今の壁紙をこのグループにおすそわけ'),
+      h('button', { class: 'btn wide', onClick: () => sharedWallpapersSheet(group).then(() => render(latest)) }, '👥 みんながおすそわけした壁紙'),
+      h('button', { class: 'btn wide', onClick: () => shareWallpaper(`g:${groupId}`, groupId) }, '📤 今の壁紙をこのグループにおすそわけ 👑'),
       h('p', { class: 'sch-hint' }, '「このグループだけ」にした項目は、全体の設定を変えてもこのグループでは変わりません。「全体と同じ」の項目は、全体の設定を変えると一緒に変わります。'),
       h('a', { class: 'btn wide', href: '#/profile' }, '⚙️ 設定（全体）を開く'),
       h('a', { class: 'btn wide', href: `#/g/${groupId}/m/${user.uid}` }, '👀 メンバーの画面で自分を見る'),
@@ -4850,7 +4846,7 @@ function groupAdminMenu(group, options = {}) {
         if (res !== null) store.setGroupAllColor(groupId, res || null).then(() => toast(res ? '全員の予定の色を変えました' : '元の色に戻しました'), showError);
       },
     },
-    manager && { label: `👑 グループの公式の着せ替え（今は ${skinText(group.theme, 'なし')}）`, onClick: () => skinSheet({ group, official: true }) },
+    manager && { label: `👑 グループの公式の着せ替え（今は ${skinText(group.theme, 'なし')}）`, onClick: () => lookSheet({ group, official: true }) },
     manager && {
       label: '📢 管理者お知らせを書く',
       onClick: () => {
