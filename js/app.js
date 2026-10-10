@@ -1716,6 +1716,18 @@ const CLARITY = [
   [2, 'ふつう'],
   [3, '文字を読みやすく'],
 ];
+// タブを移ったときの壁紙の動き（wallpaper.js の MOTIONS・SPEEDS の番号）
+const MOTION_LEVELS = [
+  [0, '止める'],
+  [1, '小さく'],
+  [2, 'ふつう'],
+  [3, '大きく'],
+];
+const SPEED_LEVELS = [
+  [0, 'ゆっくり'],
+  [1, 'ふつう'],
+  [2, 'きびきび'],
+];
 function wallpaperText(s) {
   if (!s) return '全体の設定と同じ';
   if (s.type === 'season') return '季節で自動（月ごとに変わる）';
@@ -1956,6 +1968,8 @@ function lookSheet({ scope = 'global', group = null, official = false, tab: firs
   const wpSaved = official ? null : wallpaper.getSetting(scope);
   let wpType = wpSaved?.type ?? (isGroup ? 'inherit' : 'skin');
   let clarity = wpSaved?.clarity ?? 2;
+  let motion = wpSaved?.motion ?? 2;
+  let speed = wpSaved?.speed ?? 1;
   const st = {
     scope,
     saved: wpSaved,
@@ -1980,14 +1994,14 @@ function lookSheet({ scope = 'global', group = null, official = false, tab: firs
     wallpaper.setFallback(s.id, skins.wallpaperLayers(s));
     if (official) return wallpaper.apply(groupId);
     let layers;
-    let c = clarity;
+    let look = { clarity, motion, speed };
     if (wpType === 'photo') layers = await photoPreviewLayers(st);
     else if (wpType === 'inherit') {
       const g = wallpaper.getSetting('global') ?? { type: 'skin' };
       layers = await wallpaper.resolveLayers(g, 'global');
-      c = g.clarity ?? 2;
+      look = { clarity: g.clarity ?? 2, motion: g.motion ?? 2, speed: g.speed ?? 1 };
     } else layers = await wallpaper.resolveLayers({ type: wpType }, scope);
-    if (my === seq) wallpaper.preview(layers, c);
+    if (my === seq) wallpaper.preview(layers, look.clarity, look.motion, look.speed);
   };
   const restore = () => {
     applyLook();
@@ -2041,7 +2055,21 @@ function lookSheet({ scope = 'global', group = null, official = false, tab: firs
           { class: 'people-chips' },
           CLARITY.map(([k, label]) => h('button', { type: 'button', class: `chip${clarity === k ? ' on' : ''}`, onClick: pick(() => (clarity = k)) }, label)),
         ),
-        h('button', { type: 'button', class: 'btn wide', onClick: () => wallpaper.demo() }, '▶ タブを移ったときの動きを見る'),
+        h('span', { class: 'links-label' }, 'タブを移ったときの動きの大きさ'),
+        h(
+          'div',
+          { class: 'people-chips' },
+          // 選んだら、うしろの画面でそのまま動いて見せる
+          MOTION_LEVELS.map(([k, label]) => h('button', { type: 'button', class: `chip${motion === k ? ' on' : ''}`, onClick: () => ((motion = k), render(), show().then(() => wallpaper.demo())) }, label)),
+        ),
+        motion > 0 && h('span', { class: 'links-label' }, '動く速さ'),
+        motion > 0 &&
+          h(
+            'div',
+            { class: 'people-chips' },
+            SPEED_LEVELS.map(([k, label]) => h('button', { type: 'button', class: `chip${speed === k ? ' on' : ''}`, onClick: () => ((speed = k), render(), show().then(() => wallpaper.demo())) }, label)),
+          ),
+        motion > 0 && h('button', { type: 'button', class: 'btn wide', onClick: () => wallpaper.demo() }, '▶ タブを移ったときの動きを見る'),
       ],
       h('p', { class: 'sch-hint' }, '壁紙はこの端末のこのアプリだけに保存されます（写真・動画もサーバーには送りません）。別のスマホや、Safari とホーム画面のアプリでは、それぞれで設定してください。'),
     ];
@@ -2087,10 +2115,10 @@ function lookSheet({ scope = 'global', group = null, official = false, tab: firs
                   if (wpType === 'photo') {
                     const layers = await savePhotoLayers(st);
                     if (!layers) return toast('壁紙の画像を 1 枚以上選んでください');
-                    wallpaper.setSetting(scope, { type: 'photo', clarity, layers });
+                    wallpaper.setSetting(scope, { type: 'photo', clarity, motion, speed, layers });
                   } else {
                     for (const key of [scope, `${scope}:0`, `${scope}:1`, `${scope}:2`]) await wallpaper.deleteMedia(key);
-                    wallpaper.setSetting(scope, wpType === 'inherit' ? null : { type: wpType, clarity });
+                    wallpaper.setSetting(scope, wpType === 'inherit' ? null : { type: wpType, clarity, motion, speed });
                   }
                 }
               } catch (e) {

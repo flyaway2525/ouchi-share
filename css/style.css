@@ -5002,11 +5002,12 @@ html.has-wallpaper body {
   position: absolute;
   top: 0;
   left: 0;
-  width: calc(100% + 24vw);
+  /* 横の長さと動く速さは、動きの大きさ・速さの設定（wallpaper.js の setMotion）で決まる */
+  width: calc(100% + var(--wp-extra, 21vw));
   height: 100%;
   background-position: center;
   background-repeat: no-repeat;
-  transition: transform 0.8s cubic-bezier(0.25, 0.7, 0.25, 1);
+  transition: transform var(--wp-speed, 0.8s) cubic-bezier(0.25, 0.7, 0.25, 1);
   will-change: transform;
 }
 

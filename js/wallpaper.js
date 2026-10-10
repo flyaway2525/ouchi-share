@@ -2,6 +2,7 @@
 // - 設定は端末に保存（localStorage の ouchi-share:wallpaper:<scope>。scope は 'global' か 'g:<グループ ID>'）
 //   { type: 'skin' | 'season' | 'photo' | 'off', clarity: 1 | 2 | 3, layers: [{ kind: 'image' | 'video', fit: 'cover' | 'contain' } | null × 3] }
 //   skin：着せ替えの壁紙（設定がないときもこれ）、off：なし。v135 より前の 'none'（着せ替えの壁紙が出ていた）は 'skin' として読む
+//   motion：動きの大きさ 0 止める・1 小さく・2 ふつう（なければこれ）・3 大きく。speed：動く速さ 0 ゆっくり・1 ふつう（なければこれ）・2 きびきび
 //   layers は 奥（0）・まん中（1）・手前（2）の 3 枚まで。グループの設定がなければ全体の設定を使う
 // - 画像・GIF・動画は、この端末の中（IndexedDB）にだけ保存する（キー '<scope>:<0〜2>'）。Firebase には送らない（通信・費用なし）
 //   - 写真（JPEG など）は長い辺 1600px に縮める。PNG・WebP は透明なところを残す。GIF と動画は動きを残すため縮めない
@@ -27,8 +28,10 @@ const SEASONS = [
 ];
 export const LAYER_NAMES = ['奥', 'まん中', '手前'];
 const DEPTH = [0.35, 0.65, 1]; // タブを移ったときの動く量（奥 → 手前）
-const STEP_VW = 7; // タブ 1 つぶんのずれ（手前の画像。画面の幅の %）
+const STEP_VW = 7; // タブ 1 つぶんのずれ（手前の画像。画面の幅の %。動きの大きさ「ふつう」のとき）
 const MAX_TABS = 3;
+export const MOTIONS = [0, 0.5, 1, 1.6]; // 動きの大きさ（止める・小さく・ふつう・大きく）の倍率
+export const SPEEDS = [1.2, 0.8, 0.45]; // 動く速さ（ゆっくり・ふつう・きびきび）の秒数
 const VEIL = [0, 0.35, 0.55, 0.75];
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -235,12 +238,20 @@ export function renderLayers(container, layers, clarity) {
   );
 }
 
+// 動きの大きさ・速さを container に覚えさせる。層の横の長さも、動く量に合わせる（止めるなら画面ちょうど。拡大しすぎない）
+function setMotion(container, motion = 2, speed = 1) {
+  const m = MOTIONS[motion] ?? 1;
+  container.dataset.motion = String(m);
+  container.style.setProperty('--wp-speed', `${SPEEDS[speed] ?? 0.8}s`);
+  container.style.setProperty('--wp-extra', `${Math.ceil(MAX_TABS * STEP_VW * m)}vw`);
+}
+
 // タブの位置（0〜3）に合わせて、層を横にずらす
-// unit：画面は 'vw'、設定の見本は '%'（層の幅に対して）
 export function shiftLayers(container, index, unit = 'vw') {
+  const m = Number(container.dataset.motion ?? 1);
   for (const el of container.querySelectorAll('.wp-layer')) {
     const d = DEPTH[Number(el.dataset.depth)] ?? 1;
-    el.style.transform = `translate3d(${-Math.min(index, MAX_TABS) * STEP_VW * d}${unit}, 0, 0)`;
+    el.style.transform = `translate3d(${-Math.min(index, MAX_TABS) * STEP_VW * d * m}${unit}, 0, 0)`;
   }
 }
 
@@ -274,7 +285,7 @@ let shown = '';
 export async function apply(groupId) {
   const seq = ++applySeq;
   let { s, scope } = effective(groupId);
-  if (s.type === 'photo' && !photoGate(groupId)) s = { type: 'skin', clarity: s.clarity };
+  if (s.type === 'photo' && !photoGate(groupId)) s = { ...s, type: 'skin', layers: undefined };
   const layers = await resolveLayers(s, scope);
   if (seq !== applySeq) return; // 読み込んでいる間に別の画面に移った
   const on = layers.some(Boolean);
@@ -290,17 +301,19 @@ export async function apply(groupId) {
     renderLayers(ensureHost(), layers, s.clarity);
     shown = sig;
   }
+  setMotion(host, s.motion, s.speed);
   shiftLayers(host, parallaxIndex);
 }
 
 // 見本として、保存していない層を画面に出す（着せ替え・壁紙のシート）。閉じたら apply で元に戻す
-export function preview(layers, clarity) {
+export function preview(layers, clarity, motion = 2, speed = 1) {
   applySeq += 1; // 読み込み中の apply は捨てる
   const on = layers.some(Boolean);
   document.documentElement.classList.toggle('has-wallpaper', on);
   if (!on) host?.replaceChildren();
   else {
     renderLayers(ensureHost(), layers, clarity);
+    setMotion(host, motion, speed);
     shiftLayers(host, parallaxIndex);
   }
   shown = '';
@@ -313,11 +326,13 @@ export function demo() {
   clearInterval(demoTimer);
   const back = parallaxIndex;
   let i = 0;
+  // 1 歩の間隔は、動く速さに合わせる（ゆっくりなら長く）
+  const step = Math.max(500, parseFloat(host.style.getPropertyValue('--wp-speed') || '0.8') * 1000 - 50);
   demoTimer = setInterval(() => {
     i += 1;
     shiftLayers(host, i <= 3 ? i : back);
     if (i > 3) clearInterval(demoTimer);
-  }, 750);
+  }, step);
 }
 
 // タブを移ったときに呼ぶ（0：カレンダー、1：イベント、2：リスト、3：日記。グループの外は 0）
