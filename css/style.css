@@ -5360,3 +5360,14 @@ html.swipe-tabs body {
 .skin-tiers p {
   margin: 2px 0;
 }
+
+/* グループの公式と違う着せ替えのときの案内 */
+.skin-differs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skin-differs p {
+  margin: 0;
+}

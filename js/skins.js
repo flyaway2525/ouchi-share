@@ -1,6 +1,7 @@
 // 公式の着せ替え（壁紙・色・アイコン・フォント・演出が 1 セット）。
 // - どれを使うか（端末に保存。localStorage の ouchi-share:skin:<scope>。scope は 'global' か 'g:<グループ ID>'）
 //   グループの中：自分の「このグループだけ」 → グループの公式（groups/{id}.theme。オーナー・管理者が決める） → 自分の全体の設定 → いつもの
+//   ただし「いつも自分の着せ替え」（mode = 'mine'）の人は、グループの公式を飛ばす（「このグループでは公式に合わせる」= 'official' にしたグループだけ公式）
 //   グループの外：自分の全体の設定
 // - 色：CSS の変数（--bg・--accent など）を、明るい画面・暗い画面それぞれで上書きする（<style id="skin-style">）
 // - フォント：Google Fonts から、その着せ替えを使うときだけ読み込む（日本語は使う文字のぶんだけ届く）
@@ -13,6 +14,8 @@ import * as fx from './fx.js';
 
 const KEY = (scope) => `ouchi-share:skin:${scope}`;
 const OFFICIAL_KEY = 'ouchi-share:skin:official'; // グループの公式の着せ替え（次に開いたときすぐ出せるよう、端末に覚えておく）
+const MODE_KEY = 'ouchi-share:skin:mode'; // グループの公式があるとき：'follow'（合わせる。最初はこちら）・'mine'（いつも自分の着せ替え）
+const SEEN_KEY = 'ouchi-share:skin:seen'; // グループの公式の着せ替えが変わったことを伝えたか（グループ ID → 伝えた着せ替えの id）
 const DEFAULT_ICONS = { calendar: '📅', anniv: '🎉', events: '✈️', lists: '📝', diary: '📔', trip: '🗓' };
 
 // 地面（まん中の層）：横にくり返す SVG。fill は着せ替えの色
@@ -205,13 +208,59 @@ export function setOfficial(groupId, id) {
   return true;
 }
 
+export function getMode() {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'mine' ? 'mine' : 'follow';
+  } catch {
+    return 'follow';
+  }
+}
+
+export function setMode(mode) {
+  try {
+    if (mode === 'mine') localStorage.setItem(MODE_KEY, 'mine');
+    else localStorage.removeItem(MODE_KEY);
+  } catch {
+    // 保存できなくても、今の表示はそのまま
+  }
+}
+
+function seenMap() {
+  try {
+    return JSON.parse(localStorage.getItem(SEEN_KEY)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export const seenOfficial = (groupId) => seenMap()[groupId] ?? null;
+
+export function markSeen(groupId, id) {
+  const map = seenMap();
+  if (id) map[groupId] = id;
+  else delete map[groupId];
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify(map));
+  } catch {
+    // 覚えられなければ、次にまた伝えるだけ
+  }
+}
+
 // その画面で使う着せ替えと、どこで決まったか（'group'：自分のこのグループだけ、'official'：グループの公式、'global'：自分の全体）
-export function resolve(groupId) {
-  const mine = groupId && getChoice(`g:${groupId}`);
-  if (mine && byId(mine)) return { skin: byId(mine), from: 'group' };
+// choice はこのグループでの自分の設定：null（全体の設定に従う）・'official'（このグループでは公式に合わせる）・着せ替えの id（このグループだけ）
+export function resolveFor(groupId, choice) {
+  if (choice && choice !== 'official' && byId(choice)) return { skin: byId(choice), from: 'group' };
   const off = official(groupId);
-  if (off && byId(off)) return { skin: byId(off), from: 'official' };
+  if (off && byId(off) && (choice === 'official' || getMode() === 'follow')) return { skin: byId(off), from: 'official' };
   return { skin: byId(getChoice('global')) ?? SKINS[0], from: 'global' };
+}
+
+export const resolve = (groupId) => resolveFor(groupId, groupId ? getChoice(`g:${groupId}`) : null);
+
+// このグループでは公式に合わせる（「いつも自分の着せ替え」の人は 'official' を覚える）
+export function follow(groupId) {
+  setChoice(`g:${groupId}`, getMode() === 'mine' ? 'official' : null);
+  markSeen(groupId, official(groupId));
 }
 
 // ---- 画面に反映する ----

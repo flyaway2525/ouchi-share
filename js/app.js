@@ -2013,6 +2013,56 @@ function skinText(id, fallback = 'いつもの') {
   return s ? `${s.emoji} ${s.name}` : fallback;
 }
 
+// グループでの自分の着せ替えの説明（グループでのプロフィールの画面）
+function mySkinText(groupId) {
+  const choice = skins.getChoice(`g:${groupId}`);
+  const now = skinText(skins.resolve(groupId).skin.id);
+  if (choice === 'official') return `このグループでは公式に合わせる（今は ${now}）`;
+  if (choice && skins.byId(choice)) return `このグループだけ ${skinText(choice)}`;
+  return skins.getMode() === 'mine' ? `全体の設定と同じ（今は ${now}）` : `グループの公式に合わせる（今は ${now}）`;
+}
+
+// グループの公式の着せ替えが変わったら、一度だけ伝える。もう公式の見た目になっている人にはお知らせだけ、
+// 違う見た目の人には「合わせる／自分のまま」を聞く。ログボなどのポップアップのあとで出す（newsShowing を待つ）
+const skinAsking = new Set();
+async function checkOfficialSkin(group, onChange) {
+  const off = group.theme && skins.byId(group.theme) ? group.theme : null;
+  if (!off) return skins.seenOfficial(group.id) && skins.markSeen(group.id, null);
+  if (skins.seenOfficial(group.id) === off || skinAsking.has(group.id)) return;
+  skinAsking.add(group.id);
+  let asking = false;
+  try {
+    while (newsShowing) await new Promise((r) => setTimeout(r, 400));
+    if (!location.hash.startsWith(`#/g/${group.id}`)) return; // 別の画面に移ったら、次に開いたときに
+    const s = skins.byId(off);
+    const cur = skins.resolve(group.id).skin;
+    if (cur.id === off) {
+      skins.markSeen(group.id, off);
+      return toast(`${s.emoji} 「${group.name}」の着せ替えが「${s.name}」になりました`);
+    }
+    newsShowing = 'skin';
+    asking = true;
+    const ok = await openSheet((close) => [
+      h('div', { class: 'sheet-title' }, `🎨 「${group.name}」の公式の着せ替えが「${s.emoji} ${s.name}」になりました`),
+      h('div', { class: 'skin-grid' }, skinCard(s, { on: true, onClick: () => close(true) }), skinCard(cur, { on: false, onClick: () => close(false) })),
+      h('p', { class: 'sch-hint' }, `今は ${cur.emoji} ${cur.name} です。あとからグループでのプロフィールの画面で変えられます。`),
+      h('button', { class: 'sheet-action', onClick: () => close(true) }, `${s.emoji} このグループでは公式に合わせる`),
+      h('button', { class: 'sheet-action cancel', onClick: () => close(false) }, '自分のまま'),
+    ]);
+    skins.markSeen(group.id, off); // 閉じただけでも、もう聞かない
+    if (ok) {
+      skins.follow(group.id);
+      applyLook();
+      wallpaper.apply(group.id);
+      onChange?.();
+      toast(`${s.emoji} 「${s.name}」に合わせました`);
+    }
+  } finally {
+    if (asking) newsShowing = null;
+    skinAsking.delete(group.id);
+  }
+}
+
 // 着せ替えの見本（カード）。その着せ替えの色・フォント・アイコンで小さく描く
 function skinCard(skin, { on, onClick }) {
   skins.loadFont(skin);
@@ -2051,9 +2101,11 @@ function skinSheet({ scope = 'global', group = null, official = false } = {}) {
   // 選んだものを、その場で画面に反映する（見本として）
   const previewSkin = () => {
     if (official) return skins.byId(picked) ?? skins.byId(skins.getChoice('global')) ?? skins.SKINS[0];
-    if (picked === 'inherit') return skins.byId(skins.official(groupId)) ?? skins.byId(skins.getChoice('global')) ?? skins.SKINS[0];
+    if (scope !== 'global') return skins.resolveFor(groupId, picked === 'inherit' ? null : picked).skin;
     return skins.byId(picked) ?? skins.SKINS[0];
   };
+  const mineMode = skins.getMode() === 'mine';
+  const off = groupId && skins.official(groupId);
   const show = () => {
     const s = previewSkin();
     skins.apply(s);
@@ -2070,13 +2122,22 @@ function skinSheet({ scope = 'global', group = null, official = false } = {}) {
     const render = () =>
       setChildren(
         box,
+        // グループに合わせる人：「グループの公式に合わせる」（なければ全体の設定）。
+        // いつも自分の着せ替えの人：「全体の設定と同じ」と「グループの公式に合わせる」（公式があるとき）
         !official &&
           scope !== 'global' &&
           h(
             'button',
             { type: 'button', class: `chip wide-chip${picked === 'inherit' ? ' on' : ''}`, onClick: () => ((picked = 'inherit'), show(), render()) },
-            `グループの公式に合わせる（${skins.official(groupId) ? skinText(skins.official(groupId)) : 'なければ全体の設定'}）`,
+            mineMode
+              ? `全体の設定と同じ（${skinText(skins.getChoice('global'))}）`
+              : `グループの公式に合わせる（${off ? skinText(off) : `公式はまだなし。全体の設定の ${skinText(skins.getChoice('global'))}`}）`,
           ),
+        !official &&
+          scope !== 'global' &&
+          mineMode &&
+          off &&
+          h('button', { type: 'button', class: `chip wide-chip${picked === 'official' ? ' on' : ''}`, onClick: () => ((picked = 'official'), show(), render()) }, `グループの公式に合わせる（${skinText(off)}）`),
         official &&
           h('button', { type: 'button', class: `chip wide-chip${picked === '' ? ' on' : ''}`, onClick: () => ((picked = ''), show(), render()) }, '決めない（みんな自分の設定のまま）'),
         h(
@@ -2109,12 +2170,13 @@ function skinSheet({ scope = 'global', group = null, official = false } = {}) {
             type: 'button',
             class: 'btn primary',
             onClick: async () => {
-              const s = skins.byId(picked);
+              const s = picked === 'official' ? skins.byId(off) : skins.byId(picked);
               if (s && !skins.canUse(s, { group, official })) return toast(official ? 'グループで使うには、サブスクの人が必要です' : `${skins.TIERS[skins.tierOf(s)].label}の着せ替えです`);
               try {
                 if (official) {
                   await store.setGroupSkin(groupId, picked || null);
                   skins.setOfficial(groupId, picked || null);
+                  skins.markSeen(groupId, picked || null); // 決めた本人には「変わりました」を出さない
                 } else skins.setChoice(scope, picked === NONE ? null : picked);
               } catch (e) {
                 restore();
@@ -2280,6 +2342,32 @@ function profileView(root) {
       h('button', { class: 'btn primary wide', onClick: () => profileSheet().then(render) }, '✏️ 全体の設定を編集'),
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🎨 着せ替え'), h('span', { class: 'pv-text' }, skinText(skins.getChoice('global'))))),
       h('button', { class: 'btn wide', onClick: () => skinSheet({ scope: 'global' }).then(render) }, '🎨 着せ替えを変える'),
+      h(
+        'div',
+        { class: 'pv-table wallpaper-row' },
+        h(
+          'div',
+          { class: 'pv-row' },
+          h('span', { class: 'pv-label' }, '👑 グループの公式があるとき'),
+          h(
+            'span',
+            { class: 'pv-switch' },
+            [
+              ['follow', 'グループに合わせる'],
+              ['mine', 'いつも自分の着せ替え'],
+            ].map(([k, label]) =>
+              h('button', { type: 'button', class: `chip${skins.getMode() === k ? ' on' : ''}`, onClick: () => (skins.setMode(k), applyLook(), wallpaper.apply(null), render()) }, label),
+            ),
+          ),
+        ),
+      ),
+      h(
+        'p',
+        { class: 'sch-hint' },
+        skins.getMode() === 'mine'
+          ? 'どのグループでも自分の着せ替えのままです（グループごとに「このグループでは公式に合わせる」にもできます）。'
+          : 'グループの公式の着せ替えがあるグループでは、その着せ替えになります（グループごとに「このグループだけ」別の着せ替えにもできます）。',
+      ),
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting('global') ?? { type: 'none' })))),
       h('button', { class: 'btn wide', onClick: () => wallpaperSheet('global', '🖼 壁紙（全体の設定）').then(render) }, '🖼 壁紙を変える'),
       h('button', { class: 'btn wide', onClick: shareGlobalWallpaper }, '📤 この壁紙をグループにおすそわけ'),
@@ -2420,8 +2508,31 @@ function groupProfileView(root, { groupId }) {
         'div',
         { class: 'pv-table wallpaper-row' },
         h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '👑 グループの公式'), h('span', { class: 'pv-text' }, skinText(group.theme, 'なし（みんな自分の設定）'))),
-        h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🎨 着せ替え'), h('span', { class: 'pv-text' }, skins.getChoice(`g:${groupId}`) ? skinText(skins.getChoice(`g:${groupId}`)) : `グループの公式に合わせる（今は ${skinText(skins.resolve(groupId).skin.id)}）`)),
+        h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🎨 着せ替え'), h('span', { class: 'pv-text' }, mySkinText(groupId))),
       ),
+      group.theme &&
+        skins.byId(group.theme) &&
+        skins.resolve(groupId).skin.id !== group.theme &&
+        h(
+          'div',
+          { class: 'notice skin-differs' },
+          h('p', {}, `👑 グループの公式は ${skinText(group.theme)} です（今は ${skinText(skins.resolve(groupId).skin.id)}）。`),
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn primary',
+              onClick: () => {
+                skins.follow(groupId);
+                applyLook();
+                wallpaper.apply(groupId);
+                render(latest);
+                toast(`${skinText(group.theme)} に合わせました`);
+              },
+            },
+            'このグループでは公式に合わせる',
+          ),
+        ),
       h('button', { class: 'btn wide', onClick: () => skinSheet({ scope: `g:${groupId}`, group }).then(() => render(latest)) }, '🎨 このグループでの着せ替えを変える'),
       isManager(group) && h('button', { class: 'btn wide', onClick: () => skinSheet({ group, official: true }).then(() => render(latest)) }, '👑 グループの公式の着せ替えを決める'),
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting(`g:${groupId}`))))),
@@ -4990,6 +5101,7 @@ function groupView(root, { groupId }) {
     location.hash = '#/';
   };
 
+  let popupsDone = false; // ログボ・予定の報酬のポップアップが済んだか（着せ替えのお知らせはそのあと）
   const unwatchGroup = store.watchGroup(
     groupId,
     (g) => {
@@ -5009,10 +5121,20 @@ function groupView(root, { groupId }) {
         applyLook();
         wallpaper.apply(groupId);
       } else applyTheme(themeForHash(location.hash));
+      if (popupsDone) checkOfficialSkin(g, () => group && renderBody());
       // その日はじめてこのグループを開いたら、ログインボーナス（2 回目からは何もしない）
       processRedemptions(); // ごほうびの交換の承認・結果（グループを読み込んだので）
       // ログボのあとで、終わった予定の報酬（予定を読み込んでから）
-      if (!authBusy && !auth.needsName()) checkBonus(g).finally(() => plansLoaded.then(() => group && checkPlanRewards(group, plans ?? [])));
+      // 着せ替えが変わったお知らせは、ログボ・予定の報酬のあとで
+      if (!authBusy && !auth.needsName())
+        checkBonus(g).finally(() =>
+          plansLoaded
+            .then(() => group && checkPlanRewards(group, plans ?? []))
+            .finally(() => {
+              popupsDone = true;
+              if (group) checkOfficialSkin(group, () => group && renderBody());
+            }),
+        );
       const owner = g.members?.[user.uid]?.role === 'owner';
       if (owner && !unwatchRecovery) {
         unwatchRecovery = store.watchRecoveryCodes(groupId, (codes) => (recoveryCodes = codes), () => {});
