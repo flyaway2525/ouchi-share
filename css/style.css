@@ -5371,3 +5371,15 @@ html.swipe-tabs body {
 .skin-differs p {
   margin: 0;
 }
+
+/* 設定の画面の目次（押すとそのセクションへ） */
+.settings-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+.content [id^='set-'] {
+  scroll-margin-top: calc(var(--safe-top) + 72px);
+}

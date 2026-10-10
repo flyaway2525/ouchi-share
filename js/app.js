@@ -1734,7 +1734,7 @@ function profileSheet({ group = null, focus = null } = {}) {
           },
         },
         preview,
-        !group && h('p', { class: 'sch-hint' }, '全部のグループに反映されます（グループのメニューの「このグループでのプロフィール」で、グループごとに変えることもできます）'),
+        !group && h('p', { class: 'sch-hint' }, '全部のグループに反映されます（グループのメニューの「このグループでの自分の設定」で、グループごとに変えることもできます）'),
         iconSection,
         nameSection,
         titleSection,
@@ -2045,7 +2045,7 @@ async function checkOfficialSkin(group, onChange) {
     const ok = await openSheet((close) => [
       h('div', { class: 'sheet-title' }, `🎨 「${group.name}」の公式の着せ替えが「${s.emoji} ${s.name}」になりました`),
       h('div', { class: 'skin-grid' }, skinCard(s, { on: true, onClick: () => close(true) }), skinCard(cur, { on: false, onClick: () => close(false) })),
-      h('p', { class: 'sch-hint' }, `今は ${cur.emoji} ${cur.name} です。あとからグループでのプロフィールの画面で変えられます。`),
+      h('p', { class: 'sch-hint' }, `今は ${cur.emoji} ${cur.name} です。あとからグループのメニューの「このグループでの自分の設定」で変えられます。`),
       h('button', { class: 'sheet-action', onClick: () => close(true) }, `${s.emoji} このグループでは公式に合わせる`),
       h('button', { class: 'sheet-action cancel', onClick: () => close(false) }, '自分のまま'),
     ]);
@@ -2330,16 +2330,36 @@ function profileView(root) {
     const g = globalProfile();
     const guest = auth.isGuest();
     const linked = auth.linkedProviders().map((p) => ({ 'google.com': 'Google', 'apple.com': 'Apple' })[p.id] ?? p.id);
+    const section = (id, label) => h('p', { class: 'section-label', id: `set-${id}` }, label);
+    const toc = h(
+      'nav',
+      { class: 'settings-toc', 'aria-label': '設定の目次' },
+      [
+        ['profile', '👤 プロフィール'],
+        ['look', '🎨 見た目'],
+        ['groups', '🏠 グループごと'],
+        ['notify', '🔔 通知'],
+        ['account', '🔐 アカウント'],
+      ].map(([id, label]) => h('button', { type: 'button', class: 'chip', onClick: () => document.getElementById(`set-${id}`)?.scrollIntoView({ block: 'start' }) }, label)),
+    );
     setChildren(
       body,
-      h('p', { class: 'section-label' }, '🌐 全体の設定（すべてのグループの基本）'),
+      toc,
+      section('profile', '👤 プロフィール（全体の設定・すべてのグループの基本）'),
       profileCard(g),
       h(
         'div',
         { class: 'pv-table' },
         PROFILE_ITEMS.map(([f, label]) => h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, label), profileValue(f, g))),
       ),
-      h('button', { class: 'btn primary wide', onClick: () => profileSheet().then(render) }, '✏️ 全体の設定を編集'),
+      h('button', { class: 'btn primary wide', onClick: () => profileSheet().then(render) }, '✏️ プロフィールを編集'),
+      h(
+        'div',
+        { class: 'notice profile-explain' },
+        h('p', {}, '🌐 全体の設定は、参加しているすべてのグループに反映されます。グループごとに「このグループだけ」変えることもできます（下の「🏠 グループごと」）。'),
+        h('p', {}, '🎨 メインカラー・サブカラーは自分の画面の色、識別カラーはみんなの画面での「あなたの色」です。'),
+      ),
+      section('look', '🎨 見た目（自分の画面だけ）'),
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🎨 着せ替え'), h('span', { class: 'pv-text' }, skinText(skins.getChoice('global'))))),
       h('button', { class: 'btn wide', onClick: () => skinSheet({ scope: 'global' }).then(render) }, '🎨 着せ替えを変える'),
       h(
@@ -2371,14 +2391,8 @@ function profileView(root) {
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting('global') ?? { type: 'none' })))),
       h('button', { class: 'btn wide', onClick: () => wallpaperSheet('global', '🖼 壁紙（全体の設定）').then(render) }, '🖼 壁紙を変える'),
       h('button', { class: 'btn wide', onClick: shareGlobalWallpaper }, '📤 この壁紙をグループにおすそわけ'),
-      h(
-        'div',
-        { class: 'notice profile-explain' },
-        h('p', {}, '🌐 全体の設定は、参加しているすべてのグループに反映されます。'),
-        h('p', {}, '🏠 グループごとに、名前・アイコン・肩書き・色を「このグループだけ」変えられます（変えていない項目は全体の設定のまま）。'),
-        h('p', {}, '🎨 メインカラー・サブカラーは自分の画面の色、識別カラーはみんなの画面での「あなたの色」です。'),
-      ),
-      h('p', { class: 'section-label' }, '🏠 グループごとの設定'),
+      section('groups', '🏠 グループごとの自分の設定'),
+      h('p', { class: 'sch-hint' }, 'グループを押すと、そのグループでのプロフィール・着せ替え・壁紙を変えられます。'),
       !groups
         ? h('p', { class: 'empty small' }, '読み込み中…')
         : groups.length === 0
@@ -2410,7 +2424,10 @@ function profileView(root) {
                 );
               }),
             ),
-      h('p', { class: 'section-label' }, '🔐 アカウント'),
+      section('notify', '🔔 通知・アプリ'),
+      h('button', { class: 'btn wide', onClick: pushSettingsSheet }, '🔔 通知の設定'),
+      canSuggestInstall() && h('button', { class: 'btn wide', onClick: installGuideSheet }, '📲 ホーム画面に追加する（やり方）'),
+      section('account', '🔐 アカウント'),
       h(
         'div',
         { class: 'pv-table' },
@@ -2454,7 +2471,7 @@ function groupProfileView(root, { groupId }) {
   let latest = null; // 最新のグループ（シートを閉じたあと、最新の内容で描き直すため）
   const render = (group) => {
     latest = group;
-    setChildren(top, header({ title: `👤 「${group.name}」でのプロフィール`, back }));
+    setChildren(top, header({ title: `👤 「${group.name}」での自分の設定`, back }));
     const g = globalProfile();
     const me = { uid: user.uid, ...(group.members?.[user.uid] ?? {}) };
     const custom = { ...(me.custom ?? {}) };
@@ -2534,13 +2551,13 @@ function groupProfileView(root, { groupId }) {
           ),
         ),
       h('button', { class: 'btn wide', onClick: () => skinSheet({ scope: `g:${groupId}`, group }).then(() => render(latest)) }, '🎨 このグループでの着せ替えを変える'),
-      isManager(group) && h('button', { class: 'btn wide', onClick: () => skinSheet({ group, official: true }).then(() => render(latest)) }, '👑 グループの公式の着せ替えを決める'),
+      h('p', { class: 'sch-hint' }, isManager(group) ? 'グループの公式の着せ替えは、グループのメニューの「🛠 グループの管理」で決めます。' : 'グループの公式の着せ替えは、オーナー・管理者が決めます。'),
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🖼 壁紙'), h('span', { class: 'pv-text' }, wallpaperText(wallpaper.getSetting(`g:${groupId}`))))),
       h('button', { class: 'btn wide', onClick: () => wallpaperSheet(`g:${groupId}`, `🖼 「${group.name}」の壁紙`).then(() => render(group)) }, '🖼 このグループの壁紙を変える'),
       h('button', { class: 'btn wide', onClick: () => sharedWallpapersSheet(group).then(() => render(group)) }, '👥 みんながおすそわけした壁紙'),
       h('button', { class: 'btn wide', onClick: () => shareWallpaper(`g:${groupId}`, groupId) }, '📤 今の壁紙をこのグループにおすそわけ'),
       h('p', { class: 'sch-hint' }, '「このグループだけ」にした項目は、全体の設定を変えてもこのグループでは変わりません。「全体と同じ」の項目は、全体の設定を変えると一緒に変わります。'),
-      h('a', { class: 'btn wide', href: '#/profile' }, '🌐 全体の設定を見る'),
+      h('a', { class: 'btn wide', href: '#/profile' }, '⚙️ 設定（全体）を開く'),
       h('a', { class: 'btn wide', href: `#/g/${groupId}/m/${user.uid}` }, '👀 メンバーの画面で自分を見る'),
     );
   };
@@ -2619,8 +2636,8 @@ function memberView(root, { groupId, uid }) {
               ),
             ),
       h('a', { class: 'btn wide', href: `#/g/${groupId}/items/${uid}` }, '🎒 持っているアイテムを見る'),
-      self && h('a', { class: 'btn primary wide', href: `#/g/${groupId}/profile` }, '✏️ このグループでのプロフィールを編集'),
-      self && h('a', { class: 'btn wide', href: '#/profile' }, '🌐 全体の設定'),
+      self && h('a', { class: 'btn primary wide', href: `#/g/${groupId}/profile` }, '👤 このグループでの自分の設定'),
+      self && h('a', { class: 'btn wide', href: '#/profile' }, '⚙️ 設定（全体）'),
       owner && !self && m.role !== 'owner' && h('button', { class: 'btn wide', onClick: () => memberMenu(group, uid, m) }, '🛠 メンバーの管理（管理者にする・外す）'),
     );
   };
@@ -3109,11 +3126,8 @@ function accountMenu() {
   const unread = unreadNewsCount('app');
   actionSheet(`${auth.displayName()}${guest ? '（ゲスト）' : ''}`, [
     { label: `📢 アプリからのお知らせ${unread ? `（未読${unread}）` : ''}`, onClick: () => (location.hash = '#/news') },
-    { label: '🔔 通知の設定', onClick: pushSettingsSheet },
+    { label: '⚙️ 設定（プロフィール・見た目・通知・アカウント）', onClick: () => (location.hash = '#/profile') },
     isDeveloper && { label: '🛠 開発者ダッシュボード', onClick: () => (location.hash = '#/admin') },
-    { label: '⚙️ 設定（プロフィール・壁紙・アカウント）', onClick: () => (location.hash = '#/profile') },
-    canSuggestInstall() && { label: '📲 ホーム画面に追加する（やり方）', onClick: installGuideSheet },
-    guest && { label: '復旧IDを確認', onClick: myRecoverySheet },
     {
       label: 'ログアウト',
       danger: true,
@@ -3599,7 +3613,7 @@ function homeView(root) {
                 'div',
                 { class: 'swipe-actions' },
                 h('button', { class: 'swipe-action invite', onClick: () => inviteQrSheet(g) }, h('span', {}, '📋'), '招待'),
-                h('button', { class: 'swipe-action settings', onClick: () => groupMenu(g, {}, { asWindow: true }) }, h('span', {}, '⚙️'), '設定'),
+                h('button', { class: 'swipe-action settings', onClick: () => groupMenu(g, {}, { asWindow: true }) }, h('span', {}, '⋯'), 'メニュー'),
               ),
               h(
                 'a',
@@ -3613,7 +3627,7 @@ function homeView(root) {
           ),
         ),
       ),
-      groups.length > 0 && h('p', { class: 'sch-hint' }, 'グループを左にフリックすると「招待」「設定」が出ます（長押しでも設定を開けます）'),
+      groups.length > 0 && h('p', { class: 'sch-hint' }, 'グループを左にフリックすると「招待」「メニュー」が出ます（長押しでもメニューを開けます）'),
       isAdmin
         ? h(
             'button',
@@ -4829,8 +4843,10 @@ function membersSheet(group, recoveryCodes = {}) {
         ),
       ),
     ),
+    h('p', { class: 'sch-hint' }, 'メンバーを押すと、その人の画面が開きます（左にフリックで 🎒 アイテム）。'),
     h('button', { class: 'sheet-action', onClick: () => (close(null), inviteQrSheet(group)) }, '＋ メンバーを招待（QRコード）'),
-    h('button', { class: 'sheet-action', onClick: () => (close(null), (location.hash = `#/g/${group.id}/profile`)) }, '👤 このグループでのプロフィール'),
+    h('button', { class: 'sheet-action', onClick: () => (close(null), shareInvite(group)) }, '📨 招待リンクを送る'),
+    isManager(group) && h('button', { class: 'sheet-action', onClick: () => (close(null), groupMembersAdminMenu(group)) }, '🛠 メンバーの管理 ＞'),
     h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
   ]);
 }
@@ -4908,6 +4924,7 @@ function groupAdminMenu(group, options = {}) {
         if (res !== null) store.setGroupAllColor(groupId, res || null).then(() => toast(res ? '全員の予定の色を変えました' : '元の色に戻しました'), showError);
       },
     },
+    manager && { label: `👑 グループの公式の着せ替え（今は ${skinText(group.theme, 'なし')}）`, onClick: () => skinSheet({ group, official: true }) },
     manager && {
       label: '📢 管理者お知らせを書く',
       onClick: () => {
@@ -4963,33 +4980,22 @@ function groupRewardsAdminMenu(group, options = {}) {
 }
 
 // グループのメニュー ＞ メンバー（招待など。メンバー全員が使う）。オーナー・管理者には「メンバーの管理」も
-function groupMembersMenu(group, recoveryCodes = {}, options = {}) {
-  actionSheet(`👥 ${group.name}のメンバー`, [
-    { label: 'メンバーを見る', onClick: () => membersSheet(group, recoveryCodes) },
-    { label: '招待QRコードを表示', onClick: () => inviteQrSheet(group) },
-    { label: '招待リンクを送る', onClick: () => shareInvite(group) },
-    isManager(group) && {
-      label: '🛠 メンバーの管理 ＞（オーナー・管理者だけ）',
-      onClick: () => groupMembersAdminMenu(group, options),
-    },
-  ].filter(Boolean), options);
-}
-
 function groupMenu(group, recoveryCodes = {}, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
+  // 並び：見るもの → メンバー → 自分の設定 → グループの管理（「＞」は、もう 1 つメニューが開くもの）
   actionSheet(group.name, [
-    { label: '🛠 グループの管理 ＞', onClick: () => groupAdminMenu(group, options) },
     {
       label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
       onClick: () => (location.hash = `#/g/${groupId}/news`),
     },
-    { label: '🎒 アイテムボックス', onClick: () => (location.hash = `#/g/${groupId}/items`) },
     { label: '🎟 チケット・ごほうび', onClick: () => (location.hash = `#/g/${groupId}/tickets`) },
-    { label: '📝 テキスト予定表', onClick: () => (location.hash = `#/g/${groupId}/text`) },
+    { label: '🎒 アイテムボックス', onClick: () => (location.hash = `#/g/${groupId}/items`) },
     { label: '📖 スタンプ帳', onClick: () => (location.hash = `#/g/${groupId}/stamps`) },
-    { label: '👥 メンバー ＞', onClick: () => groupMembersMenu(group, recoveryCodes, options) },
-    { label: '👤 このグループでのプロフィール', onClick: () => (location.hash = `#/g/${groupId}/profile`) },
+    { label: '📝 テキスト予定表', onClick: () => (location.hash = `#/g/${groupId}/text`) },
+    { label: '👥 メンバー・招待', onClick: () => membersSheet(group, recoveryCodes) },
+    { label: '👤 このグループでの自分の設定（プロフィール・着せ替え・壁紙）', onClick: () => (location.hash = `#/g/${groupId}/profile`) },
+    { label: '🛠 グループの管理 ＞', onClick: () => groupAdminMenu(group, options) },
     !owner && { label: 'グループから退出', danger: true, onClick: () => leaveGroup(group) },
   ].filter(Boolean), options);
 }

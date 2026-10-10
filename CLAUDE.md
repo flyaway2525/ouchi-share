@@ -34,4 +34,5 @@ iPhone アプリは Capacitor で包んで TestFlight で配る。Firebase（Spa
 - プッシュするたびに `node scripts/bump-version.mjs "変更の内容"` で版を上げる（js/version.js・version.json・sw.js・CHANGELOG.md がまとめて変わる）。コミットの件名は「vNN: …」。報告にも版を書く（ホームの版の表示で反映を確かめてもらう）。
 - プッシュ、`firebase deploy --only firestore:rules`、Worker の `npx wrangler deploy` は、毎回確認しなくてよい。
 - 画面とポップアップの閉じ方の決まりは docs/design.md の「画面とポップアップの閉じ方（決まり）」に従う。
+- 画面やメニューの項目を足す・動かすときは、docs/design.md の「画面の地図」を先に直す（「設定」= 自分のこと、「管理」= グループ全体のこと。メニューは 1 段が基本で、入り口を増やしすぎない）。
 - テスト用のページ（`_*.html`）はコミットする前に消す。ユーザーのデータでテストしたときは、作ったものを最後に消す。
