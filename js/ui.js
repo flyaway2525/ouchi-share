@@ -53,7 +53,7 @@ export function progressBar(done, total) {
 
 // ---- ポップアップの重なり ----
 // ポップアップの中のボタンで閉じて、すぐ次のポップアップが開いたら「重なり」として覚える。
-// 「キャンセル」「‹ 戻る」「閉じる」など（null / false で閉じる）で閉じたら、ひとつ前のポップアップを開き直す。
+// 「キャンセル」「戻る」「閉じる」など（null / false で閉じる）で閉じたら、ひとつ前のポップアップを開き直す。
 // 保存・決定などの値で閉じたら戻らない。背景のタップ・下スワイプは全部閉じる。画面が切り替わったら重なりは忘れる
 let chain = null; // { reopen, at }：ボタンで閉じたばかりのポップアップ（ここから次が開かれたら、それの「ひとつ前」）
 let backTimer = null;
@@ -65,7 +65,7 @@ addEventListener('hashchange', () => {
 });
 
 // asWindow: 下から出るシートではなく、画面の真ん中に浮かぶウィンドウとして出す。
-// build(close, { hasParent }) … hasParent はひとつ前のポップアップがあるか（「‹ 戻る」の文字に使う）
+// build(close, { hasParent }) … hasParent はひとつ前のポップアップがあるか（いちばん下のボタンを「戻る」にする）
 export function openSheet(build, options = {}) {
   const { asWindow = false } = options;
   const parent = options.parent ?? (chain && Date.now() - chain.at < CHAIN_MS ? chain.reopen : null);
@@ -183,7 +183,7 @@ function enableSwipeDown(sheet, backdrop, close) {
   sheet.addEventListener('touchcancel', end);
 }
 
-// 項目を選んだら閉じて実行する。ひとつ前のポップアップがあるときは、いちばん下のボタンが「‹ 戻る」になる
+// 項目を選んだら閉じて実行する。ひとつ前のポップアップがあるときは、いちばん下のボタンが「戻る」（左に ‹ の印）になる
 export function actionSheet(title, actions, options = {}) {
   return openSheet((close, { hasParent }) => [
     h('div', { class: 'sheet-title' }, title),
@@ -192,7 +192,9 @@ export function actionSheet(title, actions, options = {}) {
       h(
         'button',
         {
-          class: `sheet-action${a.danger ? ' danger' : ''}`,
+          // sub：もう 1 つメニューが開く項目（右に › の印を描く）
+          class: `sheet-action${a.danger ? ' danger' : ''}${a.sub ? ' has-sub' : ''}`,
+          'aria-haspopup': a.sub ? 'menu' : null,
           onClick: () => {
             close(undefined); // 項目を選んだ（次のポップアップが開けば、このメニューが「ひとつ前」）
             a.onClick();
@@ -204,10 +206,10 @@ export function actionSheet(title, actions, options = {}) {
     h(
       'button',
       {
-        class: 'sheet-action cancel',
+        class: `sheet-action cancel${hasParent ? ' is-back' : ''}`,
         onClick: () => close(null),
       },
-      hasParent ? '‹ 戻る' : 'キャンセル',
+      hasParent ? '戻る' : 'キャンセル',
     ),
   ], options);
 }

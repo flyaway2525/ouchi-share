@@ -5383,3 +5383,34 @@ html.swipe-tabs body {
 .content [id^='set-'] {
   scroll-margin-top: calc(var(--safe-top) + 72px);
 }
+
+/* もう 1 つメニューが開く項目：右に ›（線で描く）。戻るボタンは左に ‹ */
+.sheet-action.has-sub,
+.sheet-action.is-back {
+  position: relative;
+  padding-left: 40px;
+  padding-right: 40px;
+}
+
+.sheet-action.has-sub::after,
+.sheet-action.is-back::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-top: 2.5px solid currentColor;
+  border-right: 2.5px solid currentColor;
+  border-radius: 1px;
+  opacity: 0.55;
+}
+
+.sheet-action.has-sub::after {
+  right: 18px;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.sheet-action.is-back::before {
+  left: 20px;
+  transform: translateY(-50%) rotate(-135deg);
+}

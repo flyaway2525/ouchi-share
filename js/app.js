@@ -4846,7 +4846,7 @@ function membersSheet(group, recoveryCodes = {}) {
     h('p', { class: 'sch-hint' }, 'メンバーを押すと、その人の画面が開きます（左にフリックで 🎒 アイテム）。'),
     h('button', { class: 'sheet-action', onClick: () => (close(null), inviteQrSheet(group)) }, '＋ メンバーを招待（QRコード）'),
     h('button', { class: 'sheet-action', onClick: () => (close(null), shareInvite(group)) }, '📨 招待リンクを送る'),
-    isManager(group) && h('button', { class: 'sheet-action', onClick: () => (close(null), groupMembersAdminMenu(group)) }, '🛠 メンバーの管理 ＞'),
+    isManager(group) && h('button', { class: 'sheet-action has-sub', 'aria-haspopup': 'menu', onClick: () => (close(null), groupMembersAdminMenu(group)) }, '🛠 メンバーの管理'),
     h('button', { class: 'sheet-action cancel', onClick: () => close(null) }, '閉じる'),
   ]);
 }
@@ -4855,7 +4855,7 @@ function membersSheet(group, recoveryCodes = {}) {
 // options.asWindow で、下から出るシートではなく画面の真ん中に浮かぶウィンドウとして出す（ホームのカードから）
 // グループの管理（メンバー全員が開ける。グループ名の変更は全員、それ以外はオーナー・管理者だけ）。
 // メンバー系・報酬系はもう 1 段下のメニューにまとめる。
-// 下の段で「‹ 戻る」を押すとひとつ上の段へ（ポップアップの重なりの仕組み。ui.js の openSheet）
+// 下の段で「戻る」（左に ‹ の印）を押すとひとつ上の段へ（ポップアップの重なりの仕組み。ui.js の openSheet）
 // 「全員の予定の色」を選ぶ：カレンダーで、参加者が全員（または 2 人以上）の予定の色。
 // 個人の色（サードカラー）とかぶらないように、グループごとに誰でも変えられる。戻り値 '#rrggbb' / ''（元の色に戻す）/ null（やめる）
 function allColorSheet(group) {
@@ -4933,8 +4933,8 @@ function groupAdminMenu(group, options = {}) {
         setTimeout(() => groupNewsWriter?.(true), 300);
       },
     },
-    manager && { label: '👥 メンバーの管理 ＞', onClick: () => groupMembersAdminMenu(group, options) },
-    manager && { label: '🎁 報酬の管理 ＞', onClick: () => groupRewardsAdminMenu(group, options) },
+    manager && { label: '👥 メンバーの管理', sub: true, onClick: () => groupMembersAdminMenu(group, options) },
+    manager && { label: '🎁 報酬の管理', sub: true, onClick: () => groupRewardsAdminMenu(group, options) },
     owner && {
       label: 'グループを削除（オーナーだけ）',
       danger: true,
@@ -4983,7 +4983,7 @@ function groupRewardsAdminMenu(group, options = {}) {
 function groupMenu(group, recoveryCodes = {}, options = {}) {
   const groupId = group.id;
   const owner = group.members?.[user.uid]?.role === 'owner';
-  // 並び：見るもの → メンバー → 自分の設定 → グループの管理（「＞」は、もう 1 つメニューが開くもの）
+  // 並び：見るもの → メンバー → 自分の設定 → グループの管理（sub：もう 1 つメニューが開くもの。右に › の印）
   actionSheet(group.name, [
     {
       label: `📢 お知らせ${unreadNewsCount(`g:${groupId}`) ? `（未読${unreadNewsCount(`g:${groupId}`)}）` : ''}`,
@@ -4995,7 +4995,7 @@ function groupMenu(group, recoveryCodes = {}, options = {}) {
     { label: '📝 テキスト予定表', onClick: () => (location.hash = `#/g/${groupId}/text`) },
     { label: '👥 メンバー・招待', onClick: () => membersSheet(group, recoveryCodes) },
     { label: '👤 このグループでの自分の設定（プロフィール・着せ替え・壁紙）', onClick: () => (location.hash = `#/g/${groupId}/profile`) },
-    { label: '🛠 グループの管理 ＞', onClick: () => groupAdminMenu(group, options) },
+    { label: '🛠 グループの管理', sub: true, onClick: () => groupAdminMenu(group, options) },
     !owner && { label: 'グループから退出', danger: true, onClick: () => leaveGroup(group) },
   ].filter(Boolean), options);
 }

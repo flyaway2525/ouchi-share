@@ -1,5 +1,5 @@
 {
-  "version": 132,
-  "builtAt": "2026-10-10 12:22",
-  "note": "Simpler navigation: settings hub with table of contents, one-level group menu, official theme under group management"
+  "version": 133,
+  "builtAt": "2026-10-10 13:47",
+  "note": "Submenu items show a drawn chevron instead of a text marker; back button gets a left chevron"
 }
