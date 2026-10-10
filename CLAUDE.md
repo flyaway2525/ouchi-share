@@ -27,7 +27,9 @@ iPhone アプリは Capacitor で包んで TestFlight で配る。Firebase（Spa
 ## テストと実機確認
 - 手元で確かめられるのは PC の Chrome（ログイン済みのユーザーの Chrome と、組み込みのブラウザ）だけ。Chrome で動いても、iPhone・Android で同じとは限らない。
 - 次のような変更は「Chrome で確認済み・実機は未確認」として扱い、**docs/device-test.md に実機確認の項目を足す**：タッチ操作（長押し・スワイプ・ドラッグ）、クリップボード、キーボードや入力欄、日付・時刻の入力、ホーム画面に追加・通知・ログイン、Safari や WebKit で動きが違いそうなもの。
-- ユーザーは iPhone・Android の実機を用意できる。実機で確かめた結果を教えてもらったら、docs/device-test.md の結果の欄を更新し、うまく動かない環境はその環境に合わせて直す。
+- ユーザーは **iPhone の実機を持っている（Android の実機は持っていない）**。実機で確かめた結果を教えてもらったら、docs/device-test.md の結果の欄を更新し、うまく動かない環境はその環境に合わせて直す。
+  - Android は、Chrome での確認で代わりにする（Android の Chrome は PC の Chrome に近い）。Android でしか起きない動き（「ホーム画面に追加」のボタン・振動・戻るボタンなど）は、必要になったら Android のエミュレーター（Android Studio）を使うか相談する。
+  - iPhone を Claude が操作して確かめるときは、Mac のセッションで行う（Windows からはできない）。
 - 報告では、Chrome で確かめたことと、実機でまだ確かめていないことを分けて書く。
 
 ## 進め方の決まり
