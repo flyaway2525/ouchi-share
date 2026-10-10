@@ -5356,3 +5356,7 @@ html.swipe-tabs body {
   font-size: 11px;
   line-height: 1.4;
 }
+
+.skin-tiers p {
+  margin: 2px 0;
+}

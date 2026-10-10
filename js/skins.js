@@ -7,7 +7,8 @@
 // - アイコン：グループのタブ（カレンダー・イベント・リスト・日記）の絵文字
 // - 演出：紙吹雪の色と、飛び散る ✨ の代わりの絵文字（fx.js）
 // - 壁紙：3 枚の層（奥のグラデーション・まん中の地面・手前の模様）。自分の壁紙（写真・季節）を設定していないときに出る
-// - premium：有料プラン（個人のサブスク。課金した人のいるグループではメンバー全員が使える）の着せ替え。今は試作中なので、だれでも使える（canUse）
+// - tier（段階）：free（無料）・sub（👑 サブスクで使い放題）・buy（💎 買い切り。price 円。買えばずっと自分のもの）
+//   グループで使えるのは、サブスクの人がいるとき（👑 ぜんぶ＋その人が買った 💎）。今は試作中なので、だれでも使える（canUse）
 import * as fx from './fx.js';
 
 const KEY = (scope) => `ouchi-share:skin:${scope}`;
@@ -53,7 +54,7 @@ export const SKINS = [
     id: 'umi',
     name: 'うみ',
     emoji: '🌊',
-    premium: true,
+    tier: 'sub',
     desc: '青い海と波。あわが はじけます',
     font: { family: 'M PLUS Rounded 1c', query: 'M+PLUS+Rounded+1c:wght@400;700' },
     light: { bg: '#f1f9fd', surface: '#ffffff', text: '#1f3340', muted: '#6f8794', border: '#d6ebf4', accent: '#1e96d2', accentText: '#ffffff', accentSoft: '#d4eefa' },
@@ -67,7 +68,7 @@ export const SKINS = [
     id: 'mori',
     name: 'もり',
     emoji: '🌲',
-    premium: true,
+    tier: 'sub',
     desc: '森の緑と手書きふうの文字。葉っぱが舞います',
     font: { family: 'Kiwi Maru', query: 'Kiwi+Maru:wght@400;500' },
     light: { bg: '#f5f8f0', surface: '#ffffff', text: '#273322', muted: '#7a8a70', border: '#e0e9d6', accent: '#4f8a3c', accentText: '#ffffff', accentSoft: '#e0eed6' },
@@ -81,7 +82,7 @@ export const SKINS = [
     id: 'yozora',
     name: 'よぞら',
     emoji: '🌙',
-    premium: true,
+    tier: 'sub',
     desc: 'いつでも夜の色。星がきらめきます',
     font: { family: 'Yusei Magic', query: 'Yusei+Magic' },
     dark: { bg: '#141a33', surface: '#1e2547', text: '#eef0ff', muted: '#9aa2cc', border: '#2e3763', accent: '#f6c945', accentText: '#141a33', accentSoft: '#3a3a5e' },
@@ -95,7 +96,7 @@ export const SKINS = [
     id: 'retro',
     name: 'レトロゲーム',
     emoji: '👾',
-    premium: true,
+    tier: 'sub',
     desc: 'ドットの文字と、なつかしいゲームの色',
     font: { family: 'DotGothic16', query: 'DotGothic16' },
     light: { bg: '#eef3df', surface: '#f9fbf1', text: '#1f2a14', muted: '#64734f', border: '#d3dcbc', accent: '#3f6b2f', accentText: '#f9fbf1', accentSoft: '#d8e6c0' },
@@ -109,7 +110,7 @@ export const SKINS = [
     id: 'okashi',
     name: 'おかし',
     emoji: '🍭',
-    premium: true,
+    tier: 'sub',
     desc: 'あまい色とポップな文字。おかしが飛び出します',
     font: { family: 'Hachi Maru Pop', query: 'Hachi+Maru+Pop' },
     light: { bg: '#fff8ef', surface: '#ffffff', text: '#4a2f2a', muted: '#a08078', border: '#f6e3d3', accent: '#ff6f91', accentText: '#ffffff', accentSoft: '#ffe0e8' },
@@ -123,8 +124,44 @@ export const SKINS = [
 
 export const byId = (id) => SKINS.find((s) => s.id === id) ?? null;
 
-// 使えるか（自分が課金している・そのグループに課金した人がいる。サブスクを入れるまでは、だれでも使える）
-export const canUse = () => true;
+// ---- 段階と課金（docs/design.md の「有料プランの方針」） ----
+export const TIERS = {
+  free: { badge: '', label: '無料' },
+  sub: { badge: '👑', label: 'サブスク' },
+  buy: { badge: '💎', label: '買い切り' },
+};
+export const tierOf = (skin) => skin?.tier ?? 'free';
+export const tierLabel = (skin) => (tierOf(skin) === 'buy' ? `💎 ${(skin.price ?? 0).toLocaleString()}円` : TIERS[tierOf(skin)].badge);
+
+// 課金を入れるまでは試作として、だれでもぜんぶ使える
+const TRIAL = true;
+
+// 自分が持っているか。me：{ sub: サブスク中か, owned: 買った 💎 の id の配列 }（Worker がレシートを確かめて書く予定）
+function mine(skin, me) {
+  const t = tierOf(skin);
+  if (t === 'free') return true;
+  if (t === 'sub') return !!me?.sub;
+  return !!me?.owned?.includes(skin.id);
+}
+
+// グループで使えるか。group.premium：{ subs: サブスク中のメンバーの uid の配列, owned: { 💎 の id: 買った人の uid の配列 } }
+//   サブスクの人がいれば 👑 はぜんぶ。💎 は「サブスク中で、かつ買った人」がいるとき
+function shared(skin, group) {
+  const p = group?.premium;
+  const subs = p?.subs ?? [];
+  const t = tierOf(skin);
+  if (t === 'free') return true;
+  if (t === 'sub') return subs.length > 0;
+  return (p?.owned?.[skin.id] ?? []).some((uid) => subs.includes(uid));
+}
+
+// 使えるか：自分の全体の設定は自分が持っているものだけ。グループの中では、グループにシェアされたものも。
+//   グループの公式（official）は、グループにシェアされたものだけ
+export function canUse(skin, { group = null, me = null, official = false } = {}) {
+  if (TRIAL) return true;
+  if (official) return shared(skin, group);
+  return mine(skin, me) || (!!group && shared(skin, group));
+}
 
 // ---- 設定（端末に保存） ----
 export function getChoice(scope) {

@@ -2035,7 +2035,7 @@ function skinCard(skin, { on, onClick }) {
       h('span', { class: 'skin-sample-card' }, 'きょうの予定'),
       h('span', { class: 'skin-sample-btn' }, '＋ 追加'),
     ),
-    h('b', { class: 'skin-name' }, `${skin.emoji} ${skin.name}`, skin.premium && h('span', { class: 'skin-crown', title: '有料プラン' }, '👑')),
+    h('b', { class: 'skin-name' }, `${skin.emoji} ${skin.name}`, skins.tierOf(skin) !== 'free' && h('span', { class: 'skin-crown', title: skins.TIERS[skins.tierOf(skin)].label }, skins.tierLabel(skin))),
     h('small', { class: 'skin-desc' }, skin.desc),
   );
 }
@@ -2084,7 +2084,14 @@ function skinSheet({ scope = 'global', group = null, official = false } = {}) {
           { class: 'skin-grid' },
           skins.SKINS.map((s) => skinCard(s, { on: picked === s.id, onClick: () => ((picked = s.id), show(), render()) })),
         ),
-        h('p', { class: 'sch-hint' }, '👑 は有料プランの着せ替えです（課金した人のいるグループでは、メンバー全員が使えます）。今は試作中なので、すべて使えます。'),
+        h(
+          'div',
+          { class: 'sch-hint skin-tiers' },
+          h('p', {}, '👑 サブスクに入ると使い放題'),
+          h('p', {}, '💎 買い切り：買えばずっと自分のもの'),
+          h('p', {}, '👥 グループのみんなで使えるのは、サブスクの特典（サブスクの人がいるグループでは 👑 ぜんぶと、その人が買った 💎 を使える）'),
+          h('p', {}, '今は試作中なので、すべて使えます。'),
+        ),
         h('p', { class: 'sch-hint' }, '自分の壁紙（写真・季節）を設定しているときは、そちらが出ます。着せ替えの壁紙にするには、壁紙を「なし」にしてください。'),
         official && h('p', { class: 'sch-hint' }, 'グループの公式にすると、メンバー全員のこのグループの見た目になります（「このグループだけ」の着せ替えを選んだ人は、その人が選んだもの）。'),
       );
@@ -2103,7 +2110,7 @@ function skinSheet({ scope = 'global', group = null, official = false } = {}) {
             class: 'btn primary',
             onClick: async () => {
               const s = skins.byId(picked);
-              if (s && !skins.canUse(s, group)) return toast('有料プランの着せ替えです（課金した人のいるグループで使えます）');
+              if (s && !skins.canUse(s, { group, official })) return toast(official ? 'グループで使うには、サブスクの人が必要です' : `${skins.TIERS[skins.tierOf(s)].label}の着せ替えです`);
               try {
                 if (official) {
                   await store.setGroupSkin(groupId, picked || null);
