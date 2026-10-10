@@ -5186,7 +5186,7 @@ function groupView(root, { groupId }) {
   const currentTab = () => (TAB_ORDER.includes(prefs.get(`groupTab:${groupId}`)) ? prefs.get(`groupTab:${groupId}`) : 'calendar');
   function goTab(id) {
     const from = currentTab();
-    if (from === id || !group) return;
+    if (from === id || !group || justSorted()) return;
     prefs.set(`groupTab:${groupId}`, id);
     renderBody();
     if (!fx.reduced()) {
@@ -5287,6 +5287,7 @@ function groupView(root, { groupId }) {
               ? (e) => {
                   if (e.pointerType === 'mouse' && e.button !== 0) return;
                   tabLongPressed = false;
+                  if (justSorted()) return;
                   const sx = e.clientX;
                   const sy = e.clientY;
                   const timer = setTimeout(() => {
@@ -7642,7 +7643,10 @@ function adminView(root) {
 // 長押しの前に指が動いたら、ふつうのスクロールとして何もしない。長押しのあとのタップ（click）は無視する（チェックが変わったり、カードが開いたりしないように）。
 // 並べ替え中に画面が描き直されると掴んでいる要素が消えるので、描き直しは離すまで待つ（sortDrag.pending）。
 
-const sortDrag = { active: false, pending: null };
+// endedAt：並べ替えを離した時刻。iPhone で、離したあとに上のタブへのタップが届いてタブが切り替わる件（device-test.md）の対策で、
+// 離してから少しの間はタブを切り替えない（goTab・タブのボタン）
+const sortDrag = { active: false, pending: null, endedAt: 0 };
+const justSorted = () => Date.now() - sortDrag.endedAt < 1000;
 
 // 並べ替え中なら、描き直しをあとに回す（true を返したら描き直さない）
 function deferWhileSorting(render) {
@@ -7740,6 +7744,7 @@ function enableLongPressSort(container, selector, onDrop) {
     function cleanup() {
       clearTimeout(timer);
       cancelAnimationFrame(scrollTimer);
+      if (dragging) sortDrag.endedAt = Date.now();
       sortDrag.active = false;
       item.classList.remove('sorting');
       item.style.transform = '';

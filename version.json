@@ -1,5 +1,5 @@
 {
-  "version": 138,
-  "builtAt": "2026-10-10 23:35",
-  "note": "Four new themes: cafe, Halloween, Christmas and New Year"
+  "version": 139,
+  "builtAt": "2026-10-10 23:37",
+  "note": "Ignore tab switches for a moment after reordering (iPhone tab-jump fix attempt)"
 }
