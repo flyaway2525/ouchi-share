@@ -1,4 +1,4 @@
-// 公式の着せ替え（壁紙・色・アイコン・フォント・演出が 1 セット）。
+// 公式の着せ替え（壁紙・色・アイコン・フォント・演出が 1 セット）。今は 15 種類（無料 6・👑 9）。
 // - どれを使うか（端末に保存。localStorage の ouchi-share:skin:<scope>。scope は 'global' か 'g:<グループ ID>'）
 //   グループの中：自分の「このグループだけ」 → グループの公式（groups/{id}.theme。オーナー・管理者が決める） → 自分の全体の設定 → いつもの
 //   ただし「いつも自分の着せ替え」（mode = 'mine'）の人は、グループの公式を飛ばす（「このグループでは公式に合わせる」= 'official' にしたグループだけ公式）
@@ -155,6 +155,63 @@ export const SKINS = [
     sparkle: '🍬',
     confetti: ['#ff6f91', '#ffc75f', '#8fd6c4', '#b48cff', '#ffffff'],
     wallpaper: { colors: ['#ffc2d1', '#fff8ef', '#bfe8dc'], ground: ground(DRIPS, '#ff8fab', 0.3), pattern: ['🍬', '🍩'], groundTop: true },
+  },
+  {
+    id: 'cafe',
+    name: 'カフェ',
+    emoji: '☕',
+    tier: 'sub',
+    desc: 'コーヒーの色と、手書きのメニューのような文字',
+    font: { family: 'Zen Kurenaido', query: 'Zen+Kurenaido' },
+    light: { bg: '#f7f1ea', surface: '#fffdf9', text: '#3b2a20', muted: '#8f7a6a', border: '#eadfd2', accent: '#8b5a3c', accentText: '#ffffff', accentSoft: '#efe0d2' },
+    dark: { bg: '#1d1714', surface: '#29211c', text: '#f2e8df', muted: '#ad9a8b', border: '#40342c', accent: '#c99772', accentText: '#1d1714', accentSoft: '#45342a' },
+    icons: { calendar: '☕', anniv: '🌷', events: '🚲', lists: '📚', diary: '🖋️', trip: '🧳' },
+    sparkle: '☕',
+    confetti: ['#8b5a3c', '#c99772', '#efe0d2', '#6b8f5a', '#ffffff'],
+    wallpaper: { colors: ['#d9bfa8', '#f7f1ea', '#c9a98c'], ground: ground(HILLS, '#8b5a3c', 0.22), pattern: ['☕', '🥐'] },
+  },
+  // 季節の着せ替え
+  {
+    id: 'halloween',
+    name: 'ハロウィン',
+    emoji: '🎃',
+    tier: 'sub',
+    desc: 'かぼちゃ色と夜のむらさき。おばけが飛び出します',
+    font: { family: 'Mochiy Pop One', query: 'Mochiy+Pop+One' },
+    light: { bg: '#fff5eb', surface: '#ffffff', text: '#2e2236', muted: '#8a7a90', border: '#f3e0cc', accent: '#ec7424', accentText: '#ffffff', accentSoft: '#fde3cc' },
+    dark: { bg: '#1c1424', surface: '#271d31', text: '#f5eefa', muted: '#a596b3', border: '#3b2e48', accent: '#ff9a3c', accentText: '#1c1424', accentSoft: '#4a2f2a' },
+    icons: { calendar: '🎃', anniv: '👻', events: '🦇', lists: '🍬', diary: '🕯️', trip: '🧹' },
+    sparkle: '👻',
+    confetti: ['#ec7424', '#7e3fb8', '#2e2236', '#ffd36e', '#9bd65b'],
+    wallpaper: { colors: ['#ffb36b', '#fff5eb', '#b48cff'], ground: ground(PEAKS, '#3b2350', 0.35), pattern: ['🦇', '🎃'] },
+  },
+  {
+    id: 'christmas',
+    name: 'クリスマス',
+    emoji: '🎄',
+    tier: 'sub',
+    desc: 'もみの木の緑とサンタの赤。雪が舞います',
+    font: { family: 'Kosugi Maru', query: 'Kosugi+Maru' },
+    light: { bg: '#f6faf6', surface: '#ffffff', text: '#1f2e24', muted: '#6f8476', border: '#dfeadf', accent: '#c62f3a', accentText: '#ffffff', accentSoft: '#f7dcdc' },
+    dark: { bg: '#121c16', surface: '#1b2820', text: '#eef6f0', muted: '#93a99a', border: '#2c3d31', accent: '#e8545e', accentText: '#121c16', accentSoft: '#432428' },
+    icons: { calendar: '🎄', anniv: '🎁', events: '🛷', lists: '🧦', diary: '⛄', trip: '🦌' },
+    sparkle: '❄️',
+    confetti: ['#c62f3a', '#2e8a5c', '#ffffff', '#f6c945', '#9fd3f0'],
+    wallpaper: { colors: ['#9fd3b5', '#f6faf6', '#e8a0a5'], ground: ground(TREES, '#2e8a5c', 0.3), pattern: ['❄️', '⭐'] },
+  },
+  {
+    id: 'oshogatsu',
+    name: 'お正月',
+    emoji: '🎍',
+    tier: 'sub',
+    desc: '紅白と金色、筆のような明朝の文字',
+    font: { family: 'Shippori Mincho', query: 'Shippori+Mincho:wght@400;700' },
+    light: { bg: '#fdf8ef', surface: '#ffffff', text: '#2b211c', muted: '#8c7c70', border: '#efe3cf', accent: '#c0392b', accentText: '#ffffff', accentSoft: '#f8ddd5' },
+    dark: { bg: '#1c1613', surface: '#28201b', text: '#f6ede2', muted: '#ad9d8e', border: '#3f332a', accent: '#e05a47', accentText: '#1c1613', accentSoft: '#4a2620' },
+    icons: { calendar: '🎍', anniv: '🎊', events: '⛩️', lists: '🍊', diary: '🖌️', trip: '🗻' },
+    sparkle: '🎊',
+    confetti: ['#c0392b', '#d4a800', '#ffffff', '#2b211c', '#e57fa3'],
+    wallpaper: { colors: ['#f2c94c', '#fdf8ef', '#e8a0a0'], ground: ground(WAVES, '#d4a800', 0.3), pattern: ['🪁', '🎍'] },
   },
 ];
 
