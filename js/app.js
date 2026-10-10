@@ -2084,7 +2084,7 @@ function skinSheet({ scope = 'global', group = null, official = false } = {}) {
           { class: 'skin-grid' },
           skins.SKINS.map((s) => skinCard(s, { on: picked === s.id, onClick: () => ((picked = s.id), show(), render()) })),
         ),
-        h('p', { class: 'sch-hint' }, '👑 は有料プラン（グループ単位）の着せ替えです。今は試作中なので、すべて使えます。'),
+        h('p', { class: 'sch-hint' }, '👑 は有料プランの着せ替えです（課金した人のいるグループでは、メンバー全員が使えます）。今は試作中なので、すべて使えます。'),
         h('p', { class: 'sch-hint' }, '自分の壁紙（写真・季節）を設定しているときは、そちらが出ます。着せ替えの壁紙にするには、壁紙を「なし」にしてください。'),
         official && h('p', { class: 'sch-hint' }, 'グループの公式にすると、メンバー全員のこのグループの見た目になります（「このグループだけ」の着せ替えを選んだ人は、その人が選んだもの）。'),
       );
@@ -2103,7 +2103,7 @@ function skinSheet({ scope = 'global', group = null, official = false } = {}) {
             class: 'btn primary',
             onClick: async () => {
               const s = skins.byId(picked);
-              if (s && !skins.canUse(s, group)) return toast('有料プランのグループで使えます');
+              if (s && !skins.canUse(s, group)) return toast('有料プランの着せ替えです（課金した人のいるグループで使えます）');
               try {
                 if (official) {
                   await store.setGroupSkin(groupId, picked || null);
