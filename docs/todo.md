@@ -66,7 +66,7 @@
 - [ ] Apple でサインイン（上の 6.）
 - [ ] App Store Connect の有料アプリの契約・Small Business Program
 - [x] 着せ替えの段階（無料・👑・💎）と、使えるかの判定（`skins.canUse`。v130。今は試作で常に使える）
-- [ ] 👑 サブスク（アプリ内課金。レシートの確認は Worker。課金の状態を `groups/{id}.premium` などに書く）
+- [ ] 👑 サブスク（アプリ内課金。作り方の計画は [iap.md](iap.md)：StoreKit 2 ＋ Workers で取引を確かめて `entitlements/{uid}`・`groups/{id}.premium` に書く）
 - [ ] 💎 買い切り（1,500 円に見合う着せ替えが作れてから。「購入を復元」のボタン）
 - [ ] 使う人が増えたら：Firebase を Blaze（予算の上限付き）に・Cloudflare Pages に移す（相談してから）
 
