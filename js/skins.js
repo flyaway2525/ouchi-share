@@ -33,12 +33,45 @@ export const SKINS = [
     id: 'standard',
     name: 'いつもの',
     emoji: '🏠',
-    desc: 'ふだんの見た目（自分の色・自分の壁紙がそのまま出ます）',
+    desc: 'ふだんの見た目（自分の壁紙がそのまま出ます）',
     // 見本のカードの色だけ（css/style.css の :root と同じ。画面の色は変えない）
     sample: {
       light: { bg: '#fff8f0', surface: '#ffffff', text: '#2b2622', border: '#eee3d8', accent: '#f08a4b', accentText: '#ffffff' },
       dark: { bg: '#1c1a18', surface: '#2a2724', text: '#f3ede7', border: '#3a3632', accent: '#f59a5f', accentText: '#1c1a18' },
     },
+  },
+  // いつもの の色違い（無料。色だけ変わる。フォント・壁紙・アイコン・演出はいつもの）
+  {
+    id: 'ao',
+    name: 'いつもの（あお）',
+    emoji: '🔵',
+    desc: '色だけ変わる、いつもの見た目',
+    light: { bg: '#f3f7fd', surface: '#ffffff', text: '#1f2a3a', muted: '#6f7d90', border: '#dde6f2', accent: '#3b7ddd', accentText: '#ffffff', accentSoft: '#dbe8fa' },
+    dark: { bg: '#161b23', surface: '#20262f', text: '#e8eef7', muted: '#96a3b5', border: '#333c48', accent: '#6aa1ef', accentText: '#161b23', accentSoft: '#243652' },
+  },
+  {
+    id: 'midori',
+    name: 'いつもの（みどり）',
+    emoji: '🟢',
+    desc: '色だけ変わる、いつもの見た目',
+    light: { bg: '#f3faf5', surface: '#ffffff', text: '#1f3326', muted: '#6f8a78', border: '#dcede2', accent: '#2f9e6b', accentText: '#ffffff', accentSoft: '#d6efe2' },
+    dark: { bg: '#141c17', surface: '#1e2821', text: '#e6f3ea', muted: '#93aa9b', border: '#2f3d34', accent: '#5cc497', accentText: '#141c17', accentSoft: '#1f3d2e' },
+  },
+  {
+    id: 'murasaki',
+    name: 'いつもの（むらさき）',
+    emoji: '🟣',
+    desc: '色だけ変わる、いつもの見た目',
+    light: { bg: '#f8f5fd', surface: '#ffffff', text: '#2e2638', muted: '#85799a', border: '#e9e1f5', accent: '#8a5cd6', accentText: '#ffffff', accentSoft: '#e9dffa' },
+    dark: { bg: '#1b1722', surface: '#25202e', text: '#efe9f7', muted: '#a79cb8', border: '#3a3346', accent: '#ad8ae8', accentText: '#1b1722', accentSoft: '#382a52' },
+  },
+  {
+    id: 'mono',
+    name: 'いつもの（モノトーン）',
+    emoji: '⚫',
+    desc: '色だけ変わる、いつもの見た目',
+    light: { bg: '#f6f6f6', surface: '#ffffff', text: '#222222', muted: '#7a7a7a', border: '#e3e3e3', accent: '#3f3f46', accentText: '#ffffff', accentSoft: '#e6e6e8' },
+    dark: { bg: '#161616', surface: '#222222', text: '#eeeeee', muted: '#9a9a9a', border: '#363636', accent: '#d4d4d8', accentText: '#161616', accentSoft: '#34343a' },
   },
   {
     id: 'sakura',

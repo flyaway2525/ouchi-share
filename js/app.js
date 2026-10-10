@@ -1235,28 +1235,12 @@ async function bonusScheduleSheet(group) {
 }
 
 // ---- プロフィール ----
-// アイコン（絵文字）・名前・肩書き・3 つの色。全体の設定（profiles/{uid}）と、グループごとの設定（members.{uid}）がある。
-// - メインカラー：アプリの見た目の色（ボタンなど）。自分の画面だけ
-// - サブカラー：背景などの薄い色。自分の画面だけ
-// - サードカラー（識別カラー）：みんなの画面で「その人の色」として使う（アイコンの丸・参加者・カレンダーの予定の線など）
+// アイコン（絵文字）・名前・肩書き・あなたの色。全体の設定（profiles/{uid}）と、グループごとの設定（members.{uid}）がある。
+// - あなたの色（colors.third。前の「識別カラー」）：みんなの画面で「その人の色」として使う（アイコンの丸・参加者・カレンダーの予定の線など）
+// - 画面の色（ボタン・背景など）は着せ替え（js/skins.js）で決める。前のメインカラー・サブカラー（colors.main / sub）は使わない（v134〜）
 
 const PROFILE_ICONS = ['😀', '😎', '🥰', '🤓', '😺', '👨', '👩', '👦', '👧', '👴', '👵', '👶', '🐶', '🐱', '🐻', '🐼', '🦊', '🐰', '🐸', '🐧', '🌸', '⭐', '⚽', '🎮'];
 const PROFILE_COLORS = ['#f08a4b', '#e5484d', '#e57fa3', '#9b6bd6', '#3b7ddd', '#1e96d2', '#2f9e8f', '#43a047', '#d4a800', '#8a7f76'];
-// 色のセット（メイン・サブ・サードが同系色でそろった組み合わせ）
-const COLOR_SETS = [
-  ['🍊 みかん', '#f08a4b', '#fbc49c', '#e8603c'],
-  ['🌸 さくら', '#e57fa3', '#f6c6d6', '#d4547e'],
-  ['🍒 さくらんぼ', '#e5484d', '#f6b3b5', '#b52b31'],
-  ['🍇 ぶどう', '#9b6bd6', '#d6c4f0', '#6b3fb0'],
-  ['🌙 よぞら', '#3d4a8f', '#b3bbe6', '#24306b'],
-  ['🌊 うみ', '#1e96d2', '#a8d8f0', '#2563b8'],
-  ['🧊 ミント', '#2f9e8f', '#b6e3dc', '#1d6f65'],
-  ['🌿 わかば', '#43a047', '#b9e0b5', '#2e7d32'],
-  ['🍋 レモン', '#d4a800', '#f3e39a', '#b58900'],
-  ['🍫 ショコラ', '#8d5b3c', '#d9bfa8', '#6b4226'],
-  ['🌺 トロピカル', '#ff7a59', '#ffd36e', '#12a4a0'],
-  ['🪨 モノトーン', '#5f6368', '#d0d3d6', '#2b2f33'],
-];
 // カラーパレット（12 の色相 × 5 段階の濃さ）
 const PALETTE = [92, 80, 66, 52, 38].flatMap((l) => Array.from({ length: 12 }, (_, i) => hslToHex(i * 30, l > 85 ? 60 : 68, l)));
 
@@ -1387,17 +1371,14 @@ async function cropAvatar(file) {
 
 let myProfile = {}; // 全体の設定（profiles/{uid}）
 let unwatchProfile = null;
-const groupThemes = {}; // groupId → そのグループでの自分の色（メイン・サブ）
-
 function startProfileWatcher(u) {
   unwatchProfile?.();
   unwatchProfile = null;
   myProfile = {};
-  if (!u) return applyTheme(null);
+  if (!u) return;
   unwatchProfile = store.watchMyProfile(
     (p) => {
       myProfile = p;
-      applyTheme(themeForHash(location.hash));
     },
     () => {},
   );
@@ -1423,13 +1404,6 @@ function avatar(m, size = 28) {
   );
 }
 
-// 背景の色に合う文字の色（明るい色なら黒っぽく、暗い色なら白）
-function textOn(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-  return 0.299 * r + 0.587 * g + 0.114 * b > 170 ? '#2b2622' : '#ffffff';
-}
-
 // 人の色などの上に置く文字の色：白と濃い色のうち、背景との明るさの比（コントラスト比）が大きいほう
 function readableOn(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -1441,33 +1415,11 @@ function readableOn(hex) {
   return 1.05 / (l + 0.05) >= (l + 0.05) / 0.07 ? '#ffffff' : '#2b2622';
 }
 
-// メインカラー・サブカラーをアプリの見た目に反映する（決めていなければアプリの色のまま）
-function applyTheme(colors) {
-  if (skins.hasColors()) colors = null; // 着せ替えの色を使っているときは、着せ替えの色を優先する
-  const root = document.documentElement.style;
-  if (colors?.main) {
-    root.setProperty('--accent', colors.main);
-    root.setProperty('--accent-text', textOn(colors.main));
-  } else {
-    root.removeProperty('--accent');
-    root.removeProperty('--accent-text');
-  }
-  if (colors?.sub) root.setProperty('--accent-soft', `color-mix(in srgb, ${colors.sub} 32%, var(--surface))`);
-  else root.removeProperty('--accent-soft');
-}
-
-// 着せ替え（色・フォント・演出・壁紙）と自分の色を、開いている画面に合わせて反映する。壁紙は呼んだ側で wallpaper.apply
+// 着せ替え（色・フォント・演出・壁紙）を、開いている画面に合わせて反映する。壁紙は呼んだ側で wallpaper.apply
 function applyLook(hash = location.hash) {
   const { skin } = skins.resolve(hash.match(/^#\/g\/([\w-]+)/)?.[1] ?? null);
   skins.apply(skin);
   wallpaper.setFallback(skin.id, skins.wallpaperLayers(skin));
-  applyTheme(themeForHash(hash));
-}
-
-// 開いている画面に合う色（グループの中ならそのグループでの設定、外なら全体の設定）
-function themeForHash(hash) {
-  const gid = hash.match(/^#\/g\/([\w-]+)/)?.[1];
-  return (gid && groupThemes[gid]) || myProfile.colors || null;
 }
 
 // プロフィールの編集。group を渡すと「このグループでのプロフィール」（項目ごとに、全体の設定を使うか選べる）。
@@ -1599,40 +1551,16 @@ function profileSheet({ group = null, focus = null } = {}) {
     nameInput.addEventListener('input', () => ((v.name = nameInput.value.trim()), renderPreview()));
     titleInput.addEventListener('input', () => ((v.title = titleInput.value.trim()), renderPreview()));
 
-    // 色（メイン・サブ・サード）
+    // あなたの色（1 色。画面の色は着せ替えで変える）
     const colorBox = h('div', { class: 'profile-colors' });
-    const COLOR_ROWS = [
-      ['main', 'メインカラー', 'アプリの色（ボタンなど）。自分の画面だけ'],
-      ['sub', 'サブカラー', '背景などの薄い色。自分の画面だけ'],
-      ['third', 'サードカラー（識別カラー）', 'みんなの画面での、あなたの色'],
-    ];
-    let paletteFor = null; // パレットを開いている色（'main' など）
+    // 見出し（あなたの色）はセクションの名前に出すので、ここでは説明だけ
+    const COLOR_ROWS = [['third', '', 'みんなの画面での、あなたの色（アイコンの丸・カレンダーの予定の線・参加者など）。画面の色は「着せ替え」で変えます']];
+    let paletteFor = null; // パレットを開いている色
     const syncColors = () => {
       setChildren(
         colorBox,
-        h('span', { class: 'color-label' }, '色のセット', h('small', {}, 'メイン・サブ・サードを同じ系統の色でまとめて選べます（あとから 1 色ずつ変えられます）')),
-        h(
-          'div',
-          { class: 'color-sets' },
-          COLOR_SETS.map(([name, main, sub, third]) =>
-            h(
-              'button',
-              {
-                type: 'button',
-                class: `color-set${v.colors.main === main && v.colors.sub === sub && v.colors.third === third ? ' on' : ''}`,
-                onClick: () => {
-                  v.colors = { main, sub, third };
-                  syncColors();
-                  renderPreview();
-                },
-              },
-              h('span', { class: 'color-set-dots' }, [main, sub, third].map((c) => h('i', { style: `background: ${c}` }))),
-              name,
-            ),
-          ),
-        ),
         COLOR_ROWS.map(([key, label, hint]) => {
-          const picker = h('input', { type: 'color', class: 'color-picker', value: v.colors[key] || '#f08a4b', 'aria-label': `${label}を自由に選ぶ` });
+          const picker = h('input', { type: 'color', class: 'color-picker', value: v.colors[key] || '#f08a4b', 'aria-label': `${label || 'あなたの色'}を自由に選ぶ` });
           picker.addEventListener('input', () => {
             v.colors[key] = picker.value;
             syncColors();
@@ -1714,7 +1642,7 @@ function profileSheet({ group = null, focus = null } = {}) {
     const iconSection = section('icon', 'アイコン（絵文字か写真）', [photoRow, iconChips, iconInput], () => (syncIcon(), syncPhoto()));
     const nameSection = section('name', '名前', nameInput, () => (nameInput.value = v.name));
     const titleSection = section('title', '肩書き（グループでの立ち位置）', titleInput, () => (titleInput.value = v.title));
-    const colorSection = section('colors', '色', colorBox, syncColors);
+    const colorSection = section('colors', 'あなたの色', colorBox, syncColors);
     syncIcon();
     syncPhoto();
     syncColors();
@@ -1730,7 +1658,8 @@ function profileSheet({ group = null, focus = null } = {}) {
           onSubmit: (e) => {
             e.preventDefault();
             if (!v.name) return nameInput.focus();
-            close({ values: { ...v, colors: { ...v.colors } }, custom: { ...custom } });
+            // 色はあなたの色（third）だけ残す（前のメインカラー・サブカラーは使わないので消す）
+            close({ values: { ...v, colors: v.colors.third ? { third: v.colors.third } : {} }, custom: { ...custom } });
           },
         },
         preview,
@@ -2110,7 +2039,6 @@ function skinSheet({ scope = 'global', group = null, official = false } = {}) {
     const s = previewSkin();
     skins.apply(s);
     wallpaper.setFallback(s.id, skins.wallpaperLayers(s));
-    applyTheme(themeForHash(location.hash));
     wallpaper.apply(groupId);
   };
   const restore = () => {
@@ -2285,7 +2213,7 @@ const PROFILE_ITEMS = [
   ['icon', 'アイコン'],
   ['name', '名前'],
   ['title', '肩書き'],
-  ['colors', '色'],
+  ['colors', 'あなたの色'],
 ];
 let profileBackTo = null; // プロフィールの画面から開いたグループでのプロフィールの「‹」の行き先
 
@@ -2303,10 +2231,8 @@ function profileValue(field, p) {
     'span',
     { class: 'pv-colors' },
     [
-      ['main', 'メイン'],
-      ['sub', 'サブ'],
-      ['third', '識別'],
-    ].map(([k, label]) => h('span', { class: 'pv-color' }, h('i', { style: `background: ${k === 'third' ? personColor(p) : p.colors?.[k] || 'transparent'}`, class: !p.colors?.[k] && k !== 'third' ? 'none' : '' }), label)),
+      ['third', p.colors?.third ? '' : 'おまかせ'],
+    ].map(([k, label]) => h('span', { class: 'pv-color' }, h('i', { style: `background: ${personColor(p)}` }), label)),
   );
 }
 
@@ -2357,7 +2283,7 @@ function profileView(root) {
         'div',
         { class: 'notice profile-explain' },
         h('p', {}, '🌐 全体の設定は、参加しているすべてのグループに反映されます。グループごとに「このグループだけ」変えることもできます（下の「🏠 グループごと」）。'),
-        h('p', {}, '🎨 メインカラー・サブカラーは自分の画面の色、識別カラーはみんなの画面での「あなたの色」です。'),
+        h('p', {}, '🎨 「あなたの色」は、みんなの画面でのあなたの色（アイコン・カレンダーなど）です。自分の画面の色は、下の「🎨 見た目」の着せ替えで変えます。'),
       ),
       section('look', '🎨 見た目（自分の画面だけ）'),
       h('div', { class: 'pv-table wallpaper-row' }, h('div', { class: 'pv-row' }, h('span', { class: 'pv-label' }, '🎨 着せ替え'), h('span', { class: 'pv-text' }, skinText(skins.getChoice('global'))))),
@@ -5121,12 +5047,11 @@ function groupView(root, { groupId }) {
       prefs.set('lastGroup', groupId);
       updateGlobalFab();
       groupMembers[groupId] = memberList(g);
-      groupThemes[groupId] = g.members?.[user.uid]?.colors ?? null;
       // グループの公式の着せ替えが変わったら、描き直す
       if (skins.setOfficial(groupId, g.theme ?? null)) {
         applyLook();
         wallpaper.apply(groupId);
-      } else applyTheme(themeForHash(location.hash));
+      }
       if (popupsDone) checkOfficialSkin(g, () => group && renderBody());
       // その日はじめてこのグループを開いたら、ログインボーナス（2 回目からは何もしない）
       processRedemptions(); // ごほうびの交換の承認・結果（グループを読み込んだので）
